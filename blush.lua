@@ -1436,9 +1436,15 @@ window = new("CanvasGroup", {
 	ZIndex = 10,
 })
 
-corner(window, 12)
-stroke(window, .76, theme.border, 1)
-adddepthshadow(window, "window")
+windowcorner = corner(window, 12)
+windowstroke = stroke(window, .76, theme.border, 1)
+windowshadow = adddepthshadow(window, "window")
+
+windowresizeenabled = true
+windowdragenabled = true
+windowminimizebuttonenabled = true
+windowminsize = Vector2.new(620, 440)
+windowmaxsize = nil
 
 env.__blush_closecover = new("Frame", {
 	Parent = window,
@@ -19379,6 +19385,10 @@ function beginwindowdrag(
 	input,
 	allowdouble
 )
+	if not windowdragenabled then
+		return
+	end
+
 	if windowdrag then
 		return
 	end
@@ -19522,6 +19532,10 @@ watermarkdragarea.InputBegan:Connect(function(input)
 end)
 
 resizehandle.InputBegan:Connect(function(input)
+	if not windowresizeenabled then
+		return
+	end
+
 	if input.UserInputType ~= Enum.UserInputType.MouseButton1
 		and input.UserInputType ~= Enum.UserInputType.Touch
 	then
@@ -19642,8 +19656,23 @@ function applywindowresize()
 		(viewport.Y - resize.startabsolute.Y - 8) / scale
 	))
 
-	local minwidth = math.min(620, maxwidth)
-	local minheight = math.min(440, maxheight)
+	if typeof(windowmaxsize) == "Vector2" then
+		maxwidth = math.min(maxwidth, math.max(320, math.floor(windowmaxsize.X)))
+		maxheight = math.min(maxheight, math.max(260, math.floor(windowmaxsize.Y)))
+	end
+
+	local configuredmin = typeof(windowminsize) == "Vector2"
+		and windowminsize
+		or Vector2.new(620, 440)
+
+	local minwidth = math.min(
+		math.max(320, math.floor(configuredmin.X)),
+		maxwidth
+	)
+	local minheight = math.min(
+		math.max(260, math.floor(configuredmin.Y)),
+		maxheight
+	)
 
 	local rawwidth = resize.startsize.X + delta.X
 	local rawheight = resize.startsize.Y + delta.Y
@@ -20034,7 +20063,7 @@ connect(
 -- public library api
 
 library = {
-	Version = "1.0.0",
+	Version = "1.1.0",
 	Icons = icons,
 }
 
@@ -20055,6 +20084,756 @@ function librarynormalizeicon(value)
 	return tostring(value)
 end
 
+function libraryenhancerow(row)
+	if not row or row.__blush_config_api then
+		return row
+	end
+
+	row.__blush_config_api = true
+
+	local addbutton = row.AddButton
+	local addtoggle = row.AddToggle
+
+	row.AddButton = function(self, config, callback)
+		if type(config) == "table" then
+			return addbutton(
+				self,
+				tostring(config.Name or config.Text or "Button"),
+				config.Callback
+			)
+		end
+
+		return addbutton(self, config, callback)
+	end
+
+	row.AddToggle = function(self, config, default, callback, keybindable, badge)
+		if type(config) == "table" then
+			return addtoggle(
+				self,
+				tostring(config.Name or config.Text or "Toggle"),
+				configdefault(config),
+				config.Callback,
+				config.Keybindable == true or config.Keybind == true,
+				config.Badge
+			)
+		end
+
+		return addtoggle(
+			self,
+			config,
+			default,
+			callback,
+			keybindable,
+			badge
+		)
+	end
+
+	return row
+end
+
+function libraryenhancesection(section)
+	if not section or section.__blush_config_api then
+		return section
+	end
+
+	section.__blush_config_api = true
+
+	local addlabel = section.AddLabel
+	local addbutton = section.AddButton
+	local addrow = section.AddRow
+	local addtoggle = section.AddToggle
+	local addtogglekey = section.AddToggleKey
+	local addtogglecolor = section.AddToggleColor
+	local addtogglecolorkey = section.AddToggleColorKey
+	local addslider = section.AddSlider
+	local addrangeslider = section.AddRangeSlider
+	local adddropdown = section.AddDropdown
+	local addplayerdropdown = section.AddPlayerDropdown
+	local addmultiplayerdropdown = section.AddMultiPlayerDropdown
+	local addmultidropdown = section.AddMultiDropdown
+	local addinput = section.AddInput
+	local addkeypicker = section.AddKeyPicker
+	local addcolorpicker = section.AddColorPicker
+	local adddivider = section.AddDivider
+	local addseparator = section.AddSeparator
+	local addprogressbar = section.AddProgressBar
+	local addradio = section.AddRadio
+	local addbadge = section.AddBadge
+	local addimage = section.AddImage
+	local addavatar = section.AddAvatar
+	local addloadingspinner = section.AddLoadingSpinner
+	local addloadingbar = section.AddLoadingBar
+	local addcontextmenu = section.AddContextMenu
+	local addconfirmbutton = section.AddConfirmButton
+	local addmodalbutton = section.AddModalButton
+	local addbuttongroup = section.AddButtonGroup
+	local addsubtabs = section.AddSubTabs
+
+	local function configdefault(config)
+		if config.Default ~= nil then
+			return config.Default
+		end
+
+		return config.Value
+	end
+
+	section.AddLabel = function(self, config, wrap, target)
+		if type(config) == "table" then
+			return addlabel(
+				self,
+				tostring(config.Text or config.Name or ""),
+				config.Wrap,
+				config.Target
+			)
+		end
+
+		return addlabel(self, config, wrap, target)
+	end
+
+	section.AddButton = function(self, config, callback, target)
+		if type(config) == "table" then
+			return addbutton(
+				self,
+				tostring(config.Name or config.Text or "Button"),
+				config.Callback,
+				config.Target
+			)
+		end
+
+		return addbutton(self, config, callback, target)
+	end
+
+	section.AddRow = function(self, config, height, target)
+		local row
+
+		if type(config) == "table" then
+			row = addrow(
+				self,
+				config.Spacing,
+				config.Height,
+				config.Target
+			)
+		else
+			row = addrow(self, config, height, target)
+		end
+
+		return libraryenhancerow(row)
+	end
+
+	section.AddToggle = function(self, config, default, callback, target, keybindable, badge)
+		if type(config) == "table" then
+			return addtoggle(
+				self,
+				tostring(config.Name or config.Text or "Toggle"),
+				configdefault(config),
+				config.Callback,
+				config.Target,
+				config.Keybindable == true or config.Keybind == true,
+				config.Badge
+			)
+		end
+
+		return addtoggle(
+			self,
+			config,
+			default,
+			callback,
+			target,
+			keybindable,
+			badge
+		)
+	end
+
+	section.AddToggleKey = function(self, config, default, defaultkey, callback, keycallback, target, badge)
+		if type(config) == "table" then
+			return addtogglekey(
+				self,
+				tostring(config.Name or config.Text or "Toggle"),
+				configdefault(config),
+				config.Key or config.DefaultKey or Enum.KeyCode.F,
+				config.Callback,
+				config.KeyCallback,
+				config.Target,
+				config.Badge
+			)
+		end
+
+		return addtogglekey(
+			self,
+			config,
+			default,
+			defaultkey,
+			callback,
+			keycallback,
+			target,
+			badge
+		)
+	end
+
+	section.AddToggleColor = function(self, config, default, color, togglecallback, colorcallback, target, keybindable)
+		if type(config) == "table" then
+			return addtogglecolor(
+				self,
+				tostring(config.Name or config.Text or "Toggle"),
+				configdefault(config),
+				config.Color or Color3.new(1, 1, 1),
+				config.Callback or config.ToggleCallback,
+				config.ColorCallback,
+				config.Target,
+				config.Keybindable == true or config.Keybind == true
+			)
+		end
+
+		return addtogglecolor(
+			self,
+			config,
+			default,
+			color,
+			togglecallback,
+			colorcallback,
+			target,
+			keybindable
+		)
+	end
+
+	section.AddToggleColorKey = function(self, config, default, color, defaultkey, togglecallback, colorcallback, keycallback, target)
+		if type(config) == "table" then
+			return addtogglecolorkey(
+				self,
+				tostring(config.Name or config.Text or "Toggle"),
+				configdefault(config),
+				config.Color or Color3.new(1, 1, 1),
+				config.Key or config.DefaultKey or Enum.KeyCode.F,
+				config.Callback or config.ToggleCallback,
+				config.ColorCallback,
+				config.KeyCallback,
+				config.Target
+			)
+		end
+
+		return addtogglecolorkey(
+			self,
+			config,
+			default,
+			color,
+			defaultkey,
+			togglecallback,
+			colorcallback,
+			keycallback,
+			target
+		)
+	end
+
+	section.AddSlider = function(self, config, minimum, maximum, default, suffix, callback, target)
+		if type(config) == "table" then
+			return addslider(
+				self,
+				tostring(config.Name or config.Text or "Slider"),
+				tonumber(config.Min or config.Minimum) or 0,
+				tonumber(config.Max or config.Maximum) or 100,
+				tonumber(configdefault(config)) or 0,
+				tostring(config.Suffix or ""),
+				config.Callback,
+				config.Target
+			)
+		end
+
+		return addslider(
+			self,
+			config,
+			minimum,
+			maximum,
+			default,
+			suffix,
+			callback,
+			target
+		)
+	end
+
+	section.AddRangeSlider = function(self, config, minimum, maximum, defaultmin, defaultmax, suffix, callback, target)
+		if type(config) == "table" then
+			return addrangeslider(
+				self,
+				tostring(config.Name or config.Text or "Range"),
+				tonumber(config.Min or config.Minimum) or 0,
+				tonumber(config.Max or config.Maximum) or 100,
+				tonumber(config.DefaultMin or config.ValueMin or config.Low) or 0,
+				tonumber(config.DefaultMax or config.ValueMax or config.High) or 100,
+				tostring(config.Suffix or ""),
+				config.Callback,
+				config.Target
+			)
+		end
+
+		return addrangeslider(
+			self,
+			config,
+			minimum,
+			maximum,
+			defaultmin,
+			defaultmax,
+			suffix,
+			callback,
+			target
+		)
+	end
+
+	section.AddDropdown = function(self, config, options, default, callback, target, dropdownconfig)
+		if type(config) == "table" then
+			local settings = table.clone(config.Config or {})
+
+			if config.Searchable ~= nil then
+				settings.searchable = config.Searchable == true
+			end
+
+			if config.Dividers ~= nil then
+				settings.dividers = config.Dividers
+			end
+
+			if config.Icons ~= nil then
+				settings.icons = config.Icons
+			end
+
+			if config.Colors ~= nil then
+				settings.colors = config.Colors
+			end
+
+			return adddropdown(
+				self,
+				tostring(config.Name or config.Text or "Dropdown"),
+				config.Options or config.Values or config.Items or {},
+				configdefault(config),
+				config.Callback,
+				config.Target,
+				settings
+			)
+		end
+
+		return adddropdown(
+			self,
+			config,
+			options,
+			default,
+			callback,
+			target,
+			dropdownconfig
+		)
+	end
+
+	section.AddPlayerDropdown = function(self, config, options, default, callback, target, playerconfig)
+		if type(config) == "table" then
+			local settings = table.clone(config.Config or {})
+
+			if config.Searchable ~= nil then
+				settings.searchable = config.Searchable == true
+			end
+
+			if config.PlayersDivider ~= nil then
+				settings.playersDivider = config.PlayersDivider
+			end
+
+			if config.MultiSelect ~= nil then
+				settings.multiselect = config.MultiSelect == true
+			end
+
+			if config.Everyone ~= nil then
+				settings.everyone = config.Everyone == true
+			end
+
+			if config.Icons ~= nil then
+				settings.icons = config.Icons
+			end
+
+			if config.Colors ~= nil then
+				settings.colors = config.Colors
+			end
+
+			return addplayerdropdown(
+				self,
+				tostring(config.Name or config.Text or "Player"),
+				config.Options or config.Values or {},
+				configdefault(config),
+				config.Callback,
+				config.Target,
+				settings
+			)
+		end
+
+		return addplayerdropdown(
+			self,
+			config,
+			options,
+			default,
+			callback,
+			target,
+			playerconfig
+		)
+	end
+
+	section.AddMultiPlayerDropdown = function(self, config, default, callback, target, playerconfig)
+		if type(config) == "table" then
+			local settings = table.clone(config.Config or {})
+
+			if config.Searchable ~= nil then
+				settings.searchable = config.Searchable == true
+			end
+
+			if config.PlayersDivider ~= nil then
+				settings.playersDivider = config.PlayersDivider
+			end
+
+			if config.Everyone ~= nil then
+				settings.everyone = config.Everyone == true
+			end
+
+			if config.Icons ~= nil then
+				settings.icons = config.Icons
+			end
+
+			if config.Colors ~= nil then
+				settings.colors = config.Colors
+			end
+
+			return addmultiplayerdropdown(
+				self,
+				tostring(config.Name or config.Text or "Players"),
+				config.Default or config.Values or {},
+				config.Callback,
+				config.Target,
+				settings
+			)
+		end
+
+		return addmultiplayerdropdown(
+			self,
+			config,
+			default,
+			callback,
+			target,
+			playerconfig
+		)
+	end
+
+	section.AddMultiDropdown = function(self, config, options, default, callback, target)
+		if type(config) == "table" then
+			return addmultidropdown(
+				self,
+				tostring(config.Name or config.Text or "Multi Dropdown"),
+				config.Options or config.Values or config.Items or {},
+				config.Default or config.Selected or {},
+				config.Callback,
+				config.Target
+			)
+		end
+
+		return addmultidropdown(
+			self,
+			config,
+			options,
+			default,
+			callback,
+			target
+		)
+	end
+
+	section.AddInput = function(self, config, default, placeholder, callback, target)
+		if type(config) == "table" then
+			return addinput(
+				self,
+				tostring(config.Name or config.Text or "Input"),
+				tostring(configdefault(config) or ""),
+				tostring(config.Placeholder or ""),
+				config.Callback,
+				config.Target
+			)
+		end
+
+		return addinput(
+			self,
+			config,
+			default,
+			placeholder,
+			callback,
+			target
+		)
+	end
+
+	section.AddKeyPicker = function(self, config, defaultkey, callback, target)
+		if type(config) == "table" then
+			return addkeypicker(
+				self,
+				tostring(config.Name or config.Text or "Key"),
+				config.Default or config.Key or Enum.KeyCode.RightShift,
+				config.Callback,
+				config.Target
+			)
+		end
+
+		return addkeypicker(
+			self,
+			config,
+			defaultkey,
+			callback,
+			target
+		)
+	end
+
+	section.AddColorPicker = function(self, config, color, callback, target)
+		if type(config) == "table" then
+			return addcolorpicker(
+				self,
+				tostring(config.Name or config.Text or "Color"),
+				config.Color or config.Default or Color3.new(1, 1, 1),
+				config.Callback,
+				config.Target
+			)
+		end
+
+		return addcolorpicker(
+			self,
+			config,
+			color,
+			callback,
+			target
+		)
+	end
+
+	section.AddDivider = function(self, config, target)
+		if type(config) == "table" then
+			return adddivider(
+				self,
+				config.Text or config.Name,
+				config.Target
+			)
+		end
+
+		return adddivider(self, config, target)
+	end
+
+	section.AddSeparator = function(self, config)
+		if type(config) == "table" then
+			return addseparator(self, config.Target)
+		end
+
+		return addseparator(self, config)
+	end
+
+	section.AddProgressBar = function(self, config, default, suffix, target)
+		if type(config) == "table" then
+			return addprogressbar(
+				self,
+				tostring(config.Name or config.Text or "Progress"),
+				tonumber(configdefault(config)) or 0,
+				tostring(config.Suffix or "%"),
+				config.Target
+			)
+		end
+
+		return addprogressbar(
+			self,
+			config,
+			default,
+			suffix,
+			target
+		)
+	end
+
+	section.AddRadio = function(self, config, options, default, callback, target)
+		if type(config) == "table" then
+			return addradio(
+				self,
+				tostring(config.Name or config.Text or "Radio"),
+				config.Options or config.Values or config.Items or {},
+				configdefault(config),
+				config.Callback,
+				config.Target
+			)
+		end
+
+		return addradio(
+			self,
+			config,
+			options,
+			default,
+			callback,
+			target
+		)
+	end
+
+	section.AddBadge = function(self, config, textvalue, color, target)
+		if type(config) == "table" then
+			return addbadge(
+				self,
+				tostring(config.Name or config.Title or "Status"),
+				tostring(config.Text or config.Status or config.Value or "Ready"),
+				config.Color,
+				config.Target
+			)
+		end
+
+		return addbadge(
+			self,
+			config,
+			textvalue,
+			color,
+			target
+		)
+	end
+
+	section.AddImage = function(self, config, asset, height, target)
+		if type(config) == "table" then
+			return addimage(
+				self,
+				config.Name or config.Title,
+				config.Asset or config.Image or "",
+				config.Height,
+				config.Target
+			)
+		end
+
+		return addimage(
+			self,
+			config,
+			asset,
+			height,
+			target
+		)
+	end
+
+	section.AddAvatar = function(self, config, source, target)
+		if type(config) == "table" then
+			return addavatar(
+				self,
+				config.Name or config.Title or "Player",
+				config.Player or config.Source or config.UserId,
+				config.Target
+			)
+		end
+
+		return addavatar(
+			self,
+			config,
+			source,
+			target
+		)
+	end
+
+	section.AddLoadingSpinner = function(self, config, target)
+		if type(config) == "table" then
+			return addloadingspinner(
+				self,
+				tostring(config.Name or config.Text or "Loading"),
+				config.Target
+			)
+		end
+
+		return addloadingspinner(self, config, target)
+	end
+
+	section.AddLoadingBar = function(self, config, target)
+		if type(config) == "table" then
+			return addloadingbar(
+				self,
+				tostring(config.Name or config.Text or "Loading"),
+				config.Target
+			)
+		end
+
+		return addloadingbar(self, config, target)
+	end
+
+	section.AddContextMenu = function(self, config, entries, target)
+		if type(config) == "table" then
+			return addcontextmenu(
+				self,
+				tostring(config.Name or config.Text or "Actions"),
+				config.Entries or config.Items or {},
+				config.Target
+			)
+		end
+
+		return addcontextmenu(
+			self,
+			config,
+			entries,
+			target
+		)
+	end
+
+	section.AddConfirmButton = function(self, config, titletext, bodytext, callback, target)
+		if type(config) == "table" then
+			return addconfirmbutton(
+				self,
+				tostring(config.Name or config.Text or "Confirm"),
+				tostring(config.Title or "Confirm"),
+				tostring(config.Body or config.Message or ""),
+				config.Callback,
+				config.Target
+			)
+		end
+
+		return addconfirmbutton(
+			self,
+			config,
+			titletext,
+			bodytext,
+			callback,
+			target
+		)
+	end
+
+	section.AddModalButton = function(self, config, titletext, bodytext, target)
+		if type(config) == "table" then
+			return addmodalbutton(
+				self,
+				tostring(config.Name or config.Text or "Open"),
+				tostring(config.Title or "Information"),
+				tostring(config.Body or config.Message or ""),
+				config.Target
+			)
+		end
+
+		return addmodalbutton(
+			self,
+			config,
+			titletext,
+			bodytext,
+			target
+		)
+	end
+
+	section.AddButtonGroup = function(self, config, target)
+		if type(config) == "table" and config.Buttons then
+			return addbuttongroup(
+				self,
+				config.Buttons,
+				config.Target
+			)
+		end
+
+		return addbuttongroup(self, config, target)
+	end
+
+	section.AddSubTabs = function(self, config)
+		if type(config) == "table"
+			and (
+				config.Tabs
+				or config.Names
+				or config.Items
+			)
+		then
+			return addsubtabs(
+				self,
+				config.Tabs or config.Names or config.Items
+			)
+		end
+
+		return addsubtabs(self, config)
+	end
+
+	return section
+end
+
 function librarysetbrand(title, versiontext)
 	title = tostring(title or "blush.")
 	versiontext = tostring(versiontext or ("v" .. library.Version))
@@ -20068,14 +20847,159 @@ function librarysetbrand(title, versiontext)
 	end
 end
 
-function librarysetsettingsvisible(value)
-	value = value ~= false
+function libraryrefreshothergroupvisibility()
+	local visible = settingsbutton.Visible
 
-	settingsbutton.Visible = value
-	otherheader.Visible = value
-	othergroup.Visible = value
+	if not visible then
+		for _, tab in ipairs(librarytaborder) do
+			if tab.Group == "other"
+				and tab.Button
+				and tab.Button.Parent
+				and tab.Button.Visible
+			then
+				visible = true
+				break
+			end
+		end
+	end
 
+	otherheader.Visible = visible
+	othergroup.Visible = visible
 	refreshsidegroups(false)
+end
+
+function librarysetsettingstab(config)
+	if type(config) == "boolean" then
+		config = {
+			Enabled = config,
+		}
+	elseif type(config) ~= "table" then
+		config = {}
+	end
+
+	local enabled = config.Enabled ~= false
+	local name = tostring(config.Name or config.Title or "Settings")
+	local icon = librarynormalizeicon(config.Icon or "settings")
+	local groupname = tostring(config.GroupName or config.CategoryName or "Other")
+	local sections = config.Sections
+
+	settingsbutton.Visible = enabled
+	settingstext.Text = name
+	settingsicon.Image = icon
+	othertext.Text = groupname
+
+	if type(sections) == "table" then
+		settingssection.frame.Visible = sections.Interface ~= false
+		themessection.frame.Visible = sections.Themes ~= false
+		backgroundimagesection.frame.Visible = sections.Background ~= false
+		savessection.frame.Visible = sections.Configs ~= false
+	else
+		settingssection.frame.Visible = true
+		themessection.frame.Visible = true
+		backgroundimagesection.frame.Visible = true
+		savessection.frame.Visible = true
+	end
+
+	settings:reflowall(false)
+	libraryrefreshothergroupvisibility()
+end
+
+function librarysetsettingsvisible(value)
+	librarysetsettingstab({
+		Enabled = value ~= false,
+	})
+end
+
+function librarygetsettingstab()
+	if librarysettingstab then
+		return librarysettingstab
+	end
+
+	librarysettingstab = {
+		Name = settingstext.Text,
+		Page = settings,
+		Button = settingsbutton,
+	}
+
+	function librarysettingstab:AddSection(title, column, sectionicon)
+		column = string.lower(tostring(column or "left"))
+
+		if column ~= "right" then
+			column = "left"
+		end
+
+		if type(title) == "table" then
+			local config = title
+			column = string.lower(tostring(config.Side or config.Column or "left"))
+
+			if column ~= "right" then
+				column = "left"
+			end
+
+			return libraryenhancesection(
+				createsection(
+					settings,
+					column,
+					tostring(config.Name or config.Title or "Section"),
+					config.Icon and librarynormalizeicon(config.Icon) or nil
+				)
+			)
+		end
+
+		return libraryenhancesection(
+			createsection(
+				settings,
+				column,
+				tostring(title or "Section"),
+				sectionicon and librarynormalizeicon(sectionicon) or nil
+			)
+		)
+	end
+
+	function librarysettingstab:AddLeftSection(title, sectionicon)
+		if type(title) == "table" then
+			title.Side = "left"
+			return self:AddSection(title)
+		end
+
+		return self:AddSection(title, "left", sectionicon)
+	end
+
+	function librarysettingstab:AddRightSection(title, sectionicon)
+		if type(title) == "table" then
+			title.Side = "right"
+			return self:AddSection(title)
+		end
+
+		return self:AddSection(title, "right", sectionicon)
+	end
+
+	function librarysettingstab:Select()
+		if not settingsbutton.Visible then
+			return false
+		end
+
+		selectmain(settingsbutton)
+		expandsubtabs(false)
+		showpage("settings")
+		return true
+	end
+
+	function librarysettingstab:Configure(config)
+		librarysetsettingstab(config)
+		self.Name = settingstext.Text
+	end
+
+	function librarysettingstab:SetVisible(value)
+		librarysetsettingstab({
+			Enabled = value == true,
+			Name = settingstext.Text,
+			Icon = settingsicon.Image,
+			GroupName = othertext.Text,
+		})
+	end
+
+	return librarysettingstab
 end
 
 function libraryresetnavigation()
@@ -20192,25 +21116,55 @@ function librarycreatetab(windowapi, options, icon, group)
 	}
 
 	function tab:AddSection(title, column, sectionicon)
+		if type(title) == "table" then
+			local config = title
+			column = string.lower(tostring(config.Side or config.Column or "left"))
+
+			if column ~= "right" then
+				column = "left"
+			end
+
+			return libraryenhancesection(
+				createsection(
+					page,
+					column,
+					tostring(config.Name or config.Title or "Section"),
+					config.Icon and librarynormalizeicon(config.Icon) or nil
+				)
+			)
+		end
+
 		column = string.lower(tostring(column or "left"))
 
 		if column ~= "right" then
 			column = "left"
 		end
 
-		return createsection(
-			page,
-			column,
-			tostring(title or "Section"),
-			sectionicon and librarynormalizeicon(sectionicon) or nil
+		return libraryenhancesection(
+			createsection(
+				page,
+				column,
+				tostring(title or "Section"),
+				sectionicon and librarynormalizeicon(sectionicon) or nil
+			)
 		)
 	end
 
 	function tab:AddLeftSection(title, sectionicon)
+		if type(title) == "table" then
+			title.Side = "left"
+			return self:AddSection(title)
+		end
+
 		return self:AddSection(title, "left", sectionicon)
 	end
 
 	function tab:AddRightSection(title, sectionicon)
+		if type(title) == "table" then
+			title.Side = "right"
+			return self:AddSection(title)
+		end
+
 		return self:AddSection(title, "right", sectionicon)
 	end
 
@@ -20244,7 +21198,12 @@ function librarycreatetab(windowapi, options, icon, group)
 
 	function tab:SetVisible(value)
 		button.Visible = value ~= false
-		refreshsidegroups(false)
+
+		if self.Group == "other" then
+			libraryrefreshothergroupvisibility()
+		else
+			refreshsidegroups(false)
+		end
 	end
 
 	function tab:GetPage()
@@ -20261,6 +21220,10 @@ function librarycreatetab(windowapi, options, icon, group)
 
 	librarytabs[name] = tab
 	table.insert(librarytaborder, tab)
+
+	if destination == "other" then
+		libraryrefreshothergroupvisibility()
+	end
 
 	if not windowapi._firsttab then
 		windowapi._firsttab = tab
@@ -20285,9 +21248,49 @@ function library:CreateWindow(options)
 	local versiontext = options.Version or ("v" .. library.Version)
 	local size = options.Size
 	local position = options.Position
+	local settingsconfig = options.SettingsTab
+
+	if settingsconfig == nil then
+		settingsconfig = {
+			Enabled = options.Settings ~= false,
+		}
+	end
 
 	librarysetbrand(title, versiontext)
-	librarysetsettingsvisible(options.Settings ~= false)
+	librarysetsettingstab(settingsconfig)
+
+	windowresizeenabled = options.Resize ~= false
+	windowdragenabled = options.Draggable ~= false
+	windowminimizebuttonenabled = options.MinimizeButton ~= false
+
+	windowminsize = typeof(options.MinSize) == "Vector2"
+		and options.MinSize
+		or Vector2.new(620, 440)
+
+	windowmaxsize = typeof(options.MaxSize) == "Vector2"
+		and options.MaxSize
+		or nil
+
+	resizehandle.Visible = windowresizeenabled
+	resizehandle.Active = windowresizeenabled
+
+	closebutton.Visible = windowminimizebuttonenabled
+	closebutton.Active = windowminimizebuttonenabled
+
+	if options.Roundness ~= nil then
+		windowcorner.CornerRadius = UDim.new(
+			0,
+			math.max(0, tonumber(options.Roundness) or 12)
+		)
+	end
+
+	if options.Stroke ~= nil then
+		windowstroke.Enabled = options.Stroke == true
+	end
+
+	if options.Shadow ~= nil and windowshadow then
+		windowshadow.Visible = options.Shadow == true
+	end
 
 	if typeof(size) == "Vector2" then
 		originalwindowsize = size
@@ -20300,6 +21303,22 @@ function library:CreateWindow(options)
 
 	if typeof(position) == "UDim2" then
 		shell.Position = position
+	end
+
+	if options.Scale ~= nil then
+		applyuiscale(options.Scale)
+	end
+
+	if type(options.Theme) == "table" then
+		applytheme(
+			options.Theme.Background or options.Theme.Window or theme.window,
+			options.Theme.Accent or theme.white,
+			options.Theme.BackgroundAlpha or theme.backgroundAlpha,
+			options.Theme.AccentAlpha or theme.accentAlpha,
+			options.Theme.Font or options.Theme.Text or theme.font,
+			options.Theme.FontAlpha or theme.fontAlpha,
+			options.Theme.Animate ~= false
+		)
 	end
 
 	if options.MenuKey ~= nil then
@@ -20378,6 +21397,8 @@ function library:CreateWindow(options)
 		_firsttab = nil,
 	}
 
+	librarywindow.Settings = librarygetsettingstab()
+
 	function librarywindow:AddTab(...)
 		return librarycreatetab(self, ...)
 	end
@@ -20428,6 +21449,120 @@ function library:CreateWindow(options)
 
 	function librarywindow:Toggle()
 		requestvisibilitytoggle()
+	end
+
+	function librarywindow:SetResizeEnabled(value)
+		windowresizeenabled = value == true
+		resizehandle.Visible = windowresizeenabled
+		resizehandle.Active = windowresizeenabled
+
+		if not windowresizeenabled then
+			windowresize = nil
+		end
+	end
+
+	function librarywindow:SetDraggable(value)
+		windowdragenabled = value == true
+
+		if not windowdragenabled then
+			windowdrag = nil
+		end
+	end
+
+	function librarywindow:SetMinimizeButtonVisible(value)
+		windowminimizebuttonenabled = value == true
+		closebutton.Visible = windowminimizebuttonenabled
+		closebutton.Active = windowminimizebuttonenabled
+	end
+
+	function librarywindow:SetMinSize(value)
+		if typeof(value) ~= "Vector2" then
+			return false
+		end
+
+		windowminsize = value
+		return true
+	end
+
+	function librarywindow:SetMaxSize(value)
+		if value == nil then
+			windowmaxsize = nil
+			return true
+		end
+
+		if typeof(value) ~= "Vector2" then
+			return false
+		end
+
+		windowmaxsize = value
+		return true
+	end
+
+	function librarywindow:SetSize(value, recenter)
+		if typeof(value) ~= "Vector2" then
+			return false
+		end
+
+		originalwindowsize = value
+		shell.Size = UDim2.fromOffset(value.X, value.Y)
+
+		if recenter == true then
+			shell.Position = centeredwindowposition(
+				value,
+				(env.__blush_shellscale and env.__blush_shellscale.Scale) or 1
+			)
+		end
+
+		if currentpage then
+			currentpage:reflowall(false)
+		end
+
+		return true
+	end
+
+	function librarywindow:GetSize()
+		return Vector2.new(
+			shell.Size.X.Offset,
+			shell.Size.Y.Offset
+		)
+	end
+
+	function librarywindow:SetPosition(value)
+		if typeof(value) ~= "UDim2" then
+			return false
+		end
+
+		shell.Position = value
+		return true
+	end
+
+	function librarywindow:GetPosition()
+		return shell.Position
+	end
+
+	function librarywindow:SetRoundness(value)
+		windowcorner.CornerRadius = UDim.new(
+			0,
+			math.max(0, tonumber(value) or 0)
+		)
+	end
+
+	function librarywindow:SetStrokeVisible(value)
+		windowstroke.Enabled = value == true
+	end
+
+	function librarywindow:SetShadowVisible(value)
+		if windowshadow then
+			windowshadow.Visible = value == true
+		end
+	end
+
+	function librarywindow:SetSettingsTab(config)
+		librarysetsettingstab(config)
+	end
+
+	function librarywindow:GetSettingsTab()
+		return librarygetsettingstab()
 	end
 
 	function librarywindow:SetMenuKey(key)
@@ -20578,7 +21713,8 @@ function library:CreateWindow(options)
 	end
 
 	function librarywindow:SetSettingsVisible(value)
-		librarysetsettingsvisible(value)
+		settingsbutton.Visible = value ~= false
+		libraryrefreshothergroupvisibility()
 	end
 
 	function librarywindow:SetTitle(value)
@@ -20596,6 +21732,18 @@ function library:CreateWindow(options)
 	function librarywindow:Destroy()
 		env.__blush_cleanup()
 		librarywindow = nil
+	end
+
+	if options.BackgroundExcludeSidebar ~= nil then
+		librarywindow:SetBackgroundExcludeSidebar(
+			options.BackgroundExcludeSidebar == true
+		)
+	end
+
+	if options.AutoBackgroundColors ~= nil then
+		librarywindow:SetAutoBackgroundColors(
+			options.AutoBackgroundColors == true
+		)
 	end
 
 	if options.Background ~= nil then
@@ -20617,6 +21765,10 @@ function library:CreateWindow(options)
 	end
 
 	return librarywindow
+end
+
+function library:GetSettingsTab()
+	return librarygetsettingstab()
 end
 
 function library:Notify(...)
