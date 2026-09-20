@@ -1439,12 +1439,85 @@ window = new("CanvasGroup", {
 windowcorner = corner(window, 12)
 windowstroke = stroke(window, .76, theme.border, 1)
 windowshadow = adddepthshadow(window, "window")
+windowglow = addshadow(
+	window,
+	"WindowGlow",
+	.88,
+	18,
+	2,
+	-2,
+	theme.white,
+	UDim2.fromOffset(0, 0)
+)
 
 windowresizeenabled = true
 windowdragenabled = true
 windowminimizebuttonenabled = true
 windowminsize = Vector2.new(620, 440)
 windowmaxsize = nil
+
+windowshadowenabled = true
+windowglowenabled = true
+windowglowintensity = 18
+windowglowsize = 18
+
+function applywindowshadow()
+	if not windowshadow then
+		return
+	end
+
+	local base = windowshadowenabled and .48 or 1
+
+	windowshadow:SetAttribute(
+		"BlushBaseTransparency",
+		base
+	)
+
+	windowshadow.Transparency = base
+end
+
+function applywindowglow()
+	if not windowglow then
+		return
+	end
+
+	local strength = math.clamp(
+		tonumber(windowglowintensity) or 18,
+		0,
+		100
+	)
+
+	local size = math.clamp(
+		tonumber(windowglowsize) or 18,
+		0,
+		48
+	)
+
+	local transparency =
+		1 - (strength / 100) * .72
+
+	windowglow:SetAttribute(
+		"BlushBaseTransparency",
+		transparency
+	)
+
+	windowglow.Transparency =
+		windowglowenabled
+		and transparency
+		or 1
+
+	windowglow.BlurRadius =
+		UDim.new(0, size)
+
+	windowglow.Spread =
+		UDim2.fromOffset(
+			math.max(0, math.floor(size * .12)),
+			math.max(0, math.floor(size * .12))
+		)
+end
+
+applywindowshadow()
+applywindowglow()
 
 env.__blush_closecover = new("Frame", {
 	Parent = window,
@@ -2167,26 +2240,29 @@ avat = new("ImageLabel", {
 
 	Position =
 		UDim2.fromOffset(
-			18,
-			24
+			25,
+			31
 		),
+
+	AnchorPoint = Vector2.new(.5, .5),
 
 	Size =
 		UDim2.fromOffset(
-			42,
-			42
+			26,
+			26
 		),
 
 	BackgroundTransparency = 1,
-
 	BorderSizePixel = 0,
 
-	Image = thumbnail,
+	Image = icons.sliders,
+	ImageColor3 = theme.text2,
+	ScaleType = Enum.ScaleType.Fit,
 
 	ZIndex = 14,
 })
 
-corner(avat, 11)
+logocoloroverride = nil
 
 brand = label(
 	sidebar,
@@ -2539,7 +2615,7 @@ closeline1 = new("Frame", {
 	Parent = closebutton,
 	AnchorPoint = Vector2.new(.5, .5),
 	Position = UDim2.fromScale(.5, .5),
-	Size = UDim2.fromOffset(14, 1.75),
+	Size = UDim2.fromOffset(14, 2.1),
 	Rotation = 45,
 	BackgroundColor3 = theme.text3,
 	BackgroundTransparency = .08,
@@ -2552,7 +2628,7 @@ closeline2 = new("Frame", {
 	Parent = closebutton,
 	AnchorPoint = Vector2.new(.5, .5),
 	Position = UDim2.fromScale(.5, .5),
-	Size = UDim2.fromOffset(14, 1.75),
+	Size = UDim2.fromOffset(14, 2.1),
 	Rotation = -45,
 	BackgroundColor3 = theme.text3,
 	BackgroundTransparency = .08,
@@ -11750,7 +11826,7 @@ function createsection(
 						0
 					)
 
-				textobject.TextSize = 16
+				textobject.TextSize = 15
 				textobject.ZIndex = 515
 
 				local check =
@@ -12972,9 +13048,9 @@ function createsection(
 	-- section tabs
 
 	function section:AddSubTabs(names)
-		local barheight = 34
-		local contentoffset = 42
-		local sidepadding = 8
+		local barheight = 32
+		local contentoffset = 39
+		local sidepadding = 2
 		local wheelstep = 75
 		local scrollti = TweenInfo.new(
 			.28,
@@ -13013,7 +13089,7 @@ function createsection(
 					1,
 					0,
 					0,
-					barheight - 5
+					barheight
 				),
 
 			BackgroundTransparency = 1,
@@ -13036,7 +13112,7 @@ function createsection(
 			Size =
 				UDim2.fromOffset(
 					0,
-					29
+					30
 				),
 
 			BackgroundTransparency = 1,
@@ -13066,7 +13142,7 @@ function createsection(
 			Padding =
 				UDim.new(
 					0,
-					12
+					8
 				),
 
 			SortOrder =
@@ -13356,7 +13432,7 @@ function createsection(
 				tabcontent.Size =
 					UDim2.fromOffset(
 						contentwidth,
-						29
+						30
 					)
 
 				tablayout.HorizontalAlignment =
@@ -13372,11 +13448,11 @@ function createsection(
 				tabcontent.Size =
 					UDim2.fromOffset(
 						viewport,
-						29
+						30
 					)
 
 				tablayout.HorizontalAlignment =
-					Enum.HorizontalAlignment.Center
+					Enum.HorizontalAlignment.Left
 
 				setscroll(
 					0,
@@ -13495,7 +13571,7 @@ function createsection(
 				local linesize =
 					active
 					and UDim2.fromOffset(
-						28,
+						data.linewidth,
 						2
 					)
 					or UDim2.fromOffset(
@@ -13592,8 +13668,8 @@ function createsection(
 			local measured =
 				textservice:GetTextSize(
 					plaintext(tabname),
-					16,
-					font,
+					15,
+					medium,
 					Vector2.new(
 						1000,
 						30
@@ -13602,8 +13678,8 @@ function createsection(
 
 			local buttonwidth =
 				math.max(
-					48,
-					measured.X + 18
+					38,
+					measured.X + 12
 				)
 
 			local button = new("TextButton", {
@@ -13614,7 +13690,7 @@ function createsection(
 				Size =
 					UDim2.fromOffset(
 						buttonwidth,
-						29
+						30
 					),
 
 				BackgroundColor3 = theme.hover,
@@ -13637,7 +13713,7 @@ function createsection(
 						1,
 						1
 					),
-					font,
+					medium,
 					theme.text3
 				)
 
@@ -13646,8 +13722,8 @@ function createsection(
 
 			textobject.Position =
 				UDim2.fromOffset(
-					1,
-					1
+					0,
+					0
 				)
 
 			textobject.TextSize = 16
@@ -13674,7 +13750,7 @@ function createsection(
 						.5,
 						0,
 						1,
-						0
+						-1
 					),
 
 				Size =
@@ -13695,21 +13771,15 @@ function createsection(
 				999
 			)
 
-			local lineglow =
-				addglow(
-					line,
-					"active"
-				)
-
-			if lineglow then
-				lineglow.Transparency = 1
-			end
-
 			buttons[tabname] = {
 				button = button,
 				text = textobject,
 				line = line,
-				glow = lineglow,
+				glow = nil,
+				linewidth = math.max(
+					18,
+					math.ceil(measured.X) + 2
+				),
 			}
 
 			-- Important: this must stay a normal Frame. CanvasGroup clips its
@@ -15452,6 +15522,21 @@ backgroundimagemode = "Crop"
 backgroundexcludesidebar = savedsettings.backgroundImageExcludeSidebar == true
 autobackgroundcolors = savedsettings.backgroundAutoColors == true
 topnavigationenabled = savedsettings.topNavigation == true
+
+windowglowenabled = savedsettings.windowGlow ~= false
+windowglowintensity = math.clamp(
+	tonumber(savedsettings.windowGlowIntensity) or 18,
+	0,
+	100
+)
+windowglowsize = math.clamp(
+	tonumber(savedsettings.windowGlowSize) or 18,
+	0,
+	48
+)
+
+applywindowglow()
+
 setbackgroundimagemode("Crop")
 setbackgroundexcludesidebar(backgroundexcludesidebar)
 setbackgroundimageopacity(backgroundimageopacity, false)
@@ -15487,6 +15572,9 @@ backgroundimageblurcontrol = nil
 backgroundexcludecontrol = nil
 backgroundautocolorcontrol = nil
 topnavigationtoggle = nil
+windowglowtoggle = nil
+windowglowintensitycontrol = nil
+windowglowsizecontrol = nil
 savessection = nil
 
 function currentuipayload()
@@ -15553,6 +15641,18 @@ function currentuipayload()
 		topNavigation = topnavigationtoggle
 			and topnavigationtoggle:Get()
 			or topnavigationenabled,
+
+		windowGlow = windowglowtoggle
+			and windowglowtoggle:Get()
+			or windowglowenabled,
+
+		windowGlowIntensity = windowglowintensitycontrol
+			and windowglowintensitycontrol:Get()
+			or windowglowintensity,
+
+		windowGlowSize = windowglowsizecontrol
+			and windowglowsizecontrol:Get()
+			or windowglowsize,
 
 		selectedConfig = selectedconfig,
 		selectedThemeSave = selectedthemesave,
@@ -16011,6 +16111,42 @@ menukeypicker = settingssection:AddKeyPicker(
 	menukey,
 	function(key)
 		menukey = key
+		saveuisettings()
+	end
+)
+
+windowglowtoggle = settingssection:AddToggle(
+	"Window glow",
+	windowglowenabled,
+	function(value)
+		windowglowenabled = value == true
+		applywindowglow()
+		saveuisettings()
+	end
+)
+
+windowglowintensitycontrol = settingssection:AddSlider(
+	"Glow intensity",
+	0,
+	100,
+	windowglowintensity,
+	"%",
+	function(value)
+		windowglowintensity = value
+		applywindowglow()
+		saveuisettings()
+	end
+)
+
+windowglowsizecontrol = settingssection:AddSlider(
+	"Glow size",
+	0,
+	48,
+	windowglowsize,
+	"px",
+	function(value)
+		windowglowsize = value
+		applywindowglow()
 		saveuisettings()
 	end
 )
@@ -16561,6 +16697,30 @@ function applysaveduisettings(data, silent)
 	if topnavigationtoggle then
 		topnavigationtoggle:Set(topnavigationenabled, false)
 	end
+
+	windowglowenabled = data.windowGlow ~= false
+	windowglowintensity = math.clamp(
+		tonumber(data.windowGlowIntensity) or 18,
+		0,
+		100
+	)
+	windowglowsize = math.clamp(
+		tonumber(data.windowGlowSize) or 18,
+		0,
+		48
+	)
+
+	if windowglowtoggle then
+		windowglowtoggle:Set(windowglowenabled, false)
+	end
+	if windowglowintensitycontrol then
+		windowglowintensitycontrol:Set(windowglowintensity, false)
+	end
+	if windowglowsizecontrol then
+		windowglowsizecontrol:Set(windowglowsize, false)
+	end
+
+	applywindowglow()
 	setbackgroundexcludesidebar(backgroundexcludesidebar)
 	if applytopnavigation then
 		applytopnavigation(topnavigationenabled, false)
@@ -20172,7 +20332,7 @@ connect(
 -- public library api
 
 library = {
-	Version = "1.2.0",
+	Version = "1.3.0",
 	Icons = icons,
 }
 
@@ -20943,6 +21103,24 @@ function libraryenhancesection(section)
 	return section
 end
 
+function librarysetlogo(asset, color)
+	asset = asset or "sliders"
+
+	if icons[asset] then
+		asset = icons[asset]
+	end
+
+	logocoloroverride =
+		typeof(color) == "Color3"
+		and color
+		or nil
+
+	avat.Image = tostring(asset)
+	avat.ImageColor3 =
+		logocoloroverride
+		or theme.text2
+end
+
 function librarysetbrand(title, versiontext)
 	title = tostring(title or "blush.")
 	versiontext = tostring(versiontext or ("v" .. library.Version))
@@ -21366,6 +21544,7 @@ function library:CreateWindow(options)
 	end
 
 	librarysetbrand(title, versiontext)
+	librarysetlogo(options.Logo or "sliders", options.LogoColor)
 	librarysetsettingstab(settingsconfig)
 
 	windowresizeenabled = options.Resize ~= false
@@ -21403,8 +21582,41 @@ function library:CreateWindow(options)
 		windowstroke.Enabled = options.Stroke == true
 	end
 
-	if options.Shadow ~= nil and windowshadow then
-		windowshadow.Visible = options.Shadow == true
+	if options.Shadow ~= nil then
+		windowshadowenabled = options.Shadow == true
+		applywindowshadow()
+	end
+
+	if options.Glow ~= nil then
+		windowglowenabled = options.Glow == true
+	end
+
+	if options.GlowIntensity ~= nil then
+		windowglowintensity = math.clamp(
+			tonumber(options.GlowIntensity) or windowglowintensity,
+			0,
+			100
+		)
+	end
+
+	if options.GlowSize ~= nil then
+		windowglowsize = math.clamp(
+			tonumber(options.GlowSize) or windowglowsize,
+			0,
+			48
+		)
+	end
+
+	applywindowglow()
+
+	if windowglowtoggle then
+		windowglowtoggle:Set(windowglowenabled, false)
+	end
+	if windowglowintensitycontrol then
+		windowglowintensitycontrol:Set(windowglowintensity, false)
+	end
+	if windowglowsizecontrol then
+		windowglowsizecontrol:Set(windowglowsize, false)
 	end
 
 	if typeof(size) == "Vector2" then
@@ -21666,6 +21878,47 @@ function library:CreateWindow(options)
 		return shell.Position
 	end
 
+	function librarywindow:SetLogo(asset, color)
+		librarysetlogo(asset, color)
+	end
+
+	function librarywindow:SetGlowEnabled(value)
+		windowglowenabled = value == true
+		applywindowglow()
+
+		if windowglowtoggle then
+			windowglowtoggle:Set(windowglowenabled, false)
+		end
+	end
+
+	function librarywindow:SetGlowIntensity(value)
+		windowglowintensity = math.clamp(
+			tonumber(value) or windowglowintensity,
+			0,
+			100
+		)
+
+		applywindowglow()
+
+		if windowglowintensitycontrol then
+			windowglowintensitycontrol:Set(windowglowintensity, false)
+		end
+	end
+
+	function librarywindow:SetGlowSize(value)
+		windowglowsize = math.clamp(
+			tonumber(value) or windowglowsize,
+			0,
+			48
+		)
+
+		applywindowglow()
+
+		if windowglowsizecontrol then
+			windowglowsizecontrol:Set(windowglowsize, false)
+		end
+	end
+
 	function librarywindow:SetRoundness(value)
 		windowcorner.CornerRadius = UDim.new(
 			0,
@@ -21678,9 +21931,8 @@ function library:CreateWindow(options)
 	end
 
 	function librarywindow:SetShadowVisible(value)
-		if windowshadow then
-			windowshadow.Visible = value == true
-		end
+		windowshadowenabled = value == true
+		applywindowshadow()
 	end
 
 	function librarywindow:SetSettingsTab(config)
