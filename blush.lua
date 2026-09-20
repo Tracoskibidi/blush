@@ -1473,6 +1473,8 @@ windowglowenabled = true
 windowglowintensity = 16
 windowglowsize = 10
 windowglowcolor = theme.white
+windowglowalpha = 1
+windowglowrenderalpha = 1
 windowglowcolorpicker = nil
 
 function applywindowshadow()
@@ -1507,8 +1509,19 @@ function applywindowglow()
 		24
 	)
 
+	local alpha = math.clamp(
+		tonumber(windowglowrenderalpha) or windowglowalpha or 1,
+		0,
+		1
+	)
+
+	local opacity =
+		(strength / 100)
+		* .58
+		* alpha
+
 	local transparency =
-		1 - (strength / 100) * .58
+		1 - opacity
 
 	windowglow:SetAttribute(
 		"BlushBaseTransparency",
@@ -1538,9 +1551,15 @@ function syncwindowglowcolor(animate)
 	if windowglowcolorpicker then
 		windowglowcolorpicker:Set(
 			windowglowcolor,
-			1,
+			windowglowalpha,
 			false
 		)
+
+		windowglowrenderalpha =
+			windowglowcolorpicker:currentalpha()
+	else
+		windowglowrenderalpha =
+			windowglowalpha
 	end
 
 	if windowglow and windowglow.Parent then
@@ -12929,35 +12948,146 @@ function createsection(
 
 	function section:AddBadge(name, textvalue, color, target)
 		local parentobject = target or body
+		local statuscolor = color or theme.text2
+
 		local holder = new("Frame", {
 			Parent = parentobject,
-			Size = UDim2.new(1, 0, 0, 30),
+			Size = UDim2.new(1, 0, 0, 31),
 			BackgroundTransparency = 1,
 			BorderSizePixel = 0,
 			ZIndex = 15,
 		})
-		local titleobject = label(holder, name, UDim2.new(1, -118, 1, 0), font, theme.text2)
-		titleobject.TextSize = 17
+
+		local titleobject = label(
+			holder,
+			name,
+			UDim2.new(1, -126, 1, 0),
+			font,
+			theme.text2
+		)
+		titleobject.TextSize = 16
+		titleobject.TextTruncate = Enum.TextTruncate.AtEnd
+		titleobject.ZIndex = 16
+
 		local badge = new("Frame", {
 			Parent = holder,
 			AnchorPoint = Vector2.new(1, .5),
 			Position = UDim2.new(1, 0, .5, 0),
-			Size = UDim2.fromOffset(98, 24),
-			BackgroundColor3 = color or theme.hover,
-			BackgroundTransparency = color and .72 or .18,
+			Size = UDim2.fromOffset(94, 25),
+			BackgroundColor3 = theme.input,
+			BackgroundTransparency = .06,
 			BorderSizePixel = 0,
 			ZIndex = 16,
 		})
+
+		bindtheme(
+			badge,
+			"BackgroundColor3",
+			theme.input
+		)
+
 		corner(badge, 999)
-		local textobject = label(badge, textvalue or "Ready", UDim2.fromScale(1, 1), medium, color or theme.text2)
+
+		local badgestroke = stroke(
+			badge,
+			.76,
+			statuscolor,
+			.7
+		)
+
+		local dot = new("Frame", {
+			Parent = badge,
+			AnchorPoint = Vector2.new(0, .5),
+			Position = UDim2.fromOffset(10, 12.5),
+			Size = UDim2.fromOffset(6, 6),
+			BackgroundColor3 = statuscolor,
+			BackgroundTransparency = 0,
+			BorderSizePixel = 0,
+			ZIndex = 17,
+		})
+		corner(dot, 999)
+
+		local dotglow = addshadow(
+			dot,
+			"StatusGlow",
+			.68,
+			6,
+			0,
+			-1,
+			statuscolor,
+			UDim2.fromOffset(0, 0),
+			false
+		)
+
+		local textobject = label(
+			badge,
+			textvalue or "Ready",
+			UDim2.new(1, -24, 1, 0),
+			medium,
+			theme.text
+		)
+
+		textobject.Position = UDim2.fromOffset(21, 0)
 		textobject.TextXAlignment = Enum.TextXAlignment.Center
 		textobject.TextSize = 15
+		textobject.TextTruncate = Enum.TextTruncate.AtEnd
 		textobject.ZIndex = 17
-		register(holder, name .. " " .. tostring(textvalue or ""))
+
+		local function resizebadge()
+			local value = tostring(textobject.Text or "")
+			local bounds = textservice:GetTextSize(
+				value,
+				15,
+				medium,
+				Vector2.new(220, 25)
+			)
+
+			local width = math.clamp(
+				math.ceil(bounds.X) + 36,
+				82,
+				132
+			)
+
+			badge.Size = UDim2.fromOffset(
+				width,
+				25
+			)
+
+			titleobject.Size = UDim2.new(
+				1,
+				-width - 12,
+				1,
+				0
+			)
+		end
+
+		resizebadge()
+
+		register(
+			holder,
+			name .. " " .. tostring(textvalue or "")
+		)
+
 		return {
-			SetText = function(_, value) textobject.Text = tostring(value) end,
-			SetColor = function(_, value) badge.BackgroundColor3 = value; textobject.TextColor3 = value end,
+			SetText = function(_, value)
+				textobject.Text = tostring(value)
+				resizebadge()
+			end,
+
+			SetColor = function(_, value)
+				statuscolor = value
+				dot.BackgroundColor3 = value
+				badgestroke.Color = value
+
+				if dotglow then
+					dotglow.Color = value
+				end
+			end,
+
 			Object = holder,
+			Badge = badge,
+			TextObject = textobject,
+			Dot = dot,
 		}
 	end
 
@@ -15633,6 +15763,12 @@ windowglowsize = math.clamp(
 	24
 )
 windowglowcolor = theme.white
+windowglowalpha = math.clamp(
+	tonumber(savedsettings.windowGlowAlpha) or 1,
+	0,
+	1
+)
+windowglowrenderalpha = windowglowalpha
 
 applywindowglow()
 
@@ -15756,6 +15892,9 @@ function currentuipayload()
 			or windowglowsize,
 
 		windowGlowColor = encodecolor(windowglowcolor),
+		windowGlowAlpha = windowglowcolorpicker
+			and windowglowcolorpicker.alpha
+			or windowglowalpha,
 
 		uiTransparency = uitransparencycontrol
 			and uitransparencycontrol:Get()
@@ -16231,14 +16370,41 @@ windowglowtoggle = settingssection:AddToggleColor(
 		applywindowglow()
 		saveuisettings()
 	end,
-	function(color)
+	function(color, alpha)
 		windowglowcolor = color
+		windowglowrenderalpha = math.clamp(
+			tonumber(alpha) or 1,
+			0,
+			1
+		)
+
+		if not windowglowcolorpicker
+			or (
+				not windowglowcolorpicker.fading
+				and not windowglowcolorpicker.rainbow
+			)
+		then
+			windowglowalpha =
+				windowglowcolorpicker
+				and windowglowcolorpicker.alpha
+				or windowglowrenderalpha
+
+			saveuisettings()
+		end
+
 		applywindowglow()
-		saveuisettings()
 	end
 )
 
 windowglowcolorpicker = windowglowtoggle.Color
+windowglowcolorpicker:Set(
+	windowglowcolor,
+	windowglowalpha,
+	false
+)
+windowglowrenderalpha =
+	windowglowcolorpicker:currentalpha()
+applywindowglow()
 
 windowglowintensitycontrol = settingssection:AddSlider(
 	"Glow intensity",
@@ -16847,6 +17013,12 @@ function applysaveduisettings(data, silent)
 		24
 	)
 	windowglowcolor = theme.white
+	windowglowalpha = math.clamp(
+		tonumber(data.windowGlowAlpha) or windowglowalpha or 1,
+		0,
+		1
+	)
+	windowglowrenderalpha = windowglowalpha
 
 	if windowglowtoggle then
 		windowglowtoggle:Set(windowglowenabled, false)
@@ -16858,7 +17030,14 @@ function applysaveduisettings(data, silent)
 		windowglowsizecontrol:Set(windowglowsize, false)
 	end
 	if windowglowcolorpicker then
-		windowglowcolorpicker:Set(windowglowcolor, 1, false)
+		windowglowcolorpicker:Set(
+			windowglowcolor,
+			windowglowalpha,
+			false
+		)
+
+		windowglowrenderalpha =
+			windowglowcolorpicker:currentalpha()
 	end
 
 	applywindowglow()
@@ -20751,7 +20930,7 @@ connect(
 -- public library api
 
 library = {
-	Version = "1.4.0",
+	Version = "1.5.0",
 	Icons = icons,
 }
 
@@ -22040,6 +22219,17 @@ function library:CreateWindow(options)
 		windowglowcolor = theme.white
 	end
 
+	if options.GlowAlpha ~= nil then
+		windowglowalpha = math.clamp(
+			tonumber(options.GlowAlpha) or windowglowalpha,
+			0,
+			1
+		)
+	end
+
+	windowglowrenderalpha =
+		windowglowalpha
+
 	applywindowglow()
 
 	if windowglowtoggle then
@@ -22052,7 +22242,14 @@ function library:CreateWindow(options)
 		windowglowsizecontrol:Set(windowglowsize, false)
 	end
 	if windowglowcolorpicker then
-		windowglowcolorpicker:Set(windowglowcolor, 1, false)
+		windowglowcolorpicker:Set(
+			windowglowcolor,
+			windowglowalpha,
+			false
+		)
+
+		windowglowrenderalpha =
+			windowglowcolorpicker:currentalpha()
 	end
 
 	if options.Transparency ~= nil then
@@ -22388,6 +22585,27 @@ function library:CreateWindow(options)
 		end
 	end
 
+	function librarywindow:SetGlowAlpha(value)
+		windowglowalpha = math.clamp(
+			tonumber(value) or windowglowalpha,
+			0,
+			1
+		)
+
+		windowglowrenderalpha =
+			windowglowalpha
+
+		if windowglowcolorpicker then
+			windowglowcolorpicker:Set(
+				windowglowcolor,
+				windowglowalpha,
+				false
+			)
+		end
+
+		applywindowglow()
+	end
+
 	function librarywindow:SetGlowColor(value)
 		if typeof(value) ~= "Color3" then
 			return false
@@ -22397,7 +22615,14 @@ function library:CreateWindow(options)
 		applywindowglow()
 
 		if windowglowcolorpicker then
-			windowglowcolorpicker:Set(value, 1, false)
+			windowglowcolorpicker:Set(
+				value,
+				windowglowalpha,
+				false
+			)
+
+			windowglowrenderalpha =
+				windowglowcolorpicker:currentalpha()
 		end
 
 		return true
