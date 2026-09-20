@@ -60,7 +60,7 @@ local window = blush:CreateWindow({
     Search = true,
     Notifications = true,
     Watermark = false,
-    CheckboxList = false,
+    HotkeyList = false,
 
     SettingsTab = {
         Enabled = true,
@@ -102,7 +102,7 @@ local window = blush:CreateWindow({
 | `Search` | boolean | Page search |
 | `Notifications` | boolean | Notifications |
 | `Watermark` | boolean | Watermark |
-| `CheckboxList` | boolean | External checkbox list |
+| `HotkeyList` | boolean | Shows assigned hotkeys and their keys |
 | `SettingsTab` | table / boolean | Built-in library Settings tab |
 | `Theme` | table | Initial theme |
 | `Background` | string | Initial background image |
@@ -228,7 +228,7 @@ window:SetMenuKey(Enum.KeyCode.Insert)
 window:SetScale(100)
 
 window:SetWatermark(true)
-window:SetCheckboxList(true)
+window:SetHotkeyList(true)
 window:SetAnimations(true)
 window:SetSearch(true)
 window:SetNotifications(true)
@@ -243,6 +243,29 @@ window:Notify("Title", "Message", 3)
 local gui = window:GetGui()
 
 window:Destroy()
+```
+
+## Hotkey List
+
+Enable it from `CreateWindow`:
+
+```lua
+local window = blush:CreateWindow({
+    HotkeyList = true,
+})
+```
+
+Or change it later:
+
+```lua
+window:SetHotkeyList(true)
+window:SetHotkeyList(false)
+```
+
+The panel only lists controls that actually have a key assigned. The control path is shown on the left and the key is shown on the right, for example:
+
+```text
+Combat > Aim > Aim Assist    [F]
 ```
 
 ---
@@ -1269,7 +1292,7 @@ local window = blush:CreateWindow({
     Notifications = true,
 
     Watermark = false,
-    CheckboxList = false,
+    HotkeyList = false,
 })
 
 local home = window:AddTab({
