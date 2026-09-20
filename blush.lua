@@ -30,7 +30,7 @@ if uis.TouchEnabled then
 	task.defer(function()
 		game:GetService("StarterGui"):SetCore("SendNotification", {
 			Title = "blush UI",
-			Text = "Mobile não é suportado.",
+			Text = "Mobile is not supported.",
 			Duration = 5,
 		})
 	end)
@@ -2126,6 +2126,47 @@ env.__blush_watermark_title = watermarktext(
 	true,
 	48
 )
+
+function setwatermarktitle(value)
+	value = tostring(value or "blush.")
+
+	local object = env.__blush_watermark_title
+	if not object or not object.Parent then
+		return
+	end
+
+	local bounds = textservice:GetTextSize(
+		value,
+		16,
+		bold,
+		Vector2.new(4096, 38)
+	)
+
+	object.Text = value
+	object.TextTruncate = Enum.TextTruncate.None
+	object.Size = UDim2.fromOffset(
+		math.max(48, math.ceil(bounds.X) + 2),
+		38
+	)
+
+	task.defer(function()
+		runservice.PreRender:Wait()
+
+		if watermark
+			and watermark.Parent
+			and watermarklayout
+		then
+			local width = math.ceil(
+				watermarklayout.AbsoluteContentSize.X
+			) + 20
+
+			watermark.Size = UDim2.fromOffset(
+				math.max(120, width),
+				38
+			)
+		end
+	end)
+end
 
 env.__blush_watermark_frames = 0
 env.__blush_watermark_elapsed = 0
