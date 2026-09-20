@@ -1470,12 +1470,10 @@ windowmaxsize = nil
 
 windowshadowenabled = true
 windowglowenabled = true
-windowglowintensity = 18
-windowglowsize = 18
+windowglowintensity = 16
+windowglowsize = 10
 windowglowcolor = theme.white
-windowglowfollowtheme = true
 windowglowcolorpicker = nil
-windowglowfollowcontrol = nil
 
 function applywindowshadow()
 	if not windowshadow then
@@ -1498,19 +1496,19 @@ function applywindowglow()
 	end
 
 	local strength = math.clamp(
-		tonumber(windowglowintensity) or 18,
+		tonumber(windowglowintensity) or 16,
 		0,
 		100
 	)
 
 	local size = math.clamp(
-		tonumber(windowglowsize) or 18,
+		tonumber(windowglowsize) or 10,
 		0,
-		48
+		24
 	)
 
 	local transparency =
-		1 - (strength / 100) * .72
+		1 - (strength / 100) * .58
 
 	windowglow:SetAttribute(
 		"BlushBaseTransparency",
@@ -1529,16 +1527,12 @@ function applywindowglow()
 
 	windowglow.Spread =
 		UDim2.fromOffset(
-			math.max(0, math.floor(size * .12)),
-			math.max(0, math.floor(size * .12))
+			size >= 14 and 1 or 0,
+			size >= 14 and 1 or 0
 		)
 end
 
 function syncwindowglowcolor(animate)
-	if not windowglowfollowtheme then
-		return
-	end
-
 	windowglowcolor = theme.white
 
 	if windowglowcolorpicker then
@@ -1555,7 +1549,7 @@ function syncwindowglowcolor(animate)
 				windowglow,
 				{ Color = windowglowcolor },
 				TweenInfo.new(
-					.30,
+					.24,
 					Enum.EasingStyle.Quart,
 					Enum.EasingDirection.Out
 				)
@@ -1564,6 +1558,8 @@ function syncwindowglowcolor(animate)
 			windowglow.Color = windowglowcolor
 		end
 	end
+
+	applywindowglow()
 end
 
 applywindowshadow()
@@ -4497,13 +4493,19 @@ function createhotkeyrow(binding)
 		Parent = row,
 		AnchorPoint = Vector2.new(1, .5),
 		Position = UDim2.new(1, -4, .5, 0),
-		Size = UDim2.fromOffset(48, 20),
+		Size = UDim2.fromOffset(30, 25),
 		BackgroundColor3 = theme.input,
 		BackgroundTransparency = .34,
 		BorderSizePixel = 0,
 		ZIndex = 323,
 	})
-	corner(keyholder, 5)
+	corner(keyholder, 6)
+stroke(
+	keyholder,
+	.7,
+	theme.border,
+	.6
+)
 
 	local keytext = label(
 		keyholder,
@@ -4512,7 +4514,7 @@ function createhotkeyrow(binding)
 		medium,
 		theme.text3
 	)
-	keytext.TextSize = 12
+	keytext.TextSize = 14
 	keytext.TextXAlignment = Enum.TextXAlignment.Center
 	keytext.ZIndex = 324
 
@@ -4562,7 +4564,7 @@ end
 
 function updatehotkeyrow(data, binding, active, layoutorder, animate)
 	local path = hotkeypath(binding)
-	local keyname = "[" .. togglekeyname(binding.key) .. "]"
+	local keyname = togglekeyname(binding.key)
 
 	data.row.LayoutOrder = layoutorder
 
@@ -4575,6 +4577,37 @@ function updatehotkeyrow(data, binding, active, layoutorder, animate)
 		data.keyname = keyname
 		data.keytext.Text = keyname
 	end
+
+	local bounds = textservice:GetTextSize(
+		keyname,
+		14,
+		medium,
+		Vector2.new(200, 25)
+	)
+
+	local singlecharacter =
+		#plaintext(keyname) == 1
+
+	local keywidth = math.clamp(
+		math.ceil(bounds.X)
+			+ (singlecharacter and 14 or 20),
+		singlecharacter and 30 or 42,
+		112
+	)
+
+	data.keyholder.Size =
+		UDim2.fromOffset(
+			keywidth,
+			25
+		)
+
+	data.pathholder.Size =
+		UDim2.new(
+			1,
+			-keywidth - 16,
+			1,
+			-2
+		)
 
 	local changed = data.active ~= active
 	data.active = active
@@ -9669,7 +9702,7 @@ function createsection(
 					1,
 					0,
 					0,
-					49
+					43
 				),
 
 			BackgroundColor3 = theme.hover,
@@ -10026,7 +10059,7 @@ function createsection(
 					1,
 					0,
 					0,
-					49
+					43
 				),
 
 			BackgroundColor3 = theme.hover,
@@ -15590,21 +15623,16 @@ topnavigationenabled = savedsettings.topNavigation == true
 
 windowglowenabled = savedsettings.windowGlow ~= false
 windowglowintensity = math.clamp(
-	tonumber(savedsettings.windowGlowIntensity) or 18,
+	tonumber(savedsettings.windowGlowIntensity) or 16,
 	0,
 	100
 )
 windowglowsize = math.clamp(
-	tonumber(savedsettings.windowGlowSize) or 18,
+	tonumber(savedsettings.windowGlowSize) or 10,
 	0,
-	48
+	24
 )
-windowglowfollowtheme = savedsettings.windowGlowFollowTheme ~= false
-windowglowcolor = decodecolor(savedsettings.windowGlowColor) or theme.white
-
-if windowglowfollowtheme then
-	windowglowcolor = theme.white
-end
+windowglowcolor = theme.white
 
 applywindowglow()
 
@@ -15648,7 +15676,6 @@ windowglowtoggle = nil
 windowglowintensitycontrol = nil
 windowglowsizecontrol = nil
 windowglowcolorpicker = nil
-windowglowfollowcontrol = nil
 savessection = nil
 
 function currentuipayload()
@@ -15729,9 +15756,6 @@ function currentuipayload()
 			or windowglowsize,
 
 		windowGlowColor = encodecolor(windowglowcolor),
-		windowGlowFollowTheme = windowglowfollowcontrol
-			and windowglowfollowcontrol:Get()
-			or windowglowfollowtheme,
 
 		uiTransparency = uitransparencycontrol
 			and uitransparencycontrol:Get()
@@ -16198,15 +16222,23 @@ menukeypicker = settingssection:AddKeyPicker(
 	end
 )
 
-windowglowtoggle = settingssection:AddToggle(
+windowglowtoggle = settingssection:AddToggleColor(
 	"Window glow",
 	windowglowenabled,
+	windowglowcolor,
 	function(value)
 		windowglowenabled = value == true
 		applywindowglow()
 		saveuisettings()
+	end,
+	function(color)
+		windowglowcolor = color
+		applywindowglow()
+		saveuisettings()
 	end
 )
+
+windowglowcolorpicker = windowglowtoggle.Color
 
 windowglowintensitycontrol = settingssection:AddSlider(
 	"Glow intensity",
@@ -16224,41 +16256,11 @@ windowglowintensitycontrol = settingssection:AddSlider(
 windowglowsizecontrol = settingssection:AddSlider(
 	"Glow size",
 	0,
-	48,
+	24,
 	windowglowsize,
 	"px",
 	function(value)
 		windowglowsize = value
-		applywindowglow()
-		saveuisettings()
-	end
-)
-
-windowglowfollowcontrol = settingssection:AddToggle(
-	"Glow follows theme",
-	windowglowfollowtheme,
-	function(value)
-		windowglowfollowtheme = value == true
-
-		if windowglowfollowtheme then
-			syncwindowglowcolor(true)
-		end
-
-		saveuisettings()
-	end
-)
-
-windowglowcolorpicker = settingssection:AddColorPicker(
-	"Glow color",
-	windowglowcolor,
-	function(color)
-		windowglowfollowtheme = false
-		windowglowcolor = color
-
-		if windowglowfollowcontrol then
-			windowglowfollowcontrol:Set(false, false)
-		end
-
 		applywindowglow()
 		saveuisettings()
 	end
@@ -16835,22 +16837,16 @@ function applysaveduisettings(data, silent)
 
 	windowglowenabled = data.windowGlow ~= false
 	windowglowintensity = math.clamp(
-		tonumber(data.windowGlowIntensity) or 18,
+		tonumber(data.windowGlowIntensity) or 16,
 		0,
 		100
 	)
 	windowglowsize = math.clamp(
-		tonumber(data.windowGlowSize) or 18,
+		tonumber(data.windowGlowSize) or 10,
 		0,
-		48
+		24
 	)
-
-	windowglowfollowtheme = data.windowGlowFollowTheme ~= false
-	windowglowcolor = decodecolor(data.windowGlowColor) or theme.white
-
-	if windowglowfollowtheme then
-		windowglowcolor = theme.white
-	end
+	windowglowcolor = theme.white
 
 	if windowglowtoggle then
 		windowglowtoggle:Set(windowglowenabled, false)
@@ -16860,9 +16856,6 @@ function applysaveduisettings(data, silent)
 	end
 	if windowglowsizecontrol then
 		windowglowsizecontrol:Set(windowglowsize, false)
-	end
-	if windowglowfollowcontrol then
-		windowglowfollowcontrol:Set(windowglowfollowtheme, false)
 	end
 	if windowglowcolorpicker then
 		windowglowcolorpicker:Set(windowglowcolor, 1, false)
@@ -18377,7 +18370,7 @@ topprimarybutton = new("TextButton", {
 	TextSize = 19,
 	TextXAlignment = Enum.TextXAlignment.Left,
 	AutoButtonColor = false,
-	Active = false,
+	Active = true,
 	ZIndex = 19,
 })
 
@@ -18816,124 +18809,46 @@ function updatetopnavigationstate(animate)
 		return
 	end
 
-	if uis.TouchEnabled then
-		local enabled =
-			topnavigationenabled == true
+	local enabled =
+		topnavigationenabled == true
+		and currentnav ~= nil
 
-		topnavigation.Visible = enabled
-		breadcrumb.Visible = not enabled
-		topnavdivider.Visible = enabled
-
-		if not enabled then
-			topprimarybutton.Visible = false
-			topsubholder.Visible = false
-			return
-		end
-
-		if currentnav == homebutton then
-			topprimarybutton.Text = "Home"
-		elseif currentnav == farmingbutton then
-			topprimarybutton.Text = "Farming"
-		elseif currentnav == componentsbutton then
-			topprimarybutton.Text = "Components"
-		elseif currentnav == settingsbutton then
-			topprimarybutton.Text = "Settings"
-		else
-			topprimarybutton.Text = "Combat"
-		end
-
-		updatetopnavigationlayout()
-
-		if currentnav ~= combatbutton then
-			return
-		end
-
-		local entries = {
-			{
-				button = topmainbutton,
-				active = currentsub == mainbutton,
-			},
-			{
-				button = topvisualbutton,
-				active = currentsub == visualbutton,
-			},
-			{
-				button = topextrasbutton,
-				active = currentsub == extrasbutton,
-			},
-		}
-
-		for _, entry in ipairs(entries) do
-			local data =
-				topsubentries[entry.button]
-
-			if data then
-				local active =
-					entry.active == true
-
-				local buttonwidth =
-					active and 54 or 26
-
-				data.icon.AnchorPoint =
-					active
-					and Vector2.new(0, .5)
-					or Vector2.new(.5, .5)
-
-				data.icon.Position =
-					active
-					and UDim2.fromOffset(9, 16)
-					or UDim2.new(.5, 0, .5, 0)
-
-				entry.button.Size =
-					UDim2.fromOffset(
-						buttonwidth,
-						32
-					)
-
-				data.pill.BackgroundColor3 =
-					theme.input
-
-				data.pill.BackgroundTransparency =
-					active and .18 or 1
-
-				data.icon.ImageColor3 =
-					active
-					and theme.text
-					or theme.text3
-
-				data.text.TextColor3 =
-					theme.text
-
-				setfontalphabase(
-					data.text,
-					"TextTransparency",
-					active and 0 or 1
-				)
-
-				data.text.TextTransparency =
-					effectivefontalpha(
-						active and 0 or 1
-					)
-			end
-		end
-
-		return
-	end
-
-	local enabled = topnavigationenabled == true
-		and currentnav == combatbutton
+	local legacycombat =
+		currentnav == combatbutton
+		and combatbutton.Visible
 
 	topnavigation.Visible = enabled
 	breadcrumb.Visible = not enabled
-	topprimarybutton.Text = "Combat"
-	topsubholder.Visible = enabled
 	topnavdivider.Visible = enabled
+	topprimarybutton.Visible = enabled
+	topsubholder.Visible = enabled and legacycombat
 
-	if enabled then
-		updatetopnavigationlayout()
-	else
+	if not enabled then
 		searchholder.Size = UDim2.fromOffset(150, 38)
-		searchholder.Position = UDim2.new(1, closebutton.Visible and -52 or -14, .5, 0)
+		searchholder.Position = UDim2.new(
+			1,
+			closebutton.Visible and -52 or -14,
+			.5,
+			0
+		)
+		return
+	end
+
+	local entry = naventries[currentnav]
+
+	topprimarybutton.Text =
+		entry
+		and entry.text
+		and entry.text.Text
+		or (
+			currentpage
+			and currentpage.primary
+		)
+		or "Navigation"
+
+	updatetopnavigationlayout()
+
+	if not legacycombat then
 		return
 	end
 
@@ -19024,33 +18939,118 @@ function applytopnavigation(value, animate)
 end
 
 function opentopmainmenu()
-	local position = topprimarybutton.AbsolutePosition + Vector2.new(0, topprimarybutton.AbsoluteSize.Y + 2)
-	opencontextmenu(position, {
-		{Text = "Home", Icon = icons.home, Callback = function()
-			selectmain(homebutton) expandsubtabs(false) showpage("home")
-		end},
-		{Text = "Combat", Icon = icons.combat, Callback = function()
-			selectmain(combatbutton) expandsubtabs(true)
-			if not currentsub then selectsub(mainbutton) end
-			if currentsub == visualbutton then showpage("combat_visuals") elseif currentsub == extrasbutton then showpage("combat_extras") else showpage("combat_main") end
-		end},
-		{Text = "Farming", Icon = icons.farming, Callback = function()
-			selectmain(farmingbutton) expandsubtabs(false) showpage("farming")
-		end},
-		{Text = "Components", Icon = icons.sliders, Callback = function()
-			selectmain(componentsbutton) expandsubtabs(false) showpage("components")
-		end},
-		{Divider = true},
-		{Text = "Settings", Icon = icons.settings, Callback = function()
-			selectmain(settingsbutton) expandsubtabs(false) showpage("settings")
-		end},
-	})
+	local position =
+		topprimarybutton.AbsolutePosition
+		+ Vector2.new(
+			0,
+			topprimarybutton.AbsoluteSize.Y + 2
+		)
+
+	local actions = {}
+
+	if librarytaborder
+		and #librarytaborder > 0
+	then
+		for _, tab in ipairs(librarytaborder) do
+			local currenttab = tab
+
+			if currenttab.Button
+				and currenttab.Button.Parent
+				and currenttab.Button.Visible
+			then
+				local entry =
+					naventries[currenttab.Button]
+
+				table.insert(actions, {
+					Text = currenttab.Name,
+					Icon = entry
+						and entry.icon
+						and entry.icon.Image
+						or icons.sliders,
+					Callback = function()
+						currenttab:Select()
+					end,
+				})
+			end
+		end
+
+		if settingsbutton.Visible then
+			table.insert(actions, {
+				Text = settingstext.Text,
+				Icon = settingsicon.Image,
+				Callback = function()
+					selectmain(settingsbutton)
+					expandsubtabs(false)
+					showpage("settings")
+				end,
+			})
+		end
+	else
+		actions = {
+			{
+				Text = "Home",
+				Icon = icons.home,
+				Callback = function()
+					selectmain(homebutton)
+					expandsubtabs(false)
+					showpage("home")
+				end,
+			},
+			{
+				Text = "Combat",
+				Icon = icons.combat,
+				Callback = function()
+					selectmain(combatbutton)
+					expandsubtabs(true)
+
+					if not currentsub then
+						selectsub(mainbutton)
+					end
+
+					if currentsub == visualbutton then
+						showpage("combat_visuals")
+					elseif currentsub == extrasbutton then
+						showpage("combat_extras")
+					else
+						showpage("combat_main")
+					end
+				end,
+			},
+			{
+				Text = "Farming",
+				Icon = icons.farming,
+				Callback = function()
+					selectmain(farmingbutton)
+					expandsubtabs(false)
+					showpage("farming")
+				end,
+			},
+			{
+				Text = "Components",
+				Icon = icons.sliders,
+				Callback = function()
+					selectmain(componentsbutton)
+					expandsubtabs(false)
+					showpage("components")
+				end,
+			},
+			{
+				Text = "Settings",
+				Icon = icons.settings,
+				Callback = function()
+					selectmain(settingsbutton)
+					expandsubtabs(false)
+					showpage("settings")
+				end,
+			},
+		}
+	end
+
+	opencontextmenu(position, actions)
 end
 
 topprimarybutton.Activated:Connect(function()
-	if uis.TouchEnabled
-		and topnavigationenabled
-	then
+	if topnavigationenabled then
 		opentopmainmenu()
 	end
 end)
@@ -19969,7 +19969,7 @@ end
 
 sidebarresizehandle.MouseEnter:Connect(function()
 	tween(sidebarresizeaccent, {
-		BackgroundTransparency = .38,
+		BackgroundTransparency = .84,
 	}, hoverti)
 end)
 
@@ -20006,7 +20006,7 @@ sidebarresizehandle.InputBegan:Connect(function(input)
 		current = point(input),
 	}
 
-	sidebarresizeaccent.BackgroundTransparency = .24
+	sidebarresizeaccent.BackgroundTransparency = .68
 end)
 
 applysidebarlayout(sidebarwidth, false)
@@ -21739,22 +21739,11 @@ function libraryresetnavigation()
 	currentsub = nil
 	currentpage = nil
 
-	topnavigationenabled = false
 	topnavigation.Visible = false
 	breadcrumb.Visible = true
 
 	if topnavigationtoggle and topnavigationtoggle.Object then
-		topnavigationtoggle.Object.Visible = false
-
-		if interfaceflags3 and interfaceflags3.Items then
-			for index = #interfaceflags3.Items, 1, -1 do
-				if interfaceflags3.Items[index] == topnavigationtoggle.Object then
-					table.remove(interfaceflags3.Items, index)
-				end
-			end
-
-			interfaceflags3:Refresh()
-		end
+		topnavigationtoggle.Object.Visible = true
 	end
 
 	refreshsidegroups(false)
@@ -21940,6 +21929,10 @@ function librarycreatetab(windowapi, options, icon, group)
 	if not windowapi._firsttab then
 		windowapi._firsttab = tab
 		tab:Select()
+
+		if topnavigationenabled then
+			applytopnavigation(true, false)
+		end
 	end
 
 	refreshsidegroups(false)
@@ -22037,21 +22030,13 @@ function library:CreateWindow(options)
 		windowglowsize = math.clamp(
 			tonumber(options.GlowSize) or windowglowsize,
 			0,
-			48
+			24
 		)
-	end
-
-	if options.GlowFollowTheme ~= nil then
-		windowglowfollowtheme = options.GlowFollowTheme == true
 	end
 
 	if typeof(options.GlowColor) == "Color3" then
 		windowglowcolor = options.GlowColor
-
-		if options.GlowFollowTheme == nil then
-			windowglowfollowtheme = false
-		end
-	elseif windowglowfollowtheme then
+	else
 		windowglowcolor = theme.white
 	end
 
@@ -22065,9 +22050,6 @@ function library:CreateWindow(options)
 	end
 	if windowglowsizecontrol then
 		windowglowsizecontrol:Set(windowglowsize, false)
-	end
-	if windowglowfollowcontrol then
-		windowglowfollowcontrol:Set(windowglowfollowtheme, false)
 	end
 	if windowglowcolorpicker then
 		windowglowcolorpicker:Set(windowglowcolor, 1, false)
@@ -22396,7 +22378,7 @@ function library:CreateWindow(options)
 		windowglowsize = math.clamp(
 			tonumber(value) or windowglowsize,
 			0,
-			48
+			24
 		)
 
 		applywindowglow()
@@ -22411,33 +22393,14 @@ function library:CreateWindow(options)
 			return false
 		end
 
-		windowglowfollowtheme = false
 		windowglowcolor = value
 		applywindowglow()
-
-		if windowglowfollowcontrol then
-			windowglowfollowcontrol:Set(false, false)
-		end
 
 		if windowglowcolorpicker then
 			windowglowcolorpicker:Set(value, 1, false)
 		end
 
 		return true
-	end
-
-	function librarywindow:SetGlowFollowTheme(value)
-		windowglowfollowtheme = value == true
-
-		if windowglowfollowcontrol then
-			windowglowfollowcontrol:Set(windowglowfollowtheme, false)
-		end
-
-		if windowglowfollowtheme then
-			syncwindowglowcolor(true)
-		else
-			applywindowglow()
-		end
 	end
 
 	function librarywindow:SetTransparency(value)
