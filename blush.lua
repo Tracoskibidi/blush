@@ -1904,7 +1904,7 @@ watermarkcontent = new("Frame", {
 	ZIndex = 101,
 })
 
-new("UIListLayout", {
+watermarklayout = new("UIListLayout", {
 	Parent = watermarkcontent,
 
 	FillDirection =
@@ -2026,6 +2026,61 @@ env.__blush_watermark_time = watermarktext(
 	false,
 	42
 )
+
+function updatewatermarksize()
+	if not watermark
+		or not watermark.Parent
+		or not watermarklayout
+	then
+		return
+	end
+
+	task.defer(function()
+		runservice.PreRender:Wait()
+
+		if watermark
+			and watermark.Parent
+			and watermarklayout
+		then
+			local width = math.ceil(
+				watermarklayout.AbsoluteContentSize.X
+			) + 20
+
+			watermark.Size = UDim2.fromOffset(
+				math.max(342, width),
+				38
+			)
+		end
+	end)
+end
+
+function setwatermarktitle(value)
+	value = tostring(value or "blush.")
+
+	local object = env.__blush_watermark_title
+
+	if not object
+		or not object.Parent
+	then
+		return
+	end
+
+	local bounds = textservice:GetTextSize(
+		value,
+		16,
+		bold,
+		Vector2.new(4096, 38)
+	)
+
+	object.Text = value
+	object.TextTruncate = Enum.TextTruncate.None
+	object.Size = UDim2.fromOffset(
+		math.max(48, math.ceil(bounds.X) + 2),
+		38
+	)
+
+	updatewatermarksize()
+end
 
 env.__blush_watermark_frames = 0
 env.__blush_watermark_elapsed = 0
@@ -2484,7 +2539,7 @@ closeline1 = new("Frame", {
 	Parent = closebutton,
 	AnchorPoint = Vector2.new(.5, .5),
 	Position = UDim2.fromScale(.5, .5),
-	Size = UDim2.fromOffset(14, 2.5),
+	Size = UDim2.fromOffset(14, 1.75),
 	Rotation = 45,
 	BackgroundColor3 = theme.text3,
 	BackgroundTransparency = .08,
@@ -2497,7 +2552,7 @@ closeline2 = new("Frame", {
 	Parent = closebutton,
 	AnchorPoint = Vector2.new(.5, .5),
 	Position = UDim2.fromScale(.5, .5),
-	Size = UDim2.fromOffset(14, 2.5),
+	Size = UDim2.fromOffset(14, 1.75),
 	Rotation = -45,
 	BackgroundColor3 = theme.text3,
 	BackgroundTransparency = .08,
@@ -2544,7 +2599,7 @@ searchholder = new("Frame", {
 	Position =
 		UDim2.new(
 			1,
-			uis.TouchEnabled and -52 or -14,
+			-52,
 			.5,
 			0
 		),
@@ -3773,7 +3828,7 @@ addshadow(
 	true
 )
 
-hotkeytitle = label(hotkeylist, "Checkboxes", UDim2.new(1, -76, 0, 30), medium, theme.text)
+hotkeytitle = label(hotkeylist, "Hotkey List", UDim2.new(1, -76, 0, 30), medium, theme.text)
 hotkeytitle.Position = UDim2.fromOffset(12, 2)
 hotkeytitle.TextXAlignment = Enum.TextXAlignment.Left
 hotkeytitle.TextSize = 16
@@ -4337,20 +4392,38 @@ function createhotkeyrow(binding)
 	})
 	corner(row, 6)
 
-	local box, render = makecheckbox(row, 17, false)
-	box.AnchorPoint = Vector2.new(0, .5)
-	box.Position = UDim2.fromOffset(5, 14)
-	box.ZIndex = 324
-
 	local pathholder = new("Frame", {
 		Parent = row,
-		Position = UDim2.fromOffset(30, 1),
-		Size = UDim2.new(1, -35, 1, -2),
+		Position = UDim2.fromOffset(5, 1),
+		Size = UDim2.new(1, -60, 1, -2),
 		BackgroundTransparency = 1,
 		BorderSizePixel = 0,
 		ClipsDescendants = true,
 		ZIndex = 323,
 	})
+
+	local keyholder = new("Frame", {
+		Parent = row,
+		AnchorPoint = Vector2.new(1, .5),
+		Position = UDim2.new(1, -4, .5, 0),
+		Size = UDim2.fromOffset(48, 20),
+		BackgroundColor3 = theme.input,
+		BackgroundTransparency = .34,
+		BorderSizePixel = 0,
+		ZIndex = 323,
+	})
+	corner(keyholder, 5)
+
+	local keytext = label(
+		keyholder,
+		"",
+		UDim2.fromScale(1, 1),
+		medium,
+		theme.text3
+	)
+	keytext.TextSize = 12
+	keytext.TextXAlignment = Enum.TextXAlignment.Center
+	keytext.ZIndex = 324
 
 	local data = {
 		binding = binding,
@@ -4358,10 +4431,11 @@ function createhotkeyrow(binding)
 		pathholder = pathholder,
 		pathlabels = {},
 		pathicons = {},
-		box = box,
-		render = render,
+		keyholder = keyholder,
+		keytext = keytext,
 		active = nil,
 		path = nil,
+		keyname = nil,
 	}
 
 	rebuildhotkeypath(data, binding)
@@ -4369,24 +4443,25 @@ function createhotkeyrow(binding)
 	row.MouseEnter:Connect(function()
 		if row.Parent then
 			sethotkeypathcolor(data, theme.text, true)
+			tween(keytext, {
+				TextColor3 = theme.text2,
+			}, hoverti)
 		end
 	end)
 
 	row.MouseLeave:Connect(function()
 		if row.Parent then
+			local color = data.active and theme.text2 or theme.text3
+
 			sethotkeypathcolor(
 				data,
-				data.active and theme.text2 or theme.text3,
+				color,
 				true
 			)
-		end
-	end)
 
-	row.Activated:Connect(function()
-		if binding.mode == "Always On" then
-			binding.set(true, true)
-		else
-			binding.set(not binding.get(), true)
+			tween(keytext, {
+				TextColor3 = color,
+			}, hoverti)
 		end
 	end)
 
@@ -4396,6 +4471,8 @@ end
 
 function updatehotkeyrow(data, binding, active, layoutorder, animate)
 	local path = hotkeypath(binding)
+	local keyname = "[" .. togglekeyname(binding.key) .. "]"
+
 	data.row.LayoutOrder = layoutorder
 
 	if data.path ~= path then
@@ -4403,19 +4480,34 @@ function updatehotkeyrow(data, binding, active, layoutorder, animate)
 		rebuildhotkeypath(data, binding)
 	end
 
+	if data.keyname ~= keyname then
+		data.keyname = keyname
+		data.keytext.Text = keyname
+	end
+
 	local changed = data.active ~= active
 	data.active = active
 
-	if data.render then
-		data.render(active)
-	end
-
-	local pathcolor = active and theme.text2 or theme.text3
+	local color = active and theme.text2 or theme.text3
 
 	if changed then
-		sethotkeypathcolor(data, pathcolor, animate == true)
+		sethotkeypathcolor(data, color, animate == true)
+
+		if animate then
+			tween(data.keytext, {
+				TextColor3 = color,
+			}, hotkeyanimti)
+			tween(data.keyholder, {
+				BackgroundTransparency = active and .18 or .34,
+			}, hotkeyanimti)
+		else
+			data.keytext.TextColor3 = color
+			data.keyholder.BackgroundTransparency = active and .18 or .34
+		end
 	else
-		sethotkeypathcolor(data, pathcolor, false)
+		sethotkeypathcolor(data, color, false)
+		data.keytext.TextColor3 = color
+		data.keyholder.BackgroundTransparency = active and .18 or .34
 	end
 end
 
@@ -4434,15 +4526,23 @@ function refreshhotkeylist()
 	local count = 0
 
 	for _, binding in ipairs(env.__blush_togglebindings or {}) do
-		local category = tostring(binding.category or "Misc")
-		local group = groupmap[category]
-		if not group then
-			group = {name = category, bindings = {}}
-			groupmap[category] = group
-			groups[#groups + 1] = group
+		if binding.key ~= nil then
+			local category = tostring(binding.category or "Misc")
+			local group = groupmap[category]
+
+			if not group then
+				group = {
+					name = category,
+					bindings = {},
+				}
+
+				groupmap[category] = group
+				groups[#groups + 1] = group
+			end
+
+			group.bindings[#group.bindings + 1] = binding
+			count += 1
 		end
-		group.bindings[#group.bindings + 1] = binding
-		count += 1
 	end
 
 	local layoutorder = 0
@@ -4505,7 +4605,7 @@ function refreshhotkeylist()
 		if not hotkeyempty or not hotkeyempty.Parent then
 			hotkeyempty = label(
 				hotkeyscroll,
-				"No checkboxes",
+				"No hotkeys",
 				UDim2.new(1, 0, 0, 26),
 				font,
 				theme.text3
@@ -15428,7 +15528,7 @@ function currentuipayload()
 			and notificationtoggle:Get()
 			or notificationsenabled,
 
-		checkboxList = hotkeylisttoggle
+		hotkeyList = hotkeylisttoggle
 			and hotkeylisttoggle:Get()
 			or hotkeylist.Visible,
 
@@ -15880,15 +15980,19 @@ notificationtoggle = interfaceflags2:AddToggle(
 interfaceflags3 = settingssection:AddRow(10, 24)
 
 hotkeylisttoggle = interfaceflags3:AddToggle(
-	"Checkbox list",
-	savedsettings.checkboxList == true,
+	"Hotkey list",
+	savedsettings.hotkeyList == true
+		or savedsettings.checkboxList == true,
 	function(value)
 		sethotkeylistvisible(value)
 		saveuisettings()
 	end
 )
 
-sethotkeylistvisible(savedsettings.checkboxList == true)
+sethotkeylistvisible(
+	savedsettings.hotkeyList == true
+		or savedsettings.checkboxList == true
+)
 
 topnavigationtoggle = interfaceflags3:AddToggle(
 	"Top navigation",
@@ -16437,8 +16541,11 @@ function applysaveduisettings(data, silent)
 	end
 
 	if hotkeylisttoggle then
-		hotkeylisttoggle:Set(data.checkboxList == true, true)
-		sethotkeylistvisible(data.checkboxList == true)
+		local visible = data.hotkeyList == true
+			or data.checkboxList == true
+
+		hotkeylisttoggle:Set(visible, true)
+		sethotkeylistvisible(visible)
 	end
 
 	backgroundexcludesidebar = data.backgroundImageExcludeSidebar == true
@@ -18367,7 +18474,9 @@ function updatetopnavigationlayout()
 	end
 
 	local searchwidth = compact and 116 or 150
-	local searchinset = compact and 10 or 14
+	local searchinset = closebutton.Visible
+		and 52
+		or (compact and 10 or 14)
 	local leftbound = compact and 112 or 162
 	local rightbound = math.max(
 		leftbound + 190,
@@ -18516,7 +18625,7 @@ function updatetopnavigationstate(animate)
 		updatetopnavigationlayout()
 	else
 		searchholder.Size = UDim2.fromOffset(150, 38)
-		searchholder.Position = UDim2.new(1, uis.TouchEnabled and -52 or -14, .5, 0)
+		searchholder.Position = UDim2.new(1, closebutton.Visible and -52 or -14, .5, 0)
 		return
 	end
 
@@ -20063,7 +20172,7 @@ connect(
 -- public library api
 
 library = {
-	Version = "1.1.0",
+	Version = "1.2.0",
 	Icons = icons,
 }
 
@@ -20843,7 +20952,7 @@ function librarysetbrand(title, versiontext)
 	reopenlabel.Text = title
 
 	if env.__blush_watermark_title then
-		env.__blush_watermark_title.Text = title
+		setwatermarktitle(title)
 	end
 end
 
@@ -21276,6 +21385,12 @@ function library:CreateWindow(options)
 
 	closebutton.Visible = windowminimizebuttonenabled
 	closebutton.Active = windowminimizebuttonenabled
+	searchholder.Position = UDim2.new(
+		1,
+		windowminimizebuttonenabled and -52 or -14,
+		.5,
+		0
+	)
 
 	if options.Roundness ~= nil then
 		windowcorner.CornerRadius = UDim.new(
@@ -21371,8 +21486,8 @@ function library:CreateWindow(options)
 		end
 	end
 
-	if options.CheckboxList ~= nil then
-		local visible = options.CheckboxList == true
+	if options.HotkeyList ~= nil then
+		local visible = options.HotkeyList == true
 		sethotkeylistvisible(visible)
 
 		if hotkeylisttoggle then
@@ -21473,6 +21588,17 @@ function library:CreateWindow(options)
 		windowminimizebuttonenabled = value == true
 		closebutton.Visible = windowminimizebuttonenabled
 		closebutton.Active = windowminimizebuttonenabled
+
+		searchholder.Position = UDim2.new(
+			1,
+			windowminimizebuttonenabled and -52 or -14,
+			.5,
+			0
+		)
+
+		if topnavigationenabled then
+			updatetopnavigationlayout()
+		end
 	end
 
 	function librarywindow:SetMinSize(value)
@@ -21592,7 +21718,7 @@ function library:CreateWindow(options)
 		end
 	end
 
-	function librarywindow:SetCheckboxList(value)
+	function librarywindow:SetHotkeyList(value)
 		local visible = value == true
 		sethotkeylistvisible(visible)
 
