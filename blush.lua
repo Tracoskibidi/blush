@@ -638,22 +638,18 @@ transparencybase = setmetatable({}, {
 env.__blush_transparencyweights = {
 	window = 1,
 	sidebar = 1,
-	section = 1.18,
-	input = 1.28,
-	hover = 1.32,
-	popup = 1.08,
-	notification = 1.08,
+	section = 1,
+	input = 1,
+	hover = 1,
+	popup = 1,
+	notification = 1,
 }
 
 env.__blush_background_visibility = env.__blush_background_visibility or 0
 
 function effectivetransparency(value, role)
-	local weight = env.__blush_transparencyweights[role] or 1
-	local amount = math.clamp(uitransparency * weight, 0, .92)
-
 	return 1
 		- (1 - value)
-			* (1 - amount)
 			* math.clamp(
 				theme.backgroundAlpha or 1,
 				0,
@@ -671,13 +667,25 @@ function applybackgroundalpha(value)
 end
 
 function applyuitransparency(value)
-	uitransparency = math.clamp(value / 100, 0, 1)
+	uitransparency = math.clamp((tonumber(value) or 0) / 100, 0, .90)
 
 	for object, data in pairs(transparencybase) do
 		if object and object.Parent then
 			object.BackgroundTransparency =
 				effectivetransparency(data.base, data.role)
 		end
+	end
+
+	if window and window.Parent then
+		window.GroupTransparency = uitransparency
+	end
+
+	if popuplayer and popuplayer.Parent then
+		popuplayer.GroupTransparency = uitransparency
+	end
+
+	if draglayer and draglayer.Parent then
+		draglayer.GroupTransparency = uitransparency
 	end
 end
 
@@ -878,16 +886,16 @@ function buildtheme(background, accent, fontcolor)
 
 	return {
 		window = background,
-		sidebar = surface(-.012, .78),
-		section = surface(.062, .72),
-		input = surface(.018, .76),
-		hover = surface(.082, .68),
-		track = surface(.142, .62),
-		border = surface(.126, .58),
-		scroll = surface(.126, .5),
-		scrollTrack = surface(.052, .62),
-		popup = surface(.006, .78),
-		notification = surface(.032, .74),
+		sidebar = surface(-.016, .72),
+		section = surface(.052, .66),
+		input = surface(.024, .70),
+		hover = surface(.074, .62),
+		track = surface(.126, .56),
+		border = surface(.112, .50),
+		scroll = surface(.118, .44),
+		scrollTrack = surface(.045, .56),
+		popup = surface(.012, .70),
+		notification = surface(.036, .66),
 		text = primarytext,
 		text2 = background:Lerp(primarytext, .72),
 		text3 = background:Lerp(primarytext, .45),
@@ -1007,6 +1015,10 @@ function applytheme(
 
 	if updatebackgroundtone then
 		updatebackgroundtone()
+	end
+
+	if syncwindowglowcolor then
+		syncwindowglowcolor(animate == true)
 	end
 end
 
@@ -1460,13 +1472,17 @@ windowshadowenabled = true
 windowglowenabled = true
 windowglowintensity = 18
 windowglowsize = 18
+windowglowcolor = theme.white
+windowglowfollowtheme = true
+windowglowcolorpicker = nil
+windowglowfollowcontrol = nil
 
 function applywindowshadow()
 	if not windowshadow then
 		return
 	end
 
-	local base = windowshadowenabled and .48 or 1
+	local base = windowshadowenabled and .40 or 1
 
 	windowshadow:SetAttribute(
 		"BlushBaseTransparency",
@@ -1501,6 +1517,8 @@ function applywindowglow()
 		transparency
 	)
 
+	windowglow.Color = windowglowcolor
+
 	windowglow.Transparency =
 		windowglowenabled
 		and transparency
@@ -1514,6 +1532,38 @@ function applywindowglow()
 			math.max(0, math.floor(size * .12)),
 			math.max(0, math.floor(size * .12))
 		)
+end
+
+function syncwindowglowcolor(animate)
+	if not windowglowfollowtheme then
+		return
+	end
+
+	windowglowcolor = theme.white
+
+	if windowglowcolorpicker then
+		windowglowcolorpicker:Set(
+			windowglowcolor,
+			1,
+			false
+		)
+	end
+
+	if windowglow and windowglow.Parent then
+		if animate == true and animationsenabled then
+			tween(
+				windowglow,
+				{ Color = windowglowcolor },
+				TweenInfo.new(
+					.30,
+					Enum.EasingStyle.Quart,
+					Enum.EasingDirection.Out
+				)
+			)
+		else
+			windowglow.Color = windowglowcolor
+		end
+	end
 end
 
 applywindowshadow()
@@ -1654,8 +1704,9 @@ function updatebackgroundbounds()
 		backgroundholder.Position = UDim2.fromOffset(0, 0)
 		backgroundholder.Size = UDim2.fromOffset(0, 0)
 	elseif exclude then
-		backgroundholder.Position = UDim2.fromOffset(214, 0)
-		backgroundholder.Size = UDim2.new(1, -214, 1, 0)
+		local width = math.max(0, (sidebarwidth or 215) - 1)
+		backgroundholder.Position = UDim2.fromOffset(width, 0)
+		backgroundholder.Size = UDim2.new(1, -width, 1, 0)
 	else
 		backgroundholder.Position = UDim2.fromOffset(0, 0)
 		backgroundholder.Size = UDim2.fromScale(1, 1)
@@ -1775,10 +1826,18 @@ reopenbutton.Activated:Connect(function()
 	requestvisibilitytoggle()
 end)
 
+sidebarwidth = 215
+sidebarcompactthreshold = 118
+sidebarminwidth = 68
+sidebarmaxwidth = 300
+sidebarresize = nil
+sidebarresizelasttap = 0
+sidebarcompact = false
+
 sidebar = new("Frame", {
 	Parent = window,
 
-	Size = UDim2.new(0, 215, 1, 0),
+	Size = UDim2.new(0, sidebarwidth, 1, 0),
 
 	BackgroundColor3 = theme.sidebar,
 	BorderSizePixel = 0,
@@ -1790,8 +1849,8 @@ sidebar = new("Frame", {
 main = new("Frame", {
 	Parent = window,
 
-	Position = UDim2.fromOffset(214, 0),
-	Size = UDim2.new(1, -214, 1, 0),
+	Position = UDim2.fromOffset(sidebarwidth - 1, 0),
+	Size = UDim2.new(1, -(sidebarwidth - 1), 1, 0),
 
 	BackgroundColor3 = theme.window,
 	BorderSizePixel = 0,
@@ -1857,7 +1916,7 @@ end
 sidebardivider = new("Frame", {
 	Parent = window,
 
-	Position = UDim2.fromOffset(214, 0),
+	Position = UDim2.fromOffset(sidebarwidth - 1, 0),
 	Size = UDim2.new(0, 1, 1, 0),
 
 	BackgroundColor3 = theme.border,
@@ -1940,7 +1999,7 @@ watermark = new("Frame", {
 	),
 
 	Size = UDim2.fromOffset(
-		342,
+		140,
 		38
 	),
 
@@ -2068,93 +2127,6 @@ env.__blush_watermark_title = watermarktext(
 	48
 )
 
-watermarkdivider()
-
-env.__blush_watermark_player = watermarktext(
-	player.Name,
-	false,
-	58
-)
-
-watermarkdivider()
-
-env.__blush_watermark_fps = watermarktext(
-	"0 fps",
-	false,
-	48
-)
-
-watermarkdivider()
-
-env.__blush_watermark_ping = watermarktext(
-	"-- ms",
-	false,
-	54
-)
-
-watermarkdivider()
-
-env.__blush_watermark_time = watermarktext(
-	os.date("%H:%M"),
-	false,
-	42
-)
-
-function updatewatermarksize()
-	if not watermark
-		or not watermark.Parent
-		or not watermarklayout
-	then
-		return
-	end
-
-	task.defer(function()
-		runservice.PreRender:Wait()
-
-		if watermark
-			and watermark.Parent
-			and watermarklayout
-		then
-			local width = math.ceil(
-				watermarklayout.AbsoluteContentSize.X
-			) + 20
-
-			watermark.Size = UDim2.fromOffset(
-				math.max(342, width),
-				38
-			)
-		end
-	end)
-end
-
-function setwatermarktitle(value)
-	value = tostring(value or "blush.")
-
-	local object = env.__blush_watermark_title
-
-	if not object
-		or not object.Parent
-	then
-		return
-	end
-
-	local bounds = textservice:GetTextSize(
-		value,
-		16,
-		bold,
-		Vector2.new(4096, 38)
-	)
-
-	object.Text = value
-	object.TextTruncate = Enum.TextTruncate.None
-	object.Size = UDim2.fromOffset(
-		math.max(48, math.ceil(bounds.X) + 2),
-		38
-	)
-
-	updatewatermarksize()
-end
-
 env.__blush_watermark_frames = 0
 env.__blush_watermark_elapsed = 0
 env.__blush_ping_samples = {}
@@ -2238,18 +2210,18 @@ watermarkdragarea = new("TextButton", {
 avat = new("ImageLabel", {
 	Parent = sidebar,
 
+	AnchorPoint = Vector2.new(.5, .5),
+
 	Position =
 		UDim2.fromOffset(
-			25,
-			31
+			39,
+			45
 		),
-
-	AnchorPoint = Vector2.new(.5, .5),
 
 	Size =
 		UDim2.fromOffset(
-			26,
-			26
+			22,
+			22
 		),
 
 	BackgroundTransparency = 1,
@@ -2615,7 +2587,7 @@ closeline1 = new("Frame", {
 	Parent = closebutton,
 	AnchorPoint = Vector2.new(.5, .5),
 	Position = UDim2.fromScale(.5, .5),
-	Size = UDim2.fromOffset(14, 2.1),
+	Size = UDim2.fromOffset(14, 2.3),
 	Rotation = 45,
 	BackgroundColor3 = theme.text3,
 	BackgroundTransparency = .08,
@@ -2628,7 +2600,7 @@ closeline2 = new("Frame", {
 	Parent = closebutton,
 	AnchorPoint = Vector2.new(.5, .5),
 	Position = UDim2.fromScale(.5, .5),
-	Size = UDim2.fromOffset(14, 2.1),
+	Size = UDim2.fromOffset(14, 2.3),
 	Rotation = -45,
 	BackgroundColor3 = theme.text3,
 	BackgroundTransparency = .08,
@@ -2781,7 +2753,7 @@ content = new("Frame", {
 	ZIndex = 12,
 })
 
-popuplayer = new("Frame", {
+popuplayer = new("CanvasGroup", {
 	Parent = gui,
 
 	Size =
@@ -2792,13 +2764,14 @@ popuplayer = new("Frame", {
 
 	BackgroundTransparency = 1,
 	BorderSizePixel = 0,
+	GroupTransparency = 0,
 
 	ClipsDescendants = false,
 
 	ZIndex = 500,
 })
 
-draglayer = new("Frame", {
+draglayer = new("CanvasGroup", {
 	Parent = gui,
 
 	Size =
@@ -2809,6 +2782,7 @@ draglayer = new("Frame", {
 
 	BackgroundTransparency = 1,
 	BorderSizePixel = 0,
+	GroupTransparency = 0,
 
 	ClipsDescendants = false,
 
@@ -11407,29 +11381,71 @@ function createsection(
 			if (#options > 0 or includeeveryone) and #currentplayers > 0 then
 				dividerrow = new("Frame", {
 					Parent = scroll,
-					Size = UDim2.new(1, 0, 0, 16),
+					Size = UDim2.new(1, 0, 0, 24),
 					BackgroundTransparency = 1,
 					BorderSizePixel = 0,
 					ZIndex = 514,
 				})
-				local line = new("Frame", {
-					Parent = dividerrow,
-					AnchorPoint = Vector2.new(.5, .5),
-					Position = UDim2.fromScale(.5, .5),
-					Size = UDim2.new(1, -14, 0, 1),
-					BackgroundColor3 = theme.border,
-					BackgroundTransparency = .38,
-					BorderSizePixel = 0,
-					ZIndex = 515,
-				})
-				corner(line, 999)
+
 				if playersdivider and playersdivider ~= "" then
-					local divlabel = label(dividerrow, plaintext(tostring(playersdivider)), UDim2.fromOffset(76, 16), medium, theme.text3)
+					local dividertext = plaintext(tostring(playersdivider))
+					local bounds = textservice:GetTextSize(
+						dividertext,
+						15,
+						medium,
+						Vector2.new(240, 24)
+					)
+					local labelwidth = math.max(48, math.ceil(bounds.X) + 14)
+					local halfgap = labelwidth * .5 + 8
+
+					local leftline = new("Frame", {
+						Parent = dividerrow,
+						AnchorPoint = Vector2.new(0, .5),
+						Position = UDim2.new(0, 7, .5, 0),
+						Size = UDim2.new(.5, -(halfgap + 7), 0, 1),
+						BackgroundColor3 = theme.border,
+						BackgroundTransparency = .42,
+						BorderSizePixel = 0,
+						ZIndex = 515,
+					})
+					corner(leftline, 999)
+
+					local rightline = new("Frame", {
+						Parent = dividerrow,
+						AnchorPoint = Vector2.new(1, .5),
+						Position = UDim2.new(1, -7, .5, 0),
+						Size = UDim2.new(.5, -(halfgap + 7), 0, 1),
+						BackgroundColor3 = theme.border,
+						BackgroundTransparency = .42,
+						BorderSizePixel = 0,
+						ZIndex = 515,
+					})
+					corner(rightline, 999)
+
+					local divlabel = label(
+						dividerrow,
+						dividertext,
+						UDim2.fromOffset(labelwidth, 24),
+						medium,
+						theme.text3
+					)
 					divlabel.AnchorPoint = Vector2.new(.5, .5)
 					divlabel.Position = UDim2.fromScale(.5, .5)
-					divlabel.TextSize = 13
+					divlabel.TextSize = 15
 					divlabel.TextXAlignment = Enum.TextXAlignment.Center
 					divlabel.ZIndex = 516
+				else
+					local line = new("Frame", {
+						Parent = dividerrow,
+						AnchorPoint = Vector2.new(.5, .5),
+						Position = UDim2.fromScale(.5, .5),
+						Size = UDim2.new(1, -14, 0, 1),
+						BackgroundColor3 = theme.border,
+						BackgroundTransparency = .42,
+						BorderSizePixel = 0,
+						ZIndex = 515,
+					})
+					corner(line, 999)
 				end
 			end
 
@@ -12251,10 +12267,14 @@ function createsection(
 					)
 				)
 
+			local singlecharacter =
+				#plaintext(value) == 1
+
 			local width =
 				math.clamp(
-					math.ceil(bounds.X) + 20,
-					42,
+					math.ceil(bounds.X)
+						+ (singlecharacter and 14 or 20),
+					singlecharacter and 30 or 42,
 					112
 				)
 
@@ -12837,18 +12857,18 @@ function createsection(
 		local parentobject = target or body
 		local holder = new("Frame", {
 			Parent = parentobject,
-			Size = UDim2.new(1, 0, 0, 27),
+			Size = UDim2.new(1, 0, 0, 30),
 			BackgroundTransparency = 1,
 			BorderSizePixel = 0,
 			ZIndex = 15,
 		})
-		local titleobject = label(holder, name, UDim2.new(1, -110, 1, 0), font, theme.text2)
-		titleobject.TextSize = 16
+		local titleobject = label(holder, name, UDim2.new(1, -118, 1, 0), font, theme.text2)
+		titleobject.TextSize = 17
 		local badge = new("Frame", {
 			Parent = holder,
 			AnchorPoint = Vector2.new(1, .5),
 			Position = UDim2.new(1, 0, .5, 0),
-			Size = UDim2.fromOffset(92, 22),
+			Size = UDim2.fromOffset(98, 24),
 			BackgroundColor3 = color or theme.hover,
 			BackgroundTransparency = color and .72 or .18,
 			BorderSizePixel = 0,
@@ -12857,7 +12877,7 @@ function createsection(
 		corner(badge, 999)
 		local textobject = label(badge, textvalue or "Ready", UDim2.fromScale(1, 1), medium, color or theme.text2)
 		textobject.TextXAlignment = Enum.TextXAlignment.Center
-		textobject.TextSize = 13
+		textobject.TextSize = 15
 		textobject.ZIndex = 17
 		register(holder, name .. " " .. tostring(textvalue or ""))
 		return {
@@ -15503,7 +15523,11 @@ menukey =
 	keyfromname(savedsettings.menuKey)
 	or Enum.KeyCode.RightShift
 
-initialtransparency = 0
+initialtransparency = math.clamp(
+	tonumber(savedsettings.uiTransparency) or 0,
+	0,
+	90
+)
 
 initialuiscale = 100
 
@@ -15534,6 +15558,12 @@ windowglowsize = math.clamp(
 	0,
 	48
 )
+windowglowfollowtheme = savedsettings.windowGlowFollowTheme ~= false
+windowglowcolor = decodecolor(savedsettings.windowGlowColor) or theme.white
+
+if windowglowfollowtheme then
+	windowglowcolor = theme.white
+end
 
 applywindowglow()
 
@@ -15542,7 +15572,7 @@ setbackgroundexcludesidebar(backgroundexcludesidebar)
 setbackgroundimageopacity(backgroundimageopacity, false)
 setbackgroundimageblur(backgroundimageblur, false)
 
-applyuitransparency(0)
+applyuitransparency(initialtransparency)
 applyuiscale(initialuiscale)
 
 loadingsettings = true
@@ -15556,6 +15586,7 @@ searchtoggle = nil
 menukeypicker = nil
 hotkeylisttoggle = nil
 uiscalecontrol = nil
+uitransparencycontrol = nil
 notificationtoggle = nil
 notificationdurationcontrol = nil
 maxnotificationcontrol = nil
@@ -15575,6 +15606,8 @@ topnavigationtoggle = nil
 windowglowtoggle = nil
 windowglowintensitycontrol = nil
 windowglowsizecontrol = nil
+windowglowcolorpicker = nil
+windowglowfollowcontrol = nil
 savessection = nil
 
 function currentuipayload()
@@ -15653,6 +15686,15 @@ function currentuipayload()
 		windowGlowSize = windowglowsizecontrol
 			and windowglowsizecontrol:Get()
 			or windowglowsize,
+
+		windowGlowColor = encodecolor(windowglowcolor),
+		windowGlowFollowTheme = windowglowfollowcontrol
+			and windowglowfollowcontrol:Get()
+			or windowglowfollowtheme,
+
+		uiTransparency = uitransparencycontrol
+			and uitransparencycontrol:Get()
+			or math.floor(uitransparency * 100 + .5),
 
 		selectedConfig = selectedconfig,
 		selectedThemeSave = selectedthemesave,
@@ -16151,7 +16193,49 @@ windowglowsizecontrol = settingssection:AddSlider(
 	end
 )
 
-applyuitransparency(0)
+windowglowfollowcontrol = settingssection:AddToggle(
+	"Glow follows theme",
+	windowglowfollowtheme,
+	function(value)
+		windowglowfollowtheme = value == true
+
+		if windowglowfollowtheme then
+			syncwindowglowcolor(true)
+		end
+
+		saveuisettings()
+	end
+)
+
+windowglowcolorpicker = settingssection:AddColorPicker(
+	"Glow color",
+	windowglowcolor,
+	function(color)
+		windowglowfollowtheme = false
+		windowglowcolor = color
+
+		if windowglowfollowcontrol then
+			windowglowfollowcontrol:Set(false, false)
+		end
+
+		applywindowglow()
+		saveuisettings()
+	end
+)
+
+uitransparencycontrol = settingssection:AddSlider(
+	"Transparency",
+	0,
+	90,
+	initialtransparency,
+	"%",
+	function(value)
+		applyuitransparency(value)
+		saveuisettings()
+	end
+)
+
+applyuitransparency(initialtransparency)
 
 themessection =
 	createsection(
@@ -16163,51 +16247,51 @@ themessection =
 
 themepresets = {
 	Default = {
-		background = Color3.fromRGB(15, 15, 16),
-		accent = Color3.fromRGB(245, 245, 247),
-		font = Color3.fromRGB(240, 240, 242),
+		background = Color3.fromRGB(13, 13, 15),
+		accent = Color3.fromRGB(246, 246, 248),
+		font = Color3.fromRGB(235, 235, 239),
 	},
 
 	Dark = {
-		background = Color3.fromRGB(21, 21, 23),
-		accent = Color3.fromRGB(207, 211, 220),
-		font = Color3.fromRGB(232, 234, 238),
+		background = Color3.fromRGB(9, 10, 12),
+		accent = Color3.fromRGB(190, 198, 210),
+		font = Color3.fromRGB(226, 229, 234),
 	},
 
 	Violet = {
-		background = Color3.fromRGB(15, 13, 19),
-		accent = Color3.fromRGB(181, 154, 255),
-		font = Color3.fromRGB(241, 238, 247),
+		background = Color3.fromRGB(14, 12, 19),
+		accent = Color3.fromRGB(185, 157, 255),
+		font = Color3.fromRGB(239, 235, 247),
 	},
 
 	Rose = {
-		background = Color3.fromRGB(18, 13, 15),
-		accent = Color3.fromRGB(255, 151, 181),
-		font = Color3.fromRGB(246, 239, 242),
+		background = Color3.fromRGB(18, 11, 14),
+		accent = Color3.fromRGB(247, 147, 177),
+		font = Color3.fromRGB(245, 236, 240),
 	},
 
 	Mint = {
-		background = Color3.fromRGB(12, 17, 15),
-		accent = Color3.fromRGB(139, 235, 191),
-		font = Color3.fromRGB(235, 243, 239),
+		background = Color3.fromRGB(10, 16, 14),
+		accent = Color3.fromRGB(125, 222, 176),
+		font = Color3.fromRGB(232, 242, 237),
 	},
 
 	Snow = {
-		background = Color3.fromRGB(244, 245, 248),
-		accent = Color3.fromRGB(55, 58, 66),
-		font = Color3.fromRGB(31, 33, 38),
+		background = Color3.fromRGB(242, 243, 246),
+		accent = Color3.fromRGB(47, 51, 59),
+		font = Color3.fromRGB(28, 31, 36),
 	},
 
 	Pearl = {
-		background = Color3.fromRGB(231, 233, 237),
-		accent = Color3.fromRGB(70, 74, 84),
-		font = Color3.fromRGB(37, 39, 45),
+		background = Color3.fromRGB(229, 231, 235),
+		accent = Color3.fromRGB(67, 72, 82),
+		font = Color3.fromRGB(34, 37, 43),
 	},
 
 	Ivory = {
-		background = Color3.fromRGB(244, 240, 233),
-		accent = Color3.fromRGB(86, 72, 60),
-		font = Color3.fromRGB(55, 48, 43),
+		background = Color3.fromRGB(243, 238, 229),
+		accent = Color3.fromRGB(101, 82, 66),
+		font = Color3.fromRGB(52, 45, 40),
 	},
 }
 
@@ -16658,7 +16742,17 @@ function applysaveduisettings(data, silent)
 	local wasloading = loadingsettings
 	loadingsettings = true
 
-	applyuitransparency(0)
+	local loadedtransparency = math.clamp(
+		tonumber(data.uiTransparency) or 0,
+		0,
+		90
+	)
+
+	if uitransparencycontrol then
+		uitransparencycontrol:Set(loadedtransparency, false)
+	end
+
+	applyuitransparency(loadedtransparency)
 
 	if watermarktoggle then
 		watermarktoggle:Set(data.watermark == true, true)
@@ -16710,6 +16804,13 @@ function applysaveduisettings(data, silent)
 		48
 	)
 
+	windowglowfollowtheme = data.windowGlowFollowTheme ~= false
+	windowglowcolor = decodecolor(data.windowGlowColor) or theme.white
+
+	if windowglowfollowtheme then
+		windowglowcolor = theme.white
+	end
+
 	if windowglowtoggle then
 		windowglowtoggle:Set(windowglowenabled, false)
 	end
@@ -16718,6 +16819,12 @@ function applysaveduisettings(data, silent)
 	end
 	if windowglowsizecontrol then
 		windowglowsizecontrol:Set(windowglowsize, false)
+	end
+	if windowglowfollowcontrol then
+		windowglowfollowcontrol:Set(windowglowfollowtheme, false)
+	end
+	if windowglowcolorpicker then
+		windowglowcolorpicker:Set(windowglowcolor, 1, false)
 	end
 
 	applywindowglow()
@@ -18860,8 +18967,9 @@ function applytopnavigation(value, animate)
 	if not uis.TouchEnabled then
 		sidebar.Visible = true
 		sidebardivider.Visible = true
-		main.Position = UDim2.fromOffset(214, 0)
-		main.Size = UDim2.new(1, -214, 1, 0)
+		local width = math.max(0, (sidebarwidth or 215) - 1)
+		main.Position = UDim2.fromOffset(width, 0)
+		main.Size = UDim2.new(1, -width, 1, 0)
 	end
 
 	if topnavigationenabled then
@@ -19531,7 +19639,7 @@ footerbackground = rawnew("Frame", {
 	ZIndex = 11,
 })
 
-new("Frame", {
+footerdivider = new("Frame", {
 	Parent = sidebar,
 
 	Position =
@@ -19646,6 +19754,222 @@ footerusername.ZIndex = 12
 footerusername.TextTruncate =
 	Enum.TextTruncate.AtEnd
 
+sidebarresizehandle = new("TextButton", {
+	Parent = window,
+	AnchorPoint = Vector2.new(.5, 0),
+	Position = UDim2.fromOffset(sidebarwidth - 1, 0),
+	Size = UDim2.new(0, 10, 1, 0),
+	BackgroundTransparency = 1,
+	BorderSizePixel = 0,
+	Text = "",
+	AutoButtonColor = false,
+	Active = true,
+	ZIndex = 90,
+})
+
+sidebarresizeaccent = new("Frame", {
+	Parent = sidebarresizehandle,
+	AnchorPoint = Vector2.new(.5, .5),
+	Position = UDim2.fromScale(.5, .5),
+	Size = UDim2.new(0, 1, 1, -24),
+	BackgroundColor3 = theme.white,
+	BackgroundTransparency = 1,
+	BorderSizePixel = 0,
+	ZIndex = 91,
+})
+corner(sidebarresizeaccent, 999)
+bindtheme(sidebarresizeaccent, "BackgroundColor3", theme.white)
+
+function setsidebarentrycompact(entry, compact, sub)
+	if not entry then
+		return
+	end
+
+	if entry.text then
+		entry.text.Visible = not compact
+	end
+
+	if entry.icon then
+		entry.icon.AnchorPoint = compact
+			and Vector2.new(.5, .5)
+			or Vector2.new(0, .5)
+
+		entry.icon.Position = compact
+			and UDim2.fromScale(.5, .5)
+			or UDim2.new(
+				0,
+				sub and 11 or 14,
+				.5,
+				0
+			)
+	end
+end
+
+function applysidebarlayout(width, animate)
+	width = math.clamp(
+		math.floor(tonumber(width) or sidebarwidth),
+		sidebarminwidth,
+		sidebarmaxwidth
+	)
+
+	sidebarwidth = width
+	sidebarcompact = width <= sidebarcompactthreshold
+
+	local mainoffset = width - 1
+	local info = TweenInfo.new(
+		.18,
+		Enum.EasingStyle.Quart,
+		Enum.EasingDirection.Out
+	)
+
+	if animate == true and animationsenabled then
+		tween(sidebar, {
+			Size = UDim2.new(0, width, 1, 0),
+		}, info)
+
+		tween(main, {
+			Position = UDim2.fromOffset(mainoffset, 0),
+			Size = UDim2.new(1, -mainoffset, 1, 0),
+		}, info)
+
+		tween(sidebardivider, {
+			Position = UDim2.fromOffset(mainoffset, 0),
+		}, info)
+
+		tween(sidebarresizehandle, {
+			Position = UDim2.fromOffset(mainoffset, 0),
+		}, info)
+	else
+		sidebar.Size = UDim2.new(0, width, 1, 0)
+		main.Position = UDim2.fromOffset(mainoffset, 0)
+		main.Size = UDim2.new(1, -mainoffset, 1, 0)
+		sidebardivider.Position = UDim2.fromOffset(mainoffset, 0)
+		sidebarresizehandle.Position = UDim2.fromOffset(mainoffset, 0)
+	end
+
+	brand.Visible = not sidebarcompact
+	version.Visible = not sidebarcompact
+	versiondivider.Visible = not sidebarcompact
+	username.Visible = not sidebarcompact
+
+	category.Visible = not sidebarcompact
+
+	footername.Visible = not sidebarcompact
+	footerusername.Visible = not sidebarcompact
+
+	avat.Position = sidebarcompact
+		and UDim2.fromOffset(math.floor(width * .5), 45)
+		or UDim2.fromOffset(39, 45)
+
+	footeravatar.AnchorPoint = sidebarcompact
+		and Vector2.new(.5, 0)
+		or Vector2.zero
+
+	footeravatar.Position = sidebarcompact
+		and UDim2.new(.5, 0, 1, -58)
+		or UDim2.new(0, 18, 1, -58)
+
+	footerdivider.Position = sidebarcompact
+		and UDim2.new(0, 10, 1, -72)
+		or UDim2.new(0, 14, 1, -72)
+
+	footerdivider.Size = sidebarcompact
+		and UDim2.new(1, -20, 0, 1)
+		or UDim2.new(1, -28, 0, 1)
+
+	nav.Position = sidebarcompact
+		and UDim2.fromOffset(10, 82)
+		or UDim2.fromOffset(14, 126)
+
+	nav.Size = sidebarcompact
+		and UDim2.new(1, -20, 1, -154)
+		or UDim2.new(1, -28, 1, -198)
+
+	sublist.Position = sidebarcompact
+		and UDim2.fromOffset(0, 3)
+		or UDim2.fromOffset(18, 3)
+
+	sublist.Size = sidebarcompact
+		and UDim2.new(1, 0, 1, -6)
+		or UDim2.new(1, -22, 1, -6)
+
+	for _, entry in pairs(naventries or {}) do
+		setsidebarentrycompact(entry, sidebarcompact, false)
+	end
+
+	for _, entry in pairs(subentries or {}) do
+		setsidebarentrycompact(entry, sidebarcompact, true)
+	end
+
+	local otheravailable = settingsbutton.Visible
+
+	if not otheravailable then
+		for _, child in ipairs(othercontent:GetChildren()) do
+			if child:IsA("GuiObject")
+				and child ~= settingsbutton
+				and child.Visible
+			then
+				otheravailable = true
+				break
+			end
+		end
+	end
+
+	otherheader.Visible = not sidebarcompact and otheravailable
+
+	if backgroundexcludesidebar then
+		updatebackgroundbounds()
+	end
+
+	if topnavigationenabled then
+		updatetopnavigationlayout()
+	end
+end
+
+sidebarresizehandle.MouseEnter:Connect(function()
+	tween(sidebarresizeaccent, {
+		BackgroundTransparency = .38,
+	}, hoverti)
+end)
+
+sidebarresizehandle.MouseLeave:Connect(function()
+	if not sidebarresize then
+		tween(sidebarresizeaccent, {
+			BackgroundTransparency = 1,
+		}, hoverti)
+	end
+end)
+
+sidebarresizehandle.InputBegan:Connect(function(input)
+	if input.UserInputType ~= Enum.UserInputType.MouseButton1 then
+		return
+	end
+
+	local now = os.clock()
+
+	if now - sidebarresizelasttap <= .30 then
+		sidebarresizelasttap = 0
+		sidebarresize = nil
+		applysidebarlayout(215, true)
+		return
+	end
+
+	sidebarresizelasttap = now
+	closepopup()
+	windowdrag = nil
+
+	sidebarresize = {
+		input = input,
+		start = point(input),
+		width = sidebarwidth,
+		current = point(input),
+	}
+
+	sidebarresizeaccent.BackgroundTransparency = .24
+end)
+
+applysidebarlayout(sidebarwidth, false)
+
 -- dragging
 
 lasttap = 0
@@ -19703,10 +20027,26 @@ function beginwindowdrag(
 		if now - lasttap <= .28 then
 			lasttap = 0
 			shell.AnchorPoint = Vector2.zero
-			shell.Position = centeredwindowposition(
+
+			local targetposition = centeredwindowposition(
 				Vector2.new(shell.Size.X.Offset, shell.Size.Y.Offset),
 				(env.__blush_shellscale and env.__blush_shellscale.Scale) or 1
 			)
+
+			if animationsenabled then
+				tween(
+					shell,
+					{ Position = targetposition },
+					TweenInfo.new(
+						.26,
+						Enum.EasingStyle.Quart,
+						Enum.EasingDirection.Out
+					)
+				)
+			else
+				shell.Position = targetposition
+			end
+
 			return
 		end
 
@@ -20001,6 +20341,22 @@ connect(runservice.PreRender, function()
 		applywindowresize()
 	end
 
+	if sidebarresize and sidebarresize.current then
+		local scale = math.max(
+			.01,
+			(env.__blush_shellscale and env.__blush_shellscale.Scale) or 1
+		)
+
+		local delta =
+			(sidebarresize.current.X - sidebarresize.start.X)
+			/ scale
+
+		applysidebarlayout(
+			sidebarresize.width + delta,
+			false
+		)
+	end
+
 	if windowdrag then
 		applywindowdrag()
 	end
@@ -20020,6 +20376,15 @@ connect(
 			and matches(windowresize, input)
 		then
 			windowresize.current = p
+		end
+
+		if sidebarresize
+			and matches(
+				sidebarresize,
+				input
+			)
+		then
+			sidebarresize.current = p
 		end
 
 		if windowdrag
@@ -20183,6 +20548,19 @@ connect(
 			end
 		end
 
+		if sidebarresize
+			and (
+				mouseended
+					or input == sidebarresize.input
+			)
+		then
+			sidebarresize = nil
+
+			tween(sidebarresizeaccent, {
+				BackgroundTransparency = 1,
+			}, hoverti)
+		end
+
 		if windowdrag
 			and (
 				mouseended
@@ -20332,7 +20710,7 @@ connect(
 -- public library api
 
 library = {
-	Version = "1.3.0",
+	Version = "1.4.0",
 	Icons = icons,
 }
 
@@ -21150,7 +21528,7 @@ function libraryrefreshothergroupvisibility()
 		end
 	end
 
-	otherheader.Visible = visible
+	otherheader.Visible = visible and not sidebarcompact
 	othergroup.Visible = visible
 	refreshsidegroups(false)
 end
@@ -21385,6 +21763,12 @@ function librarycreatetab(windowapi, options, icon, group)
 		glow = glow,
 	}
 
+	setsidebarentrycompact(
+		naventries[button],
+		sidebarcompact,
+		false
+	)
+
 	bindnavhover(button, false)
 
 	if destination == "main" then
@@ -21551,6 +21935,15 @@ function library:CreateWindow(options)
 	windowdragenabled = options.Draggable ~= false
 	windowminimizebuttonenabled = options.MinimizeButton ~= false
 
+	if options.SidebarResize ~= nil then
+		sidebarresizehandle.Visible = options.SidebarResize == true
+		sidebarresizehandle.Active = options.SidebarResize == true
+	end
+
+	if options.SidebarWidth ~= nil then
+		applysidebarlayout(options.SidebarWidth, false)
+	end
+
 	windowminsize = typeof(options.MinSize) == "Vector2"
 		and options.MinSize
 		or Vector2.new(620, 440)
@@ -21607,6 +22000,20 @@ function library:CreateWindow(options)
 		)
 	end
 
+	if options.GlowFollowTheme ~= nil then
+		windowglowfollowtheme = options.GlowFollowTheme == true
+	end
+
+	if typeof(options.GlowColor) == "Color3" then
+		windowglowcolor = options.GlowColor
+
+		if options.GlowFollowTheme == nil then
+			windowglowfollowtheme = false
+		end
+	elseif windowglowfollowtheme then
+		windowglowcolor = theme.white
+	end
+
 	applywindowglow()
 
 	if windowglowtoggle then
@@ -21617,6 +22024,26 @@ function library:CreateWindow(options)
 	end
 	if windowglowsizecontrol then
 		windowglowsizecontrol:Set(windowglowsize, false)
+	end
+	if windowglowfollowcontrol then
+		windowglowfollowcontrol:Set(windowglowfollowtheme, false)
+	end
+	if windowglowcolorpicker then
+		windowglowcolorpicker:Set(windowglowcolor, 1, false)
+	end
+
+	if options.Transparency ~= nil then
+		local value = math.clamp(
+			tonumber(options.Transparency) or 0,
+			0,
+			90
+		)
+
+		if uitransparencycontrol then
+			uitransparencycontrol:Set(value, false)
+		end
+
+		applyuitransparency(value)
 	end
 
 	if typeof(size) == "Vector2" then
@@ -21778,6 +22205,25 @@ function library:CreateWindow(options)
 		requestvisibilitytoggle()
 	end
 
+	function librarywindow:SetSidebarWidth(value, animate)
+		applysidebarlayout(value, animate == true)
+	end
+
+	function librarywindow:GetSidebarWidth()
+		return sidebarwidth
+	end
+
+	function librarywindow:SetSidebarResizeEnabled(value)
+		local enabled = value == true
+		sidebarresizehandle.Visible = enabled
+		sidebarresizehandle.Active = enabled
+
+		if not enabled then
+			sidebarresize = nil
+			sidebarresizeaccent.BackgroundTransparency = 1
+		end
+	end
+
 	function librarywindow:SetResizeEnabled(value)
 		windowresizeenabled = value == true
 		resizehandle.Visible = windowresizeenabled
@@ -21917,6 +22363,54 @@ function library:CreateWindow(options)
 		if windowglowsizecontrol then
 			windowglowsizecontrol:Set(windowglowsize, false)
 		end
+	end
+
+	function librarywindow:SetGlowColor(value)
+		if typeof(value) ~= "Color3" then
+			return false
+		end
+
+		windowglowfollowtheme = false
+		windowglowcolor = value
+		applywindowglow()
+
+		if windowglowfollowcontrol then
+			windowglowfollowcontrol:Set(false, false)
+		end
+
+		if windowglowcolorpicker then
+			windowglowcolorpicker:Set(value, 1, false)
+		end
+
+		return true
+	end
+
+	function librarywindow:SetGlowFollowTheme(value)
+		windowglowfollowtheme = value == true
+
+		if windowglowfollowcontrol then
+			windowglowfollowcontrol:Set(windowglowfollowtheme, false)
+		end
+
+		if windowglowfollowtheme then
+			syncwindowglowcolor(true)
+		else
+			applywindowglow()
+		end
+	end
+
+	function librarywindow:SetTransparency(value)
+		value = math.clamp(
+			tonumber(value) or 0,
+			0,
+			90
+		)
+
+		if uitransparencycontrol then
+			uitransparencycontrol:Set(value, false)
+		end
+
+		applyuitransparency(value)
 	end
 
 	function librarywindow:SetRoundness(value)
