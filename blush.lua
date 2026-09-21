@@ -685,7 +685,7 @@ function applyuitransparency(value)
 	end
 
 	if draglayer and draglayer.Parent then
-		draglayer.GroupTransparency = uitransparency
+		draglayer.GroupTransparency = 0
 	end
 end
 
@@ -1019,6 +1019,42 @@ function applytheme(
 
 	if syncwindowglowcolor then
 		syncwindowglowcolor(animate == true)
+	end
+
+	if accentpicker
+		and not accentpicker.dragging
+		and not accentpicker.fading
+		and not accentpicker.rainbow
+	then
+		accentpicker:Set(
+			theme.white,
+			theme.accentAlpha,
+			false
+		)
+	end
+
+	if backgroundpicker
+		and not backgroundpicker.dragging
+		and not backgroundpicker.fading
+		and not backgroundpicker.rainbow
+	then
+		backgroundpicker:Set(
+			theme.window,
+			theme.backgroundAlpha,
+			false
+		)
+	end
+
+	if fontpicker
+		and not fontpicker.dragging
+		and not fontpicker.fading
+		and not fontpicker.rainbow
+	then
+		fontpicker:Set(
+			theme.font,
+			theme.fontAlpha,
+			false
+		)
 	end
 end
 
@@ -2112,7 +2148,7 @@ end
 function watermarkdivider()
 	watermarkorder += 1
 
-	new("Frame", {
+	local object = new("Frame", {
 		Parent = watermarkcontent,
 
 		LayoutOrder =
@@ -2134,7 +2170,17 @@ function watermarkdivider()
 
 		ZIndex = 102,
 	})
+
+	return object
 end
+
+watermarkconfig = {
+	Player = true,
+	FPS = true,
+	Ping = true,
+	Time = true,
+	PlayerMode = "DisplayName",
+}
 
 env.__blush_watermark_title = watermarktext(
 	"blush.",
@@ -2142,27 +2188,79 @@ env.__blush_watermark_title = watermarktext(
 	48
 )
 
-function setwatermarktitle(value)
-	value = tostring(value or "blush.")
+env.__blush_watermark_divider_player = watermarkdivider()
+env.__blush_watermark_player = watermarktext(
+	player.DisplayName,
+	false,
+	64
+)
 
-	local object = env.__blush_watermark_title
+env.__blush_watermark_divider_fps = watermarkdivider()
+env.__blush_watermark_fps = watermarktext(
+	"0 fps",
+	false,
+	48
+)
+
+env.__blush_watermark_divider_ping = watermarkdivider()
+env.__blush_watermark_ping = watermarktext(
+	"0 ms",
+	false,
+	48
+)
+
+env.__blush_watermark_divider_time = watermarkdivider()
+env.__blush_watermark_time = watermarktext(
+	os.date("%H:%M"),
+	false,
+	42
+)
+
+function watermarkplayertext()
+	if watermarkconfig.PlayerMode == "Username" then
+		return player.Name
+	elseif watermarkconfig.PlayerMode == "Both" then
+		return player.DisplayName .. " @" .. player.Name
+	end
+
+	return player.DisplayName
+end
+
+function resizewatermarktext(object, value, strong)
 	if not object or not object.Parent then
 		return
 	end
 
+	value = tostring(value or "")
+
+	local size = strong and 16 or 15
+	local fontface = strong and bold or font
+
 	local bounds = textservice:GetTextSize(
 		value,
-		16,
-		bold,
+		size,
+		fontface,
 		Vector2.new(4096, 38)
 	)
 
 	object.Text = value
 	object.TextTruncate = Enum.TextTruncate.None
 	object.Size = UDim2.fromOffset(
-		math.max(48, math.ceil(bounds.X) + 2),
+		math.max(
+			strong and 48 or 36,
+			math.ceil(bounds.X) + 2
+		),
 		38
 	)
+end
+
+function updatewatermarksize()
+	if not watermark
+		or not watermark.Parent
+		or not watermarklayout
+	then
+		return
+	end
 
 	task.defer(function()
 		runservice.PreRender:Wait()
@@ -2176,12 +2274,72 @@ function setwatermarktitle(value)
 			) + 20
 
 			watermark.Size = UDim2.fromOffset(
-				math.max(120, width),
+				math.max(84, width),
 				38
 			)
 		end
 	end)
 end
+
+function updatewatermarklayout()
+	local playerenabled =
+		watermarkconfig.Player == true
+
+	local fpsenabled =
+		watermarkconfig.FPS == true
+
+	local pingenabled =
+		watermarkconfig.Ping == true
+
+	local timeenabled =
+		watermarkconfig.Time == true
+
+	env.__blush_watermark_player.Visible =
+		playerenabled
+
+	env.__blush_watermark_fps.Visible =
+		fpsenabled
+
+	env.__blush_watermark_ping.Visible =
+		pingenabled
+
+	env.__blush_watermark_time.Visible =
+		timeenabled
+
+	env.__blush_watermark_divider_player.Visible =
+		playerenabled
+
+	env.__blush_watermark_divider_fps.Visible =
+		fpsenabled
+
+	env.__blush_watermark_divider_ping.Visible =
+		pingenabled
+
+	env.__blush_watermark_divider_time.Visible =
+		timeenabled
+
+	resizewatermarktext(
+		env.__blush_watermark_player,
+		watermarkplayertext(),
+		false
+	)
+
+	updatewatermarksize()
+end
+
+function setwatermarktitle(value)
+	value = tostring(value or "blush.")
+
+	resizewatermarktext(
+		env.__blush_watermark_title,
+		value,
+		true
+	)
+
+	updatewatermarksize()
+end
+
+updatewatermarklayout()
 
 env.__blush_watermark_frames = 0
 env.__blush_watermark_elapsed = 0
@@ -2226,17 +2384,47 @@ connect(runservice.PreRender, function(dt)
 	local fps = math.floor(frames / elapsed + .5)
 	local ping = math.floor(calculatewatermarkping() + .5)
 
-	if env.__blush_watermark_fps and env.__blush_watermark_fps.Parent then
-		env.__blush_watermark_fps.Text = tostring(fps) .. " fps"
+	if env.__blush_watermark_fps
+		and env.__blush_watermark_fps.Parent
+	then
+		resizewatermarktext(
+			env.__blush_watermark_fps,
+			tostring(fps) .. " fps",
+			false
+		)
 	end
 
-	if env.__blush_watermark_ping and env.__blush_watermark_ping.Parent then
-		env.__blush_watermark_ping.Text = tostring(ping) .. " ms"
+	if env.__blush_watermark_ping
+		and env.__blush_watermark_ping.Parent
+	then
+		resizewatermarktext(
+			env.__blush_watermark_ping,
+			tostring(ping) .. " ms",
+			false
+		)
 	end
 
-	if env.__blush_watermark_time and env.__blush_watermark_time.Parent then
-		env.__blush_watermark_time.Text = os.date("%H:%M")
+	if env.__blush_watermark_time
+		and env.__blush_watermark_time.Parent
+	then
+		resizewatermarktext(
+			env.__blush_watermark_time,
+			os.date("%H:%M"),
+			false
+		)
 	end
+
+	if env.__blush_watermark_player
+		and env.__blush_watermark_player.Parent
+	then
+		resizewatermarktext(
+			env.__blush_watermark_player,
+			watermarkplayertext(),
+			false
+		)
+	end
+
+	updatewatermarksize()
 
 	env.__blush_watermark_frames = 0
 	env.__blush_watermark_elapsed = 0
@@ -2726,6 +2914,68 @@ searchholder = new("Frame", {
 
 corner(searchholder, 9)
 addshadow(searchholder, "SearchShadow", .94, 8, 1, -1, Color3.fromRGB(0, 0, 0), UDim2.fromOffset(0, 2), false)
+
+function updateheadercontrols()
+	if not header
+		or not header.Parent
+	then
+		return
+	end
+
+	local width =
+		math.max(
+			0,
+			header.AbsoluteSize.X
+		)
+
+	local closevisible =
+		closebutton.Visible == true
+
+	local rightinset =
+		closevisible and 52 or 14
+
+	local searchwidth =
+		math.clamp(
+			width - 190,
+			96,
+			150
+		)
+
+	searchholder.Size =
+		UDim2.fromOffset(
+			searchwidth,
+			38
+		)
+
+	searchholder.Position =
+		UDim2.new(
+			1,
+			-rightinset,
+			.5,
+			0
+		)
+
+	closebutton.Size =
+		UDim2.fromOffset(
+			30,
+			30
+		)
+
+	closebutton.Position =
+		UDim2.new(
+			1,
+			-14,
+			.5,
+			0
+		)
+end
+
+connect(
+	header:GetPropertyChangedSignal("AbsoluteSize"),
+	updateheadercontrols
+)
+
+task.defer(updateheadercontrols)
 
 searchicon = image(
 	searchholder,
@@ -7784,6 +8034,10 @@ function transfersectionpage(section, targetpage)
 end
 
 function beginsectiondrag(drag)
+	if draglayer and draglayer.Parent then
+		draglayer.GroupTransparency = 0
+	end
+
 	local section =
 		drag.section
 
@@ -8062,6 +8316,10 @@ function updatesectiondrag(drag)
 end
 
 function finishsectiondrag()
+	if draglayer and draglayer.Parent then
+		draglayer.GroupTransparency = 0
+	end
+
 	local drag =
 		sectiondrag
 
@@ -8083,6 +8341,34 @@ function finishsectiondrag()
 		local floatingposition =
 			drag.ghost.AbsolutePosition
 			- draglayer.AbsolutePosition
+
+		local viewport =
+			draglayer.AbsoluteSize
+
+		local detachedheight =
+			math.max(
+				43,
+				drag.ghost.AbsoluteSize.Y
+			)
+
+		floatingposition = Vector2.new(
+			math.clamp(
+				floatingposition.X,
+				6,
+				math.max(
+					6,
+					viewport.X - drag.width - 6
+				)
+			),
+			math.clamp(
+				floatingposition.Y,
+				6,
+				math.max(
+					6,
+					viewport.Y - detachedheight - 6
+				)
+			)
+		)
 
 		section.floating = true
 		section.floatingwidth =
@@ -15782,6 +16068,8 @@ applyuiscale(initialuiscale)
 
 loadingsettings = true
 watermarktoggle = nil
+watermarkinfocontrol = nil
+watermarkplayermodecontrol = nil
 themeselector = nil
 accentpicker = nil
 backgroundpicker = nil
@@ -15840,6 +16128,13 @@ function currentuipayload()
 			and watermarktoggle:Get()
 			or watermark.Visible,
 
+		watermarkInfo = {
+			Player = watermarkconfig.Player == true,
+			FPS = watermarkconfig.FPS == true,
+			Ping = watermarkconfig.Ping == true,
+			Time = watermarkconfig.Time == true,
+			PlayerMode = watermarkconfig.PlayerMode,
+		},
 
 		animations = animationtoggle
 			and animationtoggle:Get()
@@ -16269,6 +16564,102 @@ watermarktoggle = interfaceflags:AddToggle(
 
 watermark.Visible =
 	savedsettings.watermark == true
+
+if type(savedsettings.watermarkInfo) == "table" then
+	watermarkconfig.Player =
+		savedsettings.watermarkInfo.Player ~= false
+
+	watermarkconfig.FPS =
+		savedsettings.watermarkInfo.FPS ~= false
+
+	watermarkconfig.Ping =
+		savedsettings.watermarkInfo.Ping ~= false
+
+	watermarkconfig.Time =
+		savedsettings.watermarkInfo.Time ~= false
+
+	local mode = tostring(
+		savedsettings.watermarkInfo.PlayerMode
+		or "DisplayName"
+	)
+
+	if mode == "DisplayName"
+		or mode == "Username"
+		or mode == "Both"
+	then
+		watermarkconfig.PlayerMode = mode
+	end
+end
+
+watermarkinfodefault = {}
+
+for _, item in ipairs({
+	"Player",
+	"FPS",
+	"Ping",
+	"Time",
+}) do
+	if watermarkconfig[item] then
+		table.insert(
+			watermarkinfodefault,
+			item
+		)
+	end
+end
+
+watermarkinfocontrol =
+	settingssection:AddMultiDropdown(
+		"Watermark info",
+		{
+			"Player",
+			"FPS",
+			"Ping",
+			"Time",
+		},
+		watermarkinfodefault,
+		function(values)
+			local selected = {}
+
+			for _, value in ipairs(values) do
+				selected[value] = true
+			end
+
+			watermarkconfig.Player =
+				selected.Player == true
+
+			watermarkconfig.FPS =
+				selected.FPS == true
+
+			watermarkconfig.Ping =
+				selected.Ping == true
+
+			watermarkconfig.Time =
+				selected.Time == true
+
+			updatewatermarklayout()
+			saveuisettings()
+		end
+	)
+
+watermarkplayermodecontrol =
+	settingssection:AddDropdown(
+		"Watermark player",
+		{
+			"DisplayName",
+			"Username",
+			"Both",
+		},
+		watermarkconfig.PlayerMode,
+		function(value)
+			watermarkconfig.PlayerMode =
+				tostring(value)
+
+			updatewatermarklayout()
+			saveuisettings()
+		end
+	)
+
+updatewatermarklayout()
 
 animationtoggle = interfaceflags:AddToggle(
 	"Animations",
@@ -16966,6 +17357,61 @@ function applysaveduisettings(data, silent)
 	if watermarktoggle then
 		watermarktoggle:Set(data.watermark == true, true)
 	end
+
+	if type(data.watermarkInfo) == "table" then
+		watermarkconfig.Player =
+			data.watermarkInfo.Player ~= false
+
+		watermarkconfig.FPS =
+			data.watermarkInfo.FPS ~= false
+
+		watermarkconfig.Ping =
+			data.watermarkInfo.Ping ~= false
+
+		watermarkconfig.Time =
+			data.watermarkInfo.Time ~= false
+
+		local mode = tostring(
+			data.watermarkInfo.PlayerMode
+			or watermarkconfig.PlayerMode
+		)
+
+		if mode == "DisplayName"
+			or mode == "Username"
+			or mode == "Both"
+		then
+			watermarkconfig.PlayerMode = mode
+		end
+	end
+
+	if watermarkinfocontrol then
+		local values = {}
+
+		for _, item in ipairs({
+			"Player",
+			"FPS",
+			"Ping",
+			"Time",
+		}) do
+			if watermarkconfig[item] then
+				table.insert(values, item)
+			end
+		end
+
+		watermarkinfocontrol:Set(
+			values,
+			false
+		)
+	end
+
+	if watermarkplayermodecontrol then
+		watermarkplayermodecontrol:Set(
+			watermarkconfig.PlayerMode,
+			false
+		)
+	end
+
+	updatewatermarklayout()
 
 	if animationtoggle then
 		animationtoggle:Set(data.animations ~= false, true)
@@ -19003,13 +19449,7 @@ function updatetopnavigationstate(animate)
 	topsubholder.Visible = enabled and legacycombat
 
 	if not enabled then
-		searchholder.Size = UDim2.fromOffset(150, 38)
-		searchholder.Position = UDim2.new(
-			1,
-			closebutton.Visible and -52 or -14,
-			.5,
-			0
-		)
+		updateheadercontrols()
 		return
 	end
 
@@ -20930,7 +21370,7 @@ connect(
 -- public library api
 
 library = {
-	Version = "1.5.0",
+	Version = "1.6.0",
 	Icons = icons,
 }
 
@@ -22170,12 +22610,7 @@ function library:CreateWindow(options)
 
 	closebutton.Visible = windowminimizebuttonenabled
 	closebutton.Active = windowminimizebuttonenabled
-	searchholder.Position = UDim2.new(
-		1,
-		windowminimizebuttonenabled and -52 or -14,
-		.5,
-		0
-	)
+	updateheadercontrols()
 
 	if options.Roundness ~= nil then
 		windowcorner.CornerRadius = UDim.new(
@@ -22345,6 +22780,59 @@ function library:CreateWindow(options)
 		end
 	end
 
+	if type(options.WatermarkInfo) == "table" then
+		for _, item in ipairs({
+			"Player",
+			"FPS",
+			"Ping",
+			"Time",
+		}) do
+			if options.WatermarkInfo[item] ~= nil then
+				watermarkconfig[item] =
+					options.WatermarkInfo[item] == true
+			end
+		end
+
+		local mode =
+			options.WatermarkInfo.PlayerMode
+
+		if mode == "DisplayName"
+			or mode == "Username"
+			or mode == "Both"
+		then
+			watermarkconfig.PlayerMode = mode
+		end
+
+		if watermarkinfocontrol then
+			local values = {}
+
+			for _, item in ipairs({
+				"Player",
+				"FPS",
+				"Ping",
+				"Time",
+			}) do
+				if watermarkconfig[item] then
+					table.insert(values, item)
+				end
+			end
+
+			watermarkinfocontrol:Set(
+				values,
+				false
+			)
+		end
+
+		if watermarkplayermodecontrol then
+			watermarkplayermodecontrol:Set(
+				watermarkconfig.PlayerMode,
+				false
+			)
+		end
+
+		updatewatermarklayout()
+	end
+
 	if options.HotkeyList ~= nil then
 		local visible = options.HotkeyList == true
 		sethotkeylistvisible(visible)
@@ -22467,12 +22955,7 @@ function library:CreateWindow(options)
 		closebutton.Visible = windowminimizebuttonenabled
 		closebutton.Active = windowminimizebuttonenabled
 
-		searchholder.Position = UDim2.new(
-			1,
-			windowminimizebuttonenabled and -52 or -14,
-			.5,
-			0
-		)
+		updateheadercontrols()
 
 		if topnavigationenabled then
 			updatetopnavigationlayout()
@@ -22691,6 +23174,62 @@ function library:CreateWindow(options)
 		if watermarktoggle then
 			watermarktoggle:Set(visible, false)
 		end
+	end
+
+	function librarywindow:SetWatermarkInfo(config)
+		if type(config) ~= "table" then
+			return false
+		end
+
+		for _, item in ipairs({
+			"Player",
+			"FPS",
+			"Ping",
+			"Time",
+		}) do
+			if config[item] ~= nil then
+				watermarkconfig[item] =
+					config[item] == true
+			end
+		end
+
+		if config.PlayerMode == "DisplayName"
+			or config.PlayerMode == "Username"
+			or config.PlayerMode == "Both"
+		then
+			watermarkconfig.PlayerMode =
+				config.PlayerMode
+		end
+
+		if watermarkinfocontrol then
+			local values = {}
+
+			for _, item in ipairs({
+				"Player",
+				"FPS",
+				"Ping",
+				"Time",
+			}) do
+				if watermarkconfig[item] then
+					table.insert(values, item)
+				end
+			end
+
+			watermarkinfocontrol:Set(
+				values,
+				false
+			)
+		end
+
+		if watermarkplayermodecontrol then
+			watermarkplayermodecontrol:Set(
+				watermarkconfig.PlayerMode,
+				false
+			)
+		end
+
+		updatewatermarklayout()
+		return true
 	end
 
 	function librarywindow:SetHotkeyList(value)
