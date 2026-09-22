@@ -14,6 +14,7 @@ stats = game:GetService("Stats")
 textservice = game:GetService("TextService")
 httpservice = game:GetService("HttpService")
 guiservice = game:GetService("GuiService")
+contextactionservice = game:GetService("ContextActionService")
 assetservice = game:GetService("AssetService")
 
 player = players.LocalPlayer
@@ -54,6 +55,7 @@ end
 
 env.__blush_cleanup = function()
 	runservice:UnbindFromRenderStep("__blush_force_cursor")
+	contextactionservice:UnbindAction("__blush_menu_key")
 
 	if restorecursorstate then
 		restorecursorstate()
@@ -671,8 +673,23 @@ function applyuitransparency(value)
 
 	for object, data in pairs(transparencybase) do
 		if object and object.Parent then
-			object.BackgroundTransparency =
-				effectivetransparency(data.base, data.role)
+			local detached =
+				draglayer
+				and draglayer.Parent
+				and object:IsDescendantOf(draglayer)
+
+			if detached then
+				object.BackgroundTransparency =
+					data.base >= .99
+					and 1
+					or 0
+			else
+				object.BackgroundTransparency =
+					effectivetransparency(
+						data.base,
+						data.role
+					)
+			end
 		end
 	end
 
@@ -1106,6 +1123,49 @@ function plaintext(value)
 	return value
 end
 
+function measuretext(value, size, face, bounds)
+	return textservice:GetTextSize(
+		plaintext(value),
+		size,
+		face,
+		bounds
+	)
+end
+
+function autoresizetextx(object, paddingx, minimum, maximum)
+	paddingx = tonumber(paddingx) or 0
+	minimum = tonumber(minimum) or 0
+	maximum = tonumber(maximum) or 100000
+	object.AutomaticSize = Enum.AutomaticSize.None
+
+	local function resize()
+		if not object.Parent then
+			return
+		end
+
+		local bounds = measuretext(
+			object.Text,
+			object.TextSize,
+			object.Font,
+			Vector2.new(100000, math.max(1, object.AbsoluteSize.Y))
+		)
+
+		object.Size = UDim2.new(
+			0,
+			math.clamp(math.ceil(bounds.X) + paddingx, minimum, maximum),
+			object.Size.Y.Scale,
+			object.Size.Y.Offset
+		)
+	end
+
+	connect(object:GetPropertyChangedSignal("Text"), resize)
+	connect(object:GetPropertyChangedSignal("TextSize"), resize)
+	connect(object:GetPropertyChangedSignal("Font"), resize)
+	resize()
+
+	return resize
+end
+
 function richrgb(textvalue, r, g, b)
 	r = math.clamp(math.round(tonumber(r) or 255), 0, 255)
 	g = math.clamp(math.round(tonumber(g) or 255), 0, 255)
@@ -1122,8 +1182,201 @@ end
 
 env.__blush_rgb = richrgb
 
+env.__blush_gradienttargets = setmetatable({}, { __mode = "k" })
+env.__blush_gradientstates = setmetatable({}, { __mode = "k" })
+
+function registergradienttarget(target, textobject)
+	if target and textobject then
+		env.__blush_gradienttargets[target] = textobject
+	end
+
+	return target
+end
+
+function resolvegradienttarget(target)
+	if type(target) == "table" then
+		if target.TextObject then
+			target = target.TextObject
+		elseif target.Object then
+			target = target.Object
+		elseif target.Button then
+			target = target.Button
+		elseif target.Frame then
+			target = target.Frame
+		end
+	end
+
+	if typeof(target) ~= "Instance" then
+		return nil
+	end
+
+	if target:IsA("TextLabel")
+		or target:IsA("TextButton")
+		or target:IsA("TextBox")
+	then
+		return target
+	end
+
+	local mapped = env.__blush_gradienttargets[target]
+	if mapped and mapped.Parent then
+		return mapped
+	end
+
+	return nil
+end
+
+function normalizetextgradient(value)
+	if value == nil then
+		return nil
+	end
+
+	if typeof(value) == "ColorSequence" then
+		return value
+	end
+
+	if type(value) == "table" then
+		local keypoints = value.Keypoints or value
+
+		if #keypoints >= 2 then
+			return ColorSequence.new(keypoints)
+		end
+	end
+
+	return nil
+end
+
+function settextgradient(target, value)
+	local textobject = resolvegradienttarget(target)
+	if not textobject then
+		return false
+	end
+
+	local previous = env.__blush_gradientstates[textobject]
+	if previous then
+		for _, connection in ipairs(previous.connections or {}) do
+			if connection.Connected then
+				connection:Disconnect()
+			end
+		end
+
+		if previous.proxy and previous.proxy.Parent then
+			previous.proxy:Destroy()
+		end
+
+		if textobject.Parent then
+			textobject.TextTransparency = previous.transparency
+		end
+
+		env.__blush_gradientstates[textobject] = nil
+	end
+
+	local sequence = normalizetextgradient(value)
+	if not sequence then
+		return value == nil
+	end
+
+	local state = {
+		transparency = textobject.TextTransparency,
+		connections = {},
+		guard = false,
+	}
+
+	local proxy = rawnew("TextLabel", {
+		Name = "BlushTextGradient",
+		Parent = textobject,
+		Position = UDim2.fromScale(0, 0),
+		Size = UDim2.fromScale(1, 1),
+		BackgroundTransparency = 1,
+		BorderSizePixel = 0,
+		Text = textobject.Text,
+		TextColor3 = Color3.new(1, 1, 1),
+		TextTransparency = state.transparency,
+		TextStrokeColor3 = textobject.TextStrokeColor3,
+		TextStrokeTransparency = textobject.TextStrokeTransparency,
+		TextSize = textobject.TextSize,
+		Font = textobject.Font,
+		TextXAlignment = textobject.TextXAlignment,
+		TextYAlignment = textobject.TextYAlignment,
+		TextWrapped = textobject.TextWrapped,
+		TextScaled = textobject.TextScaled,
+		TextTruncate = textobject.TextTruncate,
+		RichText = textobject.RichText,
+		LineHeight = textobject.LineHeight,
+		Active = false,
+		Selectable = false,
+		ZIndex = textobject.ZIndex + 1,
+	})
+
+	local gradient = rawnew("UIGradient", {
+		Name = "BlushGradient",
+		Parent = proxy,
+		Color = sequence,
+	})
+
+	state.proxy = proxy
+	state.gradient = gradient
+	env.__blush_gradientstates[textobject] = state
+
+	local function syncproperty(property)
+		if not proxy.Parent or not textobject.Parent then
+			return
+		end
+
+		proxy[property] = textobject[property]
+	end
+
+	for _, property in ipairs({
+		"Text",
+		"TextSize",
+		"Font",
+		"TextXAlignment",
+		"TextYAlignment",
+		"TextWrapped",
+		"TextScaled",
+		"TextTruncate",
+		"TextStrokeColor3",
+		"TextStrokeTransparency",
+		"RichText",
+		"LineHeight",
+		"ZIndex",
+	}) do
+		table.insert(
+			state.connections,
+			textobject:GetPropertyChangedSignal(property):Connect(function()
+				if property == "ZIndex" then
+					proxy.ZIndex = textobject.ZIndex + 1
+				else
+					syncproperty(property)
+				end
+			end)
+		)
+	end
+
+	table.insert(
+		state.connections,
+		textobject:GetPropertyChangedSignal("TextTransparency"):Connect(function()
+			if state.guard or not proxy.Parent then
+				return
+			end
+
+			state.transparency = textobject.TextTransparency
+			proxy.TextTransparency = state.transparency
+
+			state.guard = true
+			textobject.TextTransparency = 1
+			state.guard = false
+		end)
+	)
+
+	state.guard = true
+	textobject.TextTransparency = 1
+	state.guard = false
+
+	return true
+end
+
 function label(parentobject, value, size, face, color)
-	return new("TextLabel", {
+	local object = new("TextLabel", {
 		Parent = parentobject,
 		Size = size,
 
@@ -1139,6 +1392,9 @@ function label(parentobject, value, size, face, color)
 		TextXAlignment = Enum.TextXAlignment.Left,
 		TextYAlignment = Enum.TextYAlignment.Center,
 	})
+
+	registergradienttarget(object, object)
+	return object
 end
 
 function image(parentobject, asset, size, color, zindex)
@@ -1353,8 +1609,8 @@ modalguard = new("TextButton", {
 	AutoButtonColor = false,
 	Active = false,
 	Selectable = false,
-	Modal = true,
-	Visible = true,
+	Modal = false,
+	Visible = false,
 	ZIndex = 1,
 })
 
@@ -1449,9 +1705,7 @@ runservice:BindToRenderStep(
 		if gui
 			and gui.Parent
 			and gui.Enabled
-			and modalguard
-			and modalguard.Parent
-			and modalguard.Modal
+			and env.__blush_windowvisible == true
 		then
 			forcecursorvisible()
 		end
@@ -2179,7 +2433,7 @@ watermarkconfig = {
 	FPS = true,
 	Ping = true,
 	Time = true,
-	PlayerMode = "DisplayName",
+	PlayerMode = "Display name",
 }
 
 env.__blush_watermark_title = watermarktext(
@@ -2226,6 +2480,23 @@ function watermarkplayertext()
 	return player.DisplayName
 end
 
+function normalizewatermarkplayermode(value)
+	value = tostring(value or "Display name")
+
+	if value == "DisplayName" then
+		value = "Display name"
+	end
+
+	if value ~= "Display name"
+		and value ~= "Username"
+		and value ~= "Both"
+	then
+		value = "Display name"
+	end
+
+	return value
+end
+
 function resizewatermarktext(object, value, strong)
 	if not object or not object.Parent then
 		return
@@ -2236,7 +2507,7 @@ function resizewatermarktext(object, value, strong)
 	local size = strong and 16 or 15
 	local fontface = strong and bold or font
 
-	local bounds = textservice:GetTextSize(
+	local bounds = measuretext(
 		value,
 		size,
 		fontface,
@@ -2748,11 +3019,9 @@ titleprimary = label(
 
 titleprimary.LayoutOrder = 1
 
-titleprimary.AutomaticSize =
-	Enum.AutomaticSize.X
-
 titleprimary.TextSize = 20
 titleprimary.ZIndex = 14
+autoresizetextx(titleprimary, 0, 0, 420)
 
 arrowholder = new("Frame", {
 	Parent = breadcrumb,
@@ -2805,11 +3074,9 @@ titlesecondary = label(
 
 titlesecondary.LayoutOrder = 3
 
-titlesecondary.AutomaticSize =
-	Enum.AutomaticSize.X
-
 titlesecondary.TextSize = 18
 titlesecondary.ZIndex = 14
+autoresizetextx(titlesecondary, 0, 0, 420)
 
 closebutton = new("TextButton", {
 	Parent = header,
@@ -3348,7 +3615,7 @@ function notify(
 		- leftpadding
 		- rightpadding
 
-	local bodysize = textservice:GetTextSize(
+	local bodysize = measuretext(
 		plaintext(bodyvalue),
 		15,
 		font,
@@ -3475,7 +3742,7 @@ function notify(
 			Position = UDim2.new(1, -11, 1, -10),
 			Size = UDim2.fromOffset(
 				math.clamp(
-					textservice:GetTextSize(
+					measuretext(
 						plaintext(actionvalue),
 						14,
 						medium,
@@ -3668,23 +3935,7 @@ function createpopup(
 	local y =
 		position.Y
 
-	local blocker = new("TextButton", {
-		Parent = popuplayer,
-
-		Size =
-			UDim2.fromScale(
-				1,
-				1
-			),
-
-		BackgroundTransparency = 1,
-		BorderSizePixel = 0,
-
-		Text = "",
-		AutoButtonColor = false,
-
-		ZIndex = zindex,
-	})
+	local blocker = nil
 
 	local panel
 	local animationobject
@@ -3796,12 +4047,6 @@ function createpopup(
 
 	activepopup = popup
 
-	blocker.Activated:Connect(function()
-		if activepopup == popup then
-			closepopup()
-		end
-	end)
-
 	tween(
 		animationobject,
 		{GroupTransparency = 0},
@@ -3820,6 +4065,30 @@ function createpopup(
 
 	return panel, popup
 end
+
+connect(uis.InputBegan, function(input)
+	if not activepopup then
+		return
+	end
+
+	local kind = input.UserInputType
+	if kind ~= Enum.UserInputType.MouseButton1
+		and kind ~= Enum.UserInputType.MouseButton2
+		and kind ~= Enum.UserInputType.Touch
+	then
+		return
+	end
+
+	local content = activepopup.content
+	if content
+		and content.Parent
+		and inside(content, point(input))
+	then
+		return
+	end
+
+	closepopup()
+end)
 
 function overlayposition(object)
 	return object.AbsolutePosition
@@ -4152,6 +4421,7 @@ function confirmdialog(titletext, bodytext, callback)
 end
 
 env.__blush_togglebindings = {}
+env.__blush_pending_keybinds = {}
 
 hotkeyfontsize = 14
 hotkeylistwidth = 268
@@ -4184,7 +4454,7 @@ addshadow(
 	true
 )
 
-hotkeytitle = label(hotkeylist, "Hotkey List", UDim2.new(1, -76, 0, 30), medium, theme.text)
+hotkeytitle = label(hotkeylist, "Keybinds", UDim2.new(1, -46, 0, 30), medium, theme.text)
 hotkeytitle.Position = UDim2.fromOffset(12, 2)
 hotkeytitle.TextXAlignment = Enum.TextXAlignment.Left
 hotkeytitle.TextSize = 16
@@ -4206,49 +4476,10 @@ hotkeycollapse = new("ImageButton", {
 })
 corner(hotkeycollapse, 6)
 
-hotkeyclose = new("TextButton", {
-	Parent = hotkeylist,
-	AnchorPoint = Vector2.new(1, .5),
-	Position = UDim2.new(1, -7, 0, 16),
-	Size = UDim2.fromOffset(20, 20),
-	BackgroundColor3 = theme.hover,
-	BackgroundTransparency = 1,
-	BorderSizePixel = 0,
-	Text = "",
-	AutoButtonColor = false,
-	ZIndex = 325,
-})
-corner(hotkeyclose, 6)
-
-hotkeycloseline1 = new("Frame", {
-	Parent = hotkeyclose,
-	AnchorPoint = Vector2.new(.5, .5),
-	Position = UDim2.fromScale(.5, .5),
-	Size = UDim2.fromOffset(12, 2),
-	Rotation = 45,
-	BackgroundColor3 = theme.text3,
-	BackgroundTransparency = .08,
-	BorderSizePixel = 0,
-	ZIndex = 326,
-})
-corner(hotkeycloseline1, 999)
-hotkeycloseline2 = new("Frame", {
-	Parent = hotkeyclose,
-	AnchorPoint = Vector2.new(.5, .5),
-	Position = UDim2.fromScale(.5, .5),
-	Size = UDim2.fromOffset(12, 2),
-	Rotation = -45,
-	BackgroundColor3 = theme.text3,
-	BackgroundTransparency = .08,
-	BorderSizePixel = 0,
-	ZIndex = 326,
-})
-corner(hotkeycloseline2, 999)
-
 hotkeydragarea = rawnew("TextButton", {
 	Parent = hotkeylist,
 	Position = UDim2.fromOffset(0, 0),
-	Size = UDim2.new(1, -62, 0, 31),
+	Size = UDim2.new(1, -36, 0, 31),
 	BackgroundTransparency = 1,
 	BorderSizePixel = 0,
 	Text = "",
@@ -4453,37 +4684,8 @@ hotkeycollapse.MouseLeave:Connect(function()
 		ImageTransparency = .12,
 	}, hoverti)
 end)
-hotkeyclose.MouseEnter:Connect(function()
-	tween(hotkeycloseline1, {
-		BackgroundColor3 = theme.text2,
-		BackgroundTransparency = 0,
-	}, hoverti)
-	tween(hotkeycloseline2, {
-		BackgroundColor3 = theme.text2,
-		BackgroundTransparency = 0,
-	}, hoverti)
-end)
-hotkeyclose.MouseLeave:Connect(function()
-	tween(hotkeycloseline1, {
-		BackgroundColor3 = theme.text3,
-		BackgroundTransparency = .08,
-	}, hoverti)
-	tween(hotkeycloseline2, {
-		BackgroundColor3 = theme.text3,
-		BackgroundTransparency = .08,
-	}, hoverti)
-end)
-
 hotkeycollapse.Activated:Connect(function()
 	sethotkeyminimized(not hotkeyminimized, true)
-end)
-
-hotkeyclose.Activated:Connect(function()
-	if hotkeylisttoggle and hotkeylisttoggle.Set then
-		hotkeylisttoggle:Set(false, true)
-	else
-		sethotkeylistvisible(false)
-	end
 end)
 
 hotkeydragarea.InputBegan:Connect(function(input)
@@ -4649,7 +4851,7 @@ function rebuildhotkeypath(data, binding)
 
 	for index, part in ipairs(parts) do
 		local last = index == #parts
-		local bounds = textservice:GetTextSize(
+		local bounds = measuretext(
 			part,
 			13,
 			font,
@@ -4748,10 +4950,28 @@ function createhotkeyrow(binding)
 	})
 	corner(row, 6)
 
+	local activebox, renderactive =
+		makecheckbox(
+			row,
+			15,
+			false
+		)
+
+	activebox.AnchorPoint =
+		Vector2.new(0, .5)
+
+	activebox.Position =
+		UDim2.fromOffset(
+			4,
+			14
+		)
+
+	activebox.ZIndex = 324
+
 	local pathholder = new("Frame", {
 		Parent = row,
-		Position = UDim2.fromOffset(5, 1),
-		Size = UDim2.new(1, -60, 1, -2),
+		Position = UDim2.fromOffset(25, 1),
+		Size = UDim2.new(1, -80, 1, -2),
 		BackgroundTransparency = 1,
 		BorderSizePixel = 0,
 		ClipsDescendants = true,
@@ -4795,6 +5015,8 @@ stroke(
 		pathicons = {},
 		keyholder = keyholder,
 		keytext = keytext,
+		activebox = activebox,
+		renderactive = renderactive,
 		active = nil,
 		path = nil,
 		keyname = nil,
@@ -4847,7 +5069,7 @@ function updatehotkeyrow(data, binding, active, layoutorder, animate)
 		data.keytext.Text = keyname
 	end
 
-	local bounds = textservice:GetTextSize(
+	local bounds = measuretext(
 		keyname,
 		14,
 		medium,
@@ -4873,12 +5095,16 @@ function updatehotkeyrow(data, binding, active, layoutorder, animate)
 	data.pathholder.Size =
 		UDim2.new(
 			1,
-			-keywidth - 16,
+			-keywidth - 36,
 			1,
 			-2
 		)
 
 	local changed = data.active ~= active
+
+	if data.renderactive then
+		data.renderactive(active == true)
+	end
 	data.active = active
 
 	local color = active and theme.text2 or theme.text3
@@ -5431,7 +5657,7 @@ function opentoggleconfig(anchor, binding, clickposition, togglesame)
 		keytext.Text = value
 
 		local bounds =
-			textservice:GetTextSize(
+			measuretext(
 				value,
 				14,
 				medium,
@@ -5735,6 +5961,115 @@ function opentoggleconfig(anchor, binding, clickposition, togglesame)
 	renderkey()
 end
 
+function hotkeybindingid(binding)
+	return table.concat({
+		tostring(binding.kind or "Toggle"),
+		tostring(binding.category or ""),
+		tostring(binding.subpage or ""),
+		tostring(binding.sectionname or ""),
+		tostring(binding.name or ""),
+	}, "|")
+end
+
+function applysavedkeybind(binding, data)
+	if not binding or type(data) ~= "table" then
+		return
+	end
+
+	local key =
+		data.key
+		and keyfromname(data.key)
+		or nil
+
+	if key ~= nil then
+		binding.key = key
+	elseif data.key == false
+		or data.key == "None"
+	then
+		binding.key = nil
+	end
+
+	local mode =
+		tostring(data.mode or binding.mode or "Toggle")
+
+	if mode ~= "Toggle"
+		and mode ~= "Hold"
+		and mode ~= "Always On"
+	then
+		mode = "Toggle"
+	end
+
+	binding.mode = mode
+	binding.held = false
+
+	if binding.refreshkey then
+		binding.refreshkey()
+	end
+
+	if mode == "Always On"
+		and binding.set
+	then
+		binding.set(true, false)
+	end
+
+	hotkeysignature = ""
+	requesthotkeyrefresh(binding)
+end
+
+function currentkeybindpayload()
+	local payload = {}
+
+	for _, binding in ipairs(
+		env.__blush_togglebindings or {}
+	) do
+		local id =
+			binding.id
+			or hotkeybindingid(binding)
+
+		binding.id = id
+
+		payload[id] = {
+			key = binding.key
+				and binding.key.Name
+				or false,
+
+			mode = binding.mode
+				or "Toggle",
+		}
+	end
+
+	return payload
+end
+
+function applykeybindpayload(payload)
+	env.__blush_pending_keybinds =
+		type(payload) == "table"
+		and payload
+		or {}
+
+	for _, binding in ipairs(
+		env.__blush_togglebindings or {}
+	) do
+		local id =
+			binding.id
+			or hotkeybindingid(binding)
+
+		binding.id = id
+
+		local data =
+			env.__blush_pending_keybinds[id]
+
+		if data then
+			applysavedkeybind(
+				binding,
+				data
+			)
+		end
+	end
+
+	refreshhotkeylist()
+end
+
 function registertogglebinding(binding)
 	if not binding then
 		return
@@ -5746,13 +6081,34 @@ function registertogglebinding(binding)
 		end
 	end
 
+	binding.id =
+		binding.id
+		or hotkeybindingid(binding)
+
 	table.insert(env.__blush_togglebindings, binding)
+
+	local pending =
+		env.__blush_pending_keybinds
+		and env.__blush_pending_keybinds[
+			binding.id
+		]
+
+	if pending then
+		applysavedkeybind(
+			binding,
+			pending
+		)
+	end
+
 	hotkeysignature = ""
 	requesthotkeyrefresh(binding)
 end
 
 function attachtoggleconfig(anchor, binding)
-	if binding.configattached then
+	if binding.configattached
+		and binding.anchor
+		and binding.anchor.Parent
+	then
 		return
 	end
 
@@ -5913,10 +6269,6 @@ connect(
 			end
 		end
 
-		if processed then
-			return
-		end
-
 		local keyboard =
 			input.UserInputType
 				== Enum.UserInputType.Keyboard
@@ -6069,7 +6421,7 @@ function attachinlinekeypicker(
 		local value = state.listening and "..." or togglekeyname(binding.key)
 		keytext.Text = value
 
-		local bounds = textservice:GetTextSize(
+		local bounds = measuretext(
 			value,
 			13,
 			medium,
@@ -6735,10 +7087,10 @@ function makecheckbox(
 	})
 
 	corner(box, 5)
-	stroke(
+	local boxstroke = stroke(
 		box,
-		.4,
-		theme.border,
+		default and .26 or .4,
+		default and theme.white or theme.border,
 		.7
 	)
 
@@ -6847,7 +7199,30 @@ function makecheckbox(
 					Transparency =
 						value and .64 or 1,
 				},
-				checkti
+				value
+					and checkti
+					or TweenInfo.new(
+						checkti.Time,
+						Enum.EasingStyle.Quart,
+						Enum.EasingDirection.In
+					)
+			)
+		end
+
+		if boxstroke then
+			tween(
+				boxstroke,
+				{
+					Transparency = value and .26 or .4,
+					Color = value and theme.white or theme.border,
+				},
+				value
+					and checkti
+					or TweenInfo.new(
+						checkti.Time,
+						Enum.EasingStyle.Quart,
+						Enum.EasingDirection.In
+					)
 			)
 		end
 	end
@@ -8081,7 +8456,7 @@ function beginsectiondrag(drag)
 		BackgroundTransparency = 1,
 		BorderSizePixel = 0,
 
-		ClipsDescendants = true,
+		ClipsDescendants = false,
 
 		ZIndex = 410,
 	})
@@ -8115,6 +8490,20 @@ function beginsectiondrag(drag)
 	end
 
 	clone.ZIndex += 400
+
+	if clone.BackgroundTransparency < .99 then
+		clone.BackgroundTransparency = 0
+	end
+
+	for _, object in ipairs(
+		clone:GetDescendants()
+	) do
+		if object:IsA("GuiObject")
+			and object.BackgroundTransparency < .99
+		then
+			object.BackgroundTransparency = 0
+		end
+	end
 
 	section.dragging = true
 	section.frame.Visible = false
@@ -8396,6 +8785,10 @@ function finishsectiondrag()
 			section.shadow.Enabled = true
 		end
 
+		applyuitransparency(
+			uitransparency * 100
+		)
+
 		if drag.ghost
 			and drag.ghost.Parent
 		then
@@ -8428,6 +8821,10 @@ function finishsectiondrag()
 	if section.shadow then
 		section.shadow.Enabled = false
 	end
+
+	applyuitransparency(
+		uitransparency * 100
+	)
 
 	section.frame.Size =
 		UDim2.new(
@@ -8768,6 +9165,7 @@ function createsection(
 		body = body,
 		clip = clip,
 		shadow = floatingshadow,
+		TextObject = titleobject,
 
 		name = titletext,
 
@@ -9085,6 +9483,39 @@ function createsection(
 				name = string.lower(plaintext(name)),
 			}
 		)
+
+		if row:IsA("TextLabel")
+			or row:IsA("TextButton")
+			or row:IsA("TextBox")
+		then
+			registergradienttarget(row, row)
+			return
+		end
+
+		local expected = string.lower(plaintext(name))
+		local fallback
+
+		for _, object in ipairs(row:GetDescendants()) do
+			if object:IsA("TextLabel")
+				or object:IsA("TextButton")
+				or object:IsA("TextBox")
+			then
+				local visible = string.lower(plaintext(object.Text))
+
+				if visible ~= "" and not fallback then
+					fallback = object
+				end
+
+				if visible == expected then
+					registergradienttarget(row, object)
+					return
+				end
+			end
+		end
+
+		if fallback then
+			registergradienttarget(row, fallback)
+		end
 	end
 
 
@@ -9375,7 +9806,7 @@ function createsection(
 				or tostring(badge)
 
 			local textbounds =
-				textservice:GetTextSize(
+				measuretext(
 					plaintext(name),
 					17,
 					font,
@@ -9383,7 +9814,7 @@ function createsection(
 				)
 
 			local badgebounds =
-				textservice:GetTextSize(
+				measuretext(
 					badgetext,
 					11,
 					bold,
@@ -9454,6 +9885,13 @@ function createsection(
 		}
 
 		registertogglebinding(binding)
+
+		if not uis.TouchEnabled then
+			attachtoggleconfig(
+				row,
+				binding
+			)
+		end
 
 		local keyobject
 		if hasbinding then
@@ -9892,7 +10330,7 @@ function createsection(
 			local value = listening and "..." or togglekeyname(binding.key)
 			keytext.Text = value
 
-			local bounds = textservice:GetTextSize(
+			local bounds = measuretext(
 				value,
 				13,
 				medium,
@@ -10338,6 +10776,9 @@ function createsection(
 					true
 				)
 			end,
+
+			Object = holder,
+			TextObject = title,
 		}
 	end
 
@@ -10785,6 +11226,8 @@ function createsection(
 				high = math.max(a, b)
 				render(fire ~= false)
 			end,
+			Object = holder,
+			TextObject = title,
 		}
 	end
 
@@ -10941,6 +11384,7 @@ function createsection(
 		corner(button, 7)
 
 		local selected = default or options[1]
+		local optionbindings = {}
 
 		local previewicon = rawnew("ImageLabel", {
 			Parent = button,
@@ -11006,6 +11450,89 @@ function createsection(
 		end
 
 		updatepreview()
+
+		local function setselected(option, fire)
+			if not table.find(options, option) then
+				return false
+			end
+
+			selected = option
+			updatepreview()
+
+			if fire ~= false
+				and callback
+			then
+				callback(option)
+			end
+
+			for _, binding in pairs(optionbindings) do
+				requesthotkeyrefresh(binding)
+			end
+
+			return true
+		end
+
+		local function optionbinding(option)
+			local existing =
+				optionbindings[option]
+
+			if existing then
+				return existing
+			end
+
+			local binding
+
+			binding = {
+				kind = "DropdownOption",
+				name = name .. " / " .. tostring(option),
+				category = section.page.primary or "Misc",
+				subpage = section.page.secondary,
+				sectionname = section.name,
+				key = nil,
+				mode = "Toggle",
+				held = false,
+				suppressclick = false,
+				previous = nil,
+
+				get = function()
+					return selected == option
+				end,
+
+				set = function(value, fire)
+					if value == true then
+						if selected ~= option then
+							binding.previous = selected
+						end
+
+						setselected(
+							option,
+							fire
+						)
+					elseif selected == option
+						and binding.previous
+						and table.find(
+							options,
+							binding.previous
+						)
+					then
+						setselected(
+							binding.previous,
+							fire
+						)
+					end
+				end,
+			}
+
+			optionbindings[option] =
+				binding
+
+			registertogglebinding(binding)
+			return binding
+		end
+
+		for _, option in ipairs(options) do
+			optionbinding(option)
+		end
 
 		local arrow = image(button, icons.down, 14, theme.text3, 17)
 		arrow.AnchorPoint = Vector2.new(1, .5)
@@ -11201,6 +11728,30 @@ function createsection(
 					x += 18
 				end
 
+				local binding =
+					optionbinding(option)
+
+				if not uis.TouchEnabled then
+					attachtoggleconfig(
+						optionbutton,
+						binding
+					)
+				end
+
+				local optionkey = label(
+					optionbutton,
+					"",
+					UDim2.fromOffset(0, 25),
+					medium,
+					theme.text3
+				)
+				optionkey.AnchorPoint = Vector2.new(1, .5)
+				optionkey.Position = UDim2.new(1, -7, .5, 0)
+				optionkey.TextSize = 13
+				optionkey.TextXAlignment = Enum.TextXAlignment.Center
+				optionkey.Visible = false
+				optionkey.ZIndex = 516
+
 				local optionlabel = label(
 					optionbutton,
 					tostring(option),
@@ -11211,6 +11762,65 @@ function createsection(
 				optionlabel.Position = UDim2.fromOffset(x, 0)
 				optionlabel.TextSize = 16
 				optionlabel.ZIndex = 515
+
+				local function renderoptionkey()
+					if not optionkey.Parent
+						or not optionlabel.Parent
+					then
+						return
+					end
+
+					if not binding.key then
+						optionkey.Visible = false
+						optionlabel.Size =
+							UDim2.new(
+								1,
+								-(x + 8),
+								1,
+								0
+							)
+						return
+					end
+
+					local keyname =
+						togglekeyname(binding.key)
+
+					local bounds =
+						measuretext(
+							keyname,
+							13,
+							medium,
+							Vector2.new(120, 25)
+						)
+
+					local width =
+						math.clamp(
+							math.ceil(bounds.X) + 14,
+							28,
+							72
+						)
+
+					optionkey.Text = keyname
+					optionkey.Size =
+						UDim2.fromOffset(
+							width,
+							25
+						)
+					optionkey.Visible = true
+
+					optionlabel.Size =
+						UDim2.new(
+							1,
+							-(x + width + 13),
+							1,
+							0
+						)
+				end
+
+				binding.refreshkey =
+					renderoptionkey
+
+				renderoptionkey()
 
 				optionrows[#optionrows + 1] = {
 					value = option,
@@ -11228,11 +11838,16 @@ function createsection(
 				end)
 
 				optionbutton.Activated:Connect(function()
-					selected = option
-					updatepreview()
-					if callback then
-						callback(option)
+					if binding.suppressclick then
+						binding.suppressclick = false
+						return
 					end
+
+					setselected(
+						option,
+						true
+					)
+
 					closepopup()
 				end)
 			end
@@ -11270,16 +11885,10 @@ function createsection(
 			end,
 
 			Set = function(_, option, fire)
-				if not table.find(options, option) then
-					return
-				end
-
-				selected = option
-				updatepreview()
-
-				if fire ~= false and callback then
-					callback(option)
-				end
+				setselected(
+					option,
+					fire
+				)
 			end,
 
 			SetOptions = function(_, newoptions, preferred)
@@ -11298,8 +11907,18 @@ function createsection(
 					selected = options[1] or "None"
 				end
 
+				for _, option in ipairs(options) do
+					optionbinding(option)
+				end
+
 				updatepreview()
+
+				for _, binding in pairs(optionbindings) do
+					requesthotkeyrefresh(binding)
+				end
 			end,
+			Object = holder,
+			TextObject = title,
 		}
 	end
 
@@ -11768,7 +12387,7 @@ function createsection(
 
 				if playersdivider and playersdivider ~= "" then
 					local dividertext = plaintext(tostring(playersdivider))
-					local bounds = textservice:GetTextSize(
+					local bounds = measuretext(
 						dividertext,
 						15,
 						medium,
@@ -11892,6 +12511,8 @@ function createsection(
 				refreshdisplay()
 			end,
 			Multi = multiselect,
+			Object = holder,
+			TextObject = title,
 		}
 	end
 
@@ -12317,6 +12938,8 @@ function createsection(
 				end
 				refresh(false)
 			end,
+			Object = holder,
+			TextObject = title,
 		}
 	end
 
@@ -12392,7 +13015,7 @@ function createsection(
 		end
 
 		local function measure(value)
-			return textservice:GetTextSize(
+			return measuretext(
 				tostring(value or ""),
 				box.TextSize,
 				box.Font,
@@ -12636,7 +13259,7 @@ function createsection(
 			keytext.Text = value
 
 			local bounds =
-				textservice:GetTextSize(
+				measuretext(
 					value,
 					14,
 					medium,
@@ -12799,6 +13422,8 @@ function createsection(
 			Set = function(_, key, fire)
 				setkey(key, fire)
 			end,
+			Object = row,
+			TextObject = title,
 		}
 	end
 
@@ -12939,6 +13564,8 @@ function createsection(
 			name
 		)
 
+		state.Object = row
+		state.TextObject = title
 		return state
 	end
 
@@ -13061,6 +13688,7 @@ function createsection(
 			Get = function() return value end,
 			Set = function(_, number) set(number) end,
 			Object = holder,
+			TextObject = titleobject,
 		}
 	end
 
@@ -13134,7 +13762,7 @@ function createsection(
 			corner(button, 6)
 
 			local optiontext = tostring(option)
-			local optionbounds = textservice:GetTextSize(
+			local optionbounds = measuretext(
 				plaintext(optiontext),
 				14,
 				font,
@@ -13227,6 +13855,7 @@ function createsection(
 				end
 			end,
 			Object = holder,
+			TextObject = titleobject,
 		}
 	end
 
@@ -13321,7 +13950,7 @@ function createsection(
 
 		local function resizebadge()
 			local value = tostring(textobject.Text or "")
-			local bounds = textservice:GetTextSize(
+			local bounds = measuretext(
 				value,
 				15,
 				medium,
@@ -14176,7 +14805,7 @@ function createsection(
 			taborder
 		) do
 			local measured =
-				textservice:GetTextSize(
+				measuretext(
 					plaintext(tabname),
 					15,
 					medium,
@@ -16078,6 +16707,7 @@ animationtoggle = nil
 searchtoggle = nil
 menukeypicker = nil
 hotkeylisttoggle = nil
+minimizebuttoncontrol = nil
 uiscalecontrol = nil
 uitransparencycontrol = nil
 notificationtoggle = nil
@@ -16085,6 +16715,7 @@ notificationdurationcontrol = nil
 maxnotificationcontrol = nil
 configselector = nil
 configinput = nil
+autoloadconfigcontrol = nil
 themfileselector = nil
 themefileinput = nil
 settingssection = nil
@@ -16152,6 +16783,9 @@ function currentuipayload()
 			and hotkeylisttoggle:Get()
 			or hotkeylist.Visible,
 
+		minimizeButton = minimizebuttoncontrol
+			and minimizebuttoncontrol:Get()
+			or windowminimizebuttonenabled,
 
 		backgroundImageSource = backgroundimagesource,
 
@@ -16197,6 +16831,9 @@ function currentuipayload()
 
 		selectedConfig = selectedconfig,
 		selectedThemeSave = selectedthemesave,
+		autoLoadConfig = autoloadconfigcontrol
+			and autoloadconfigcontrol:Get()
+			or rawsavedsettings.autoLoadConfig == true,
 
 		menuKey = selectedmenukey
 			and selectedmenukey.Name
@@ -16319,9 +16956,17 @@ function saveconfigfile(name)
 	end
 
 	selectedconfig = name
+
+	local payload =
+		currentuipayload()
+
+	payload.autoLoadConfig = nil
+	payload.keybinds =
+		currentkeybindpayload()
+
 	local ok = writejsonfile(
 		configfolder .. "/" .. name .. ".json",
-		currentuipayload()
+		payload
 	)
 
 	if ok then
@@ -16355,6 +17000,13 @@ function loadconfigfile(name, silent)
 	end
 	refreshconfigfiles(name)
 	applysaveduisettings(data, silent == true)
+	applykeybindpayload(data.keybinds)
+	syncwindowglowcolor(false)
+
+	task.defer(function()
+		syncwindowglowcolor(false)
+	end)
+
 	saveuisettings(true)
 	return true
 end
@@ -16433,6 +17085,8 @@ function applythemepayload(data)
 	accentpicker:Set(accent, accentalpha, false)
 	backgroundpicker:Set(background, backgroundalpha, false)
 	fontpicker:Set(fontcolor, fontalpha, false)
+
+	syncwindowglowcolor(false)
 
 	local imagesource = type(data.backgroundImageSource) == "string"
 		and data.backgroundImageSource
@@ -16578,28 +17232,26 @@ if type(savedsettings.watermarkInfo) == "table" then
 	watermarkconfig.Time =
 		savedsettings.watermarkInfo.Time ~= false
 
-	local mode = tostring(
-		savedsettings.watermarkInfo.PlayerMode
-		or "DisplayName"
-	)
-
-	if mode == "DisplayName"
-		or mode == "Username"
-		or mode == "Both"
-	then
-		watermarkconfig.PlayerMode = mode
-	end
+	watermarkconfig.PlayerMode =
+		normalizewatermarkplayermode(
+			savedsettings.watermarkInfo.PlayerMode
+		)
 end
 
 watermarkinfodefault = {}
 
 for _, item in ipairs({
 	"Player",
-	"FPS",
+	"Fps",
 	"Ping",
 	"Time",
 }) do
-	if watermarkconfig[item] then
+	local enabled =
+		item == "Fps"
+			and watermarkconfig.FPS
+			or watermarkconfig[item]
+
+	if enabled then
 		table.insert(
 			watermarkinfodefault,
 			item
@@ -16612,7 +17264,7 @@ watermarkinfocontrol =
 		"Watermark info",
 		{
 			"Player",
-			"FPS",
+			"Fps",
 			"Ping",
 			"Time",
 		},
@@ -16628,7 +17280,7 @@ watermarkinfocontrol =
 				selected.Player == true
 
 			watermarkconfig.FPS =
-				selected.FPS == true
+				selected.Fps == true
 
 			watermarkconfig.Ping =
 				selected.Ping == true
@@ -16642,17 +17294,19 @@ watermarkinfocontrol =
 	)
 
 watermarkplayermodecontrol =
-	settingssection:AddDropdown(
-		"Watermark player",
+	settingssection:AddRadio(
+		"Player name",
 		{
-			"DisplayName",
+			"Display name",
 			"Username",
 			"Both",
 		},
-		watermarkconfig.PlayerMode,
+		normalizewatermarkplayermode(
+			watermarkconfig.PlayerMode
+		),
 		function(value)
 			watermarkconfig.PlayerMode =
-				tostring(value)
+				normalizewatermarkplayermode(value)
 
 			updatewatermarklayout()
 			saveuisettings()
@@ -16717,7 +17371,7 @@ notificationtoggle = interfaceflags2:AddToggle(
 interfaceflags3 = settingssection:AddRow(10, 24)
 
 hotkeylisttoggle = interfaceflags3:AddToggle(
-	"Hotkey list",
+	"Keybinds",
 	savedsettings.hotkeyList == true
 		or savedsettings.checkboxList == true,
 	function(value)
@@ -16743,11 +17397,46 @@ topnavigationtoggle = interfaceflags3:AddToggle(
 	end
 )
 
+minimizebuttoncontrol = settingssection:AddToggle(
+	"Minimize button",
+	savedsettings.minimizeButton ~= false,
+	function(value)
+		windowminimizebuttonenabled =
+			value == true
+
+		closebutton.Visible =
+			windowminimizebuttonenabled
+
+		closebutton.Active =
+			windowminimizebuttonenabled
+
+		updateheadercontrols()
+
+		if topnavigationenabled then
+			updatetopnavigationlayout()
+		end
+
+		saveuisettings()
+	end
+)
+
+windowminimizebuttonenabled =
+	savedsettings.minimizeButton ~= false
+
+closebutton.Visible =
+	windowminimizebuttonenabled
+
+closebutton.Active =
+	windowminimizebuttonenabled
+
+updateheadercontrols()
+
 menukeypicker = settingssection:AddKeyPicker(
 	"Menu key",
 	menukey,
 	function(key)
 		menukey = key
+		refreshmenukeybinding()
 		saveuisettings()
 	end
 )
@@ -17265,6 +17954,14 @@ savessection =
 		icons.wrench
 	)
 
+autoloadconfigcontrol = savessection:AddToggle(
+	"Auto load",
+	rawsavedsettings.autoLoadConfig == true,
+	function()
+		saveuisettings(true)
+	end
+)
+
 configinput = savessection:AddInput(
 	"Config name",
 	selectedconfig,
@@ -17371,17 +18068,11 @@ function applysaveduisettings(data, silent)
 		watermarkconfig.Time =
 			data.watermarkInfo.Time ~= false
 
-		local mode = tostring(
-			data.watermarkInfo.PlayerMode
-			or watermarkconfig.PlayerMode
-		)
-
-		if mode == "DisplayName"
-			or mode == "Username"
-			or mode == "Both"
-		then
-			watermarkconfig.PlayerMode = mode
-		end
+		watermarkconfig.PlayerMode =
+			normalizewatermarkplayermode(
+				data.watermarkInfo.PlayerMode
+				or watermarkconfig.PlayerMode
+			)
 	end
 
 	if watermarkinfocontrol then
@@ -17389,11 +18080,16 @@ function applysaveduisettings(data, silent)
 
 		for _, item in ipairs({
 			"Player",
-			"FPS",
+			"Fps",
 			"Ping",
 			"Time",
 		}) do
-			if watermarkconfig[item] then
+			local enabled =
+				item == "Fps"
+					and watermarkconfig.FPS
+					or watermarkconfig[item]
+
+			if enabled then
 				table.insert(values, item)
 			end
 		end
@@ -17406,7 +18102,9 @@ function applysaveduisettings(data, silent)
 
 	if watermarkplayermodecontrol then
 		watermarkplayermodecontrol:Set(
-			watermarkconfig.PlayerMode,
+			normalizewatermarkplayermode(
+				watermarkconfig.PlayerMode
+			),
 			false
 		)
 	end
@@ -17431,6 +18129,26 @@ function applysaveduisettings(data, silent)
 
 		hotkeylisttoggle:Set(visible, true)
 		sethotkeylistvisible(visible)
+	end
+
+	if data.minimizeButton ~= nil then
+		windowminimizebuttonenabled =
+			data.minimizeButton == true
+
+		if minimizebuttoncontrol then
+			minimizebuttoncontrol:Set(
+				windowminimizebuttonenabled,
+				false
+			)
+		end
+
+		closebutton.Visible =
+			windowminimizebuttonenabled
+
+		closebutton.Active =
+			windowminimizebuttonenabled
+
+		updateheadercontrols()
 	end
 
 	backgroundexcludesidebar = data.backgroundImageExcludeSidebar == true
@@ -17562,6 +18280,23 @@ function applysaveduisettings(data, silent)
 	backgroundpicker:Set(loadedbackground, loadedbackgroundalpha, false)
 	fontpicker:Set(loadedfont, loadedfontalpha, false)
 
+	syncwindowglowcolor(false)
+
+	task.defer(function()
+		if windowglowcolorpicker then
+			windowglowcolorpicker:Set(
+				theme.white,
+				windowglowalpha,
+				false
+			)
+
+			windowglowrenderalpha =
+				windowglowcolorpicker:currentalpha()
+		end
+
+		syncwindowglowcolor(false)
+	end)
+
 	backgroundpalette = nil
 	if loadedimagesource ~= "" then
 		task.spawn(function()
@@ -17679,12 +18414,24 @@ end
 
 loadingsettings = false
 
+if rawsavedsettings.autoLoadConfig == true
+	and selectedconfig ~= ""
+	and selectedconfig ~= "None"
+then
+	task.defer(function()
+		loadconfigfile(
+			selectedconfig,
+			true
+		)
+	end)
+end
+
 env.__blush_visibility_busy = false
 env.__blush_visibility_token = 0
 env.__blush_windowvisible = true
 env.__blush_fadegroup = nil
 env.__blush_faderoots = nil
-env.__blush_fadeanimation = nil
+env.__blush_fadeanimations = {}
 
 function cancelreopenanimations()
 	for _, animation in ipairs(env.__blush_reopenanimations or {}) do
@@ -17785,147 +18532,110 @@ function animatereopenbutton(show, token)
 	end)
 end
 
-function buildvisibilitygroup()
-	if env.__blush_fadegroup
-		and env.__blush_fadegroup.Parent
-	then
-		return env.__blush_fadegroup
+function cancelvisibilityanimations()
+	for _, animation in ipairs(env.__blush_fadeanimations or {}) do
+		invoke(function()
+			animation:Cancel()
+		end)
 	end
 
-	local group = rawnew("CanvasGroup", {
-		Parent = gui,
-		Size = UDim2.fromScale(1, 1),
-		BackgroundTransparency = 1,
-		BorderSizePixel = 0,
-		GroupTransparency = 0,
-		ClipsDescendants = false,
-		ZIndex = 0,
-	})
-
-	local roots = {
-		shell,
-		popuplayer,
-		draglayer,
-	}
-
-	local stored = {}
-	for _, object in ipairs(roots) do
-		if object and object.Parent then
-			stored[#stored + 1] = {
-				object = object,
-				parent = object.Parent,
-			}
-			object.Parent = group
-		end
-	end
-
-	env.__blush_fadegroup = group
-	env.__blush_faderoots = stored
-	return group
+	env.__blush_fadeanimations = {}
 end
 
-function restorevisibilityroots()
-	for _, entry in ipairs(env.__blush_faderoots or {}) do
-		if entry.object and entry.object.Parent then
-			entry.object.Parent = entry.parent
-		end
+function setvisibilityrootsvisible(value)
+	if shell and shell.Parent then
+		shell.Visible = value
 	end
 
-	if env.__blush_fadegroup
-		and env.__blush_fadegroup.Parent
-	then
-		env.__blush_fadegroup:Destroy()
+	if popuplayer and popuplayer.Parent then
+		popuplayer.Visible = value
 	end
 
-	env.__blush_fadegroup = nil
-	env.__blush_faderoots = nil
-	env.__blush_fadeanimation = nil
+	if draglayer and draglayer.Parent then
+		draglayer.Visible = value
+	end
 end
 
 function playvisibilityfade(show, token)
 	env.__blush_windowvisible = show
 
-	if modalguard and modalguard.Parent then
-		modalguard.Modal = show
-		modalguard.Active = show
-		modalguard.Visible = show
-	end
-
 	if show then
+		setvisibilityrootsvisible(true)
 		forcecursorvisible()
-	else
-		restorecursorstate()
-	end
-
-	if env.__blush_fadeanimation then
-		invoke(function()
-			env.__blush_fadeanimation:Cancel()
-		end)
-		env.__blush_fadeanimation = nil
-	end
-
-	if show then
 		animatereopenbutton(false, token)
 	else
 		reopengui.Enabled = false
 	end
 
-	local group = buildvisibilitygroup()
-	group.GroupTransparency = show and 1 or 0
+	cancelvisibilityanimations()
 
-	local duration = animationsenabled and .24 or .001
+	local duration = animationsenabled and .32 or .001
 	local info = TweenInfo.new(
 		duration,
 		Enum.EasingStyle.Quart,
 		show and Enum.EasingDirection.Out or Enum.EasingDirection.In
 	)
 
-	local animation = tweenservice:Create(
-		group,
-		info,
-		{GroupTransparency = show and 0 or 1}
-	)
-	env.__blush_fadeanimation = animation
-	animation:Play()
+	local roots = {
+		{window, show and uitransparency or 1},
+		{popuplayer, show and uitransparency or 1},
+		{draglayer, show and 0 or 1},
+	}
 
-	animation.Completed:Connect(function()
+	local primary = nil
+	for _, entry in ipairs(roots) do
+		local object = entry[1]
+		local target = entry[2]
+
+		if object and object.Parent then
+			local animation = tweenservice:Create(
+				object,
+				info,
+				{GroupTransparency = target}
+			)
+
+			table.insert(
+				env.__blush_fadeanimations,
+				animation
+			)
+
+			primary = primary or animation
+			animation:Play()
+		end
+	end
+
+	local function finish()
 		if env.__blush_visibility_token ~= token then
 			return
 		end
 
+		for _, entry in ipairs(roots) do
+			local object = entry[1]
+			if object and object.Parent then
+				object.GroupTransparency = entry[2]
+			end
+		end
+
 		if show then
-			restorevisibilityroots()
+			setvisibilityrootsvisible(true)
 		else
+			setvisibilityrootsvisible(false)
+			restorecursorstate()
 			animatereopenbutton(true, token)
 		end
 
 		env.__blush_visibility_busy = false
-	end)
+		env.__blush_fadeanimations = {}
+	end
 
-	task.delay(duration + .04, function()
-		if env.__blush_visibility_token ~= token then
-			return
-		end
-
-		if show then
-			if env.__blush_fadegroup then
-				restorevisibilityroots()
-			end
-		else
-			if not reopengui.Enabled then
-				animatereopenbutton(true, token)
-			end
-		end
-
-		env.__blush_visibility_busy = false
-	end)
+	if primary then
+		primary.Completed:Connect(finish)
+	else
+		finish()
+	end
 end
 
 function requestvisibilitytoggle()
-	if env.__blush_visibility_busy then
-		return
-	end
-
 	env.__blush_visibility_busy = true
 	env.__blush_visibility_token += 1
 
@@ -17937,10 +18647,35 @@ function requestvisibilitytoggle()
 	playvisibilityfade(show, token)
 end
 
+function refreshmenukeybinding()
+	contextactionservice:UnbindAction("__blush_menu_key")
+
+	if menukey ~= Enum.KeyCode.Tab then
+		return
+	end
+
+	contextactionservice:BindActionAtPriority(
+		"__blush_menu_key",
+		function(_, inputstate)
+			if inputstate == Enum.UserInputState.Begin
+				and not keypickercapturing
+				and not keypickersuppress
+			then
+				requestvisibilitytoggle()
+			end
+
+			return Enum.ContextActionResult.Sink
+		end,
+		false,
+		Enum.ContextActionPriority.High.Value + 1000,
+		Enum.KeyCode.Tab
+	)
+end
+
 connect(
 	uis.InputBegan,
-	function(input, processed)
-		if processed
+	function(input)
+		if menukey == Enum.KeyCode.Tab
 			or keypickercapturing
 			or keypickersuppress
 		then
@@ -17952,6 +18687,8 @@ connect(
 		end
 	end
 )
+
+refreshmenukeybinding()
 
 
 -- mobile adaptive layout
@@ -19149,59 +19886,76 @@ componentsbutton,
 		icons.sliders
 	)
 
-otherheader = new("TextButton", {
-	Parent = nav,
-	Size = UDim2.new(1, 0, 0, 28),
-	BackgroundTransparency = 1,
-	BorderSizePixel = 0,
-	Text = "",
-	AutoButtonColor = false,
-	LayoutOrder = 2,
-	ZIndex = 13,
-})
+function createsidebartabsectionobjects(name)
+	local header = new("TextButton", {
+		Parent = nav,
+		Size = UDim2.new(1, 0, 0, 28),
+		BackgroundTransparency = 1,
+		BorderSizePixel = 0,
+		Text = "",
+		AutoButtonColor = false,
+		ZIndex = 13,
+	})
 
-othertext = label(
-	otherheader,
-	"Other",
-	UDim2.new(1, -30, 1, 0),
-	medium,
-	theme.text3
-)
-othertext.Position = UDim2.fromOffset(8, 0)
-othertext.TextSize = 14
-othertext.ZIndex = 14
+	local textobject = label(
+		header,
+		name,
+		UDim2.new(1, -30, 1, 0),
+		medium,
+		theme.text3
+	)
+	textobject.Position = UDim2.fromOffset(8, 0)
+	textobject.TextSize = 14
+	textobject.ZIndex = 14
 
-otherarrow = image(
-	otherheader,
-	icons.down,
-	11,
-	theme.text3,
-	14
-)
-otherarrow.AnchorPoint = Vector2.new(1, .5)
-otherarrow.Position = UDim2.new(1, -7, .5, 0)
-otherarrow.ImageTransparency = .18
+	local arrow = image(
+		header,
+		icons.down,
+		11,
+		theme.text3,
+		14
+	)
+	arrow.AnchorPoint = Vector2.new(1, .5)
+	arrow.Position = UDim2.new(1, -7, .5, 0)
+	arrow.ImageTransparency = .18
 
-othergroup = new("Frame", {
-	Parent = nav,
-	Size = UDim2.new(1, 0, 0, 0),
-	BackgroundTransparency = 1,
-	BorderSizePixel = 0,
-	ClipsDescendants = true,
-	LayoutOrder = 3,
-	ZIndex = 12,
-})
+	local group = new("Frame", {
+		Parent = nav,
+		Size = UDim2.new(1, 0, 0, 0),
+		BackgroundTransparency = 1,
+		BorderSizePixel = 0,
+		ClipsDescendants = true,
+		ZIndex = 12,
+	})
 
-othercontent = new("Frame", {
-	Parent = othergroup,
-	Size = UDim2.new(1, 0, 0, 0),
-	AutomaticSize = Enum.AutomaticSize.Y,
-	BackgroundTransparency = 1,
-	BorderSizePixel = 0,
-	ZIndex = 12,
-})
-othercontentlayout = list(othercontent, 3)
+	local content = new("Frame", {
+		Parent = group,
+		Size = UDim2.new(1, 0, 0, 0),
+		AutomaticSize = Enum.AutomaticSize.Y,
+		BackgroundTransparency = 1,
+		BorderSizePixel = 0,
+		ZIndex = 12,
+	})
+
+	local layout = list(content, 3)
+	registergradienttarget(header, textobject)
+
+	return header, textobject, arrow, group, content, layout
+end
+
+otherheader,
+	othertext,
+	otherarrow,
+	othergroup,
+	othercontent,
+	othercontentlayout =
+	createsidebartabsectionobjects("Other")
+
 othercategorycollapsed = false
+
+librarycustomtabsections = {}
+librarytabsectionlookup = {}
+libraryactivetabsection = nil
 
 settingsbutton,
 	settingstext,
@@ -19241,6 +19995,13 @@ function refreshsidegroups(animate)
 
 		maingroup.ClipsDescendants = false
 		othergroup.ClipsDescendants = false
+
+		for _, sectiontab in ipairs(librarycustomtabsections or {}) do
+			local height = sectiontab.Layout.AbsoluteContentSize.Y
+			sectiontab.Group.Size = UDim2.new(1, 0, 0, height)
+			sectiontab.Group.ClipsDescendants = false
+		end
+
 		return
 	end
 
@@ -19253,6 +20014,16 @@ function refreshsidegroups(animate)
 	else
 		maingroup.Size = UDim2.new(1, 0, 0, mainheight)
 		othergroup.Size = UDim2.new(1, 0, 0, otherheight)
+	end
+
+	for _, sectiontab in ipairs(librarycustomtabsections or {}) do
+		local height = sectiontab.Collapsed and 0 or sectiontab.Layout.AbsoluteContentSize.Y
+
+		if animate then
+			tween(sectiontab.Group, {Size = UDim2.new(1, 0, 0, height)}, tabti)
+		else
+			sectiontab.Group.Size = UDim2.new(1, 0, 0, height)
+		end
 	end
 end
 
@@ -19282,6 +20053,111 @@ otherheader.Activated:Connect(function()
 	tween(otherarrow, {Rotation = othercategorycollapsed and -90 or 0}, tabti)
 	refreshsidegroups(true)
 end)
+
+function refreshlibrarytabsectionorders()
+	maingroup.LayoutOrder = 1
+
+	for index, sectiontab in ipairs(librarycustomtabsections) do
+		sectiontab.Header.LayoutOrder = index * 2
+		sectiontab.Group.LayoutOrder = index * 2 + 1
+	end
+
+	local offset = #librarycustomtabsections * 2
+	otherheader.LayoutOrder = offset + 2
+	othergroup.LayoutOrder = offset + 3
+end
+
+function createlibrarytabsection(name)
+	name = tostring(name or "Section")
+	local key = string.lower(name)
+
+	if key == "main" then
+		return {
+			Name = categorytext.Text,
+			Content = maincontent,
+			Group = maingroup,
+			Header = category,
+			Builtin = true,
+		}
+	end
+
+	if key == "other" then
+		return {
+			Name = othertext.Text,
+			Content = othercontent,
+			Group = othergroup,
+			Header = otherheader,
+			Builtin = true,
+		}
+	end
+
+	local existing = librarytabsectionlookup[key]
+	if existing then
+		return existing
+	end
+
+	local header, textobject, arrow, group, content, layout =
+		createsidebartabsectionobjects(name)
+	local sectiontab = {
+		Name = name,
+		Header = header,
+		TextObject = textobject,
+		Arrow = arrow,
+		Group = group,
+		Content = content,
+		Layout = layout,
+		Collapsed = false,
+		Order = {},
+	}
+
+	function sectiontab:SetCollapsed(value, animate)
+		if uis.TouchEnabled then
+			value = false
+		end
+
+		self.Collapsed = value == true
+		tween(self.Arrow, {Rotation = self.Collapsed and -90 or 0}, tabti)
+		refreshsidegroups(animate ~= false)
+	end
+
+	function sectiontab:SetName(value)
+		local oldkey = string.lower(self.Name)
+		self.Name = tostring(value or self.Name)
+		self.TextObject.Text = self.Name
+
+		if librarytabsectionlookup[oldkey] == self then
+			librarytabsectionlookup[oldkey] = nil
+		end
+
+		librarytabsectionlookup[string.lower(self.Name)] = self
+	end
+
+	function sectiontab:SetVisible(value)
+		local visible = value ~= false
+		self.Header.Visible = visible and not sidebarcompact
+		self.Group.Visible = visible
+		refreshsidegroups(false)
+	end
+
+	function sectiontab:SetGradient(value)
+		return settextgradient(self.TextObject, value)
+	end
+
+	header.Activated:Connect(function()
+		sectiontab:SetCollapsed(not sectiontab.Collapsed, true)
+	end)
+
+	layout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+		refreshsidegroups(false)
+	end)
+
+	table.insert(librarycustomtabsections, sectiontab)
+	librarytabsectionlookup[key] = sectiontab
+	refreshlibrarytabsectionorders()
+	refreshsidegroups(false)
+
+	return sectiontab
+end
 
 task.defer(function()
 	refreshsidegroups(false)
@@ -19938,9 +20814,7 @@ function applynavorder()
 		button.LayoutOrder = index
 	end
 
-	maingroup.LayoutOrder = 1
-	otherheader.LayoutOrder = 2
-	othergroup.LayoutOrder = 3
+	refreshlibrarytabsectionorders()
 	settingsbutton.LayoutOrder = 1
 end
 
@@ -20576,6 +21450,10 @@ function applysidebarlayout(width, animate)
 	end
 
 	otherheader.Visible = not sidebarcompact and otheravailable
+
+	for _, sectiontab in ipairs(librarycustomtabsections or {}) do
+		sectiontab.Header.Visible = not sidebarcompact
+	end
 
 	if backgroundexcludesidebar then
 		updatebackgroundbounds()
@@ -21370,7 +22248,7 @@ connect(
 -- public library api
 
 library = {
-	Version = "1.6.0",
+	Version = "1.9.0",
 	Icons = icons,
 }
 
@@ -22138,13 +23016,19 @@ function libraryenhancesection(section)
 		return addsubtabs(self, config)
 	end
 
+	function section:SetGradient(value)
+		return settextgradient(self.TextObject, value)
+	end
+
 	return section
 end
 
 function librarysetlogo(asset, color)
-	asset = asset or "sliders"
+	local custom = asset ~= nil
 
-	if icons[asset] then
+	if not custom then
+		asset = thumbnail
+	elseif icons[asset] then
 		asset = icons[asset]
 	end
 
@@ -22156,7 +23040,11 @@ function librarysetlogo(asset, color)
 	avat.Image = tostring(asset)
 	avat.ImageColor3 =
 		logocoloroverride
-		or theme.text2
+		or (
+			custom
+			and theme.text2
+			or Color3.new(1, 1, 1)
+		)
 end
 
 function librarysetbrand(title, versiontext)
@@ -22354,6 +23242,7 @@ function libraryresetnavigation()
 
 	mainnavorder = {}
 	subnavorder = {}
+	libraryactivetabsection = nil
 	currentnav = nil
 	currentsub = nil
 	currentpage = nil
@@ -22381,8 +23270,24 @@ function librarycreatetab(windowapi, options, icon, group)
 
 	local name = tostring(options.Name or options.Title or ("Tab " .. librarytabserial))
 	local asset = librarynormalizeicon(options.Icon or options.Asset)
-	local destination = string.lower(tostring(options.Group or "main"))
-	local parentobject = destination == "other" and othercontent or maincontent
+	local requestedgroup = options.Group
+		or options.Section
+		or (libraryactivetabsection and libraryactivetabsection.Name)
+		or "main"
+	local destination = string.lower(tostring(requestedgroup))
+	local sectiontab = librarytabsectionlookup[destination]
+	local parentobject
+
+	if destination == "other" then
+		parentobject = othercontent
+	elseif destination == "main" then
+		parentobject = maincontent
+	elseif sectiontab then
+		parentobject = sectiontab.Content
+	else
+		destination = "main"
+		parentobject = maincontent
+	end
 
 	local pageid = "__blush_library_tab_" .. tostring(librarytabserial)
 	local page = createpage(pageid, name, nil)
@@ -22424,6 +23329,9 @@ function librarycreatetab(windowapi, options, icon, group)
 		table.insert(mainnavorder, button)
 		bindnavdrag(button, mainnavorder)
 		applynavorder()
+	elseif sectiontab then
+		table.insert(sectiontab.Order, button)
+		button.LayoutOrder = #sectiontab.Order * 10
 	else
 		button.LayoutOrder = #librarytaborder + 1
 	end
@@ -22432,8 +23340,11 @@ function librarycreatetab(windowapi, options, icon, group)
 		Name = name,
 		Page = page,
 		Button = button,
+		TextObject = textobject,
 		Group = destination,
 	}
+
+	registergradienttarget(button, textobject)
 
 	function tab:AddSection(title, column, sectionicon)
 		if type(title) == "table" then
@@ -22516,14 +23427,18 @@ function librarycreatetab(windowapi, options, icon, group)
 		iconobject.Image = librarynormalizeicon(value)
 	end
 
+	function tab:SetGradient(value)
+		return settextgradient(textobject, value)
+	end
+
 	function tab:SetVisible(value)
 		button.Visible = value ~= false
 
 		if self.Group == "other" then
 			libraryrefreshothergroupvisibility()
-		else
-			refreshsidegroups(false)
 		end
+
+		refreshsidegroups(false)
 	end
 
 	function tab:GetPage()
@@ -22581,12 +23496,16 @@ function library:CreateWindow(options)
 	end
 
 	librarysetbrand(title, versiontext)
-	librarysetlogo(options.Logo or "sliders", options.LogoColor)
+	librarysetlogo(options.Logo, options.LogoColor)
 	librarysetsettingstab(settingsconfig)
 
 	windowresizeenabled = options.Resize ~= false
 	windowdragenabled = options.Draggable ~= false
-	windowminimizebuttonenabled = options.MinimizeButton ~= false
+
+	if options.MinimizeButton ~= nil then
+		windowminimizebuttonenabled =
+			options.MinimizeButton == true
+	end
 
 	if options.SidebarResize ~= nil then
 		sidebarresizehandle.Visible = options.SidebarResize == true
@@ -22610,6 +23529,14 @@ function library:CreateWindow(options)
 
 	closebutton.Visible = windowminimizebuttonenabled
 	closebutton.Active = windowminimizebuttonenabled
+
+	if minimizebuttoncontrol then
+		minimizebuttoncontrol:Set(
+			windowminimizebuttonenabled,
+			false
+		)
+	end
+
 	updateheadercontrols()
 
 	if options.Roundness ~= nil then
@@ -22739,6 +23666,7 @@ function library:CreateWindow(options)
 
 		if typeof(key) == "EnumItem" then
 			menukey = key
+			refreshmenukeybinding()
 
 			if menukeypicker then
 				menukeypicker:Set(key, false)
@@ -22783,7 +23711,6 @@ function library:CreateWindow(options)
 	if type(options.WatermarkInfo) == "table" then
 		for _, item in ipairs({
 			"Player",
-			"FPS",
 			"Ping",
 			"Time",
 		}) do
@@ -22793,14 +23720,19 @@ function library:CreateWindow(options)
 			end
 		end
 
-		local mode =
-			options.WatermarkInfo.PlayerMode
+		if options.WatermarkInfo.FPS ~= nil then
+			watermarkconfig.FPS =
+				options.WatermarkInfo.FPS == true
+		elseif options.WatermarkInfo.Fps ~= nil then
+			watermarkconfig.FPS =
+				options.WatermarkInfo.Fps == true
+		end
 
-		if mode == "DisplayName"
-			or mode == "Username"
-			or mode == "Both"
-		then
-			watermarkconfig.PlayerMode = mode
+		if options.WatermarkInfo.PlayerMode ~= nil then
+			watermarkconfig.PlayerMode =
+				normalizewatermarkplayermode(
+					options.WatermarkInfo.PlayerMode
+				)
 		end
 
 		if watermarkinfocontrol then
@@ -22808,11 +23740,16 @@ function library:CreateWindow(options)
 
 			for _, item in ipairs({
 				"Player",
-				"FPS",
+				"Fps",
 				"Ping",
 				"Time",
 			}) do
-				if watermarkconfig[item] then
+				local enabled =
+					item == "Fps"
+						and watermarkconfig.FPS
+						or watermarkconfig[item]
+
+				if enabled then
 					table.insert(values, item)
 				end
 			end
@@ -22846,20 +23783,28 @@ function library:CreateWindow(options)
 	watermarkgui.Enabled = true
 	reopengui.Enabled = false
 
-	modalguard.Modal = true
-	modalguard.Active = true
-	modalguard.Visible = true
+	modalguard.Modal = false
+	modalguard.Active = false
+	modalguard.Visible = false
 
 	env.__blush_windowvisible = true
+	setvisibilityrootsvisible(true)
 	forcecursorvisible()
 
 	librarywindow = {
 		_tabs = librarytabs,
 		_order = librarytaborder,
 		_firsttab = nil,
+		TextObject = brand,
 	}
 
 	librarywindow.Settings = librarygetsettingstab()
+
+	function librarywindow:AddSectionTab(name)
+		local sectiontab = createlibrarytabsection(name)
+		libraryactivetabsection = sectiontab
+		return sectiontab
+	end
 
 	function librarywindow:AddTab(...)
 		return librarycreatetab(self, ...)
@@ -22893,6 +23838,19 @@ function library:CreateWindow(options)
 			buttontext,
 			iconasset
 		)
+	end
+
+	function librarywindow:SetGradient(element, value)
+		if value == nil and (typeof(element) == "ColorSequence" or type(element) == "table") then
+			value = element
+			element = self
+		end
+
+		return settextgradient(element, value)
+	end
+
+	function librarywindow:SetTitleGradient(value)
+		return settextgradient(brand, value)
 	end
 
 	function librarywindow:SetVisible(value)
@@ -22954,6 +23912,13 @@ function library:CreateWindow(options)
 		windowminimizebuttonenabled = value == true
 		closebutton.Visible = windowminimizebuttonenabled
 		closebutton.Active = windowminimizebuttonenabled
+
+		if minimizebuttoncontrol then
+			minimizebuttoncontrol:Set(
+				windowminimizebuttonenabled,
+				false
+			)
+		end
 
 		updateheadercontrols()
 
@@ -23159,6 +24124,7 @@ function library:CreateWindow(options)
 		end
 
 		menukey = key
+		refreshmenukeybinding()
 
 		if menukeypicker then
 			menukeypicker:Set(key, false)
@@ -23183,7 +24149,6 @@ function library:CreateWindow(options)
 
 		for _, item in ipairs({
 			"Player",
-			"FPS",
 			"Ping",
 			"Time",
 		}) do
@@ -23193,12 +24158,19 @@ function library:CreateWindow(options)
 			end
 		end
 
-		if config.PlayerMode == "DisplayName"
-			or config.PlayerMode == "Username"
-			or config.PlayerMode == "Both"
-		then
+		if config.FPS ~= nil then
+			watermarkconfig.FPS =
+				config.FPS == true
+		elseif config.Fps ~= nil then
+			watermarkconfig.FPS =
+				config.Fps == true
+		end
+
+		if config.PlayerMode ~= nil then
 			watermarkconfig.PlayerMode =
-				config.PlayerMode
+				normalizewatermarkplayermode(
+					config.PlayerMode
+				)
 		end
 
 		if watermarkinfocontrol then
@@ -23206,11 +24178,16 @@ function library:CreateWindow(options)
 
 			for _, item in ipairs({
 				"Player",
-				"FPS",
+				"Fps",
 				"Ping",
 				"Time",
 			}) do
-				if watermarkconfig[item] then
+				local enabled =
+					item == "Fps"
+						and watermarkconfig.FPS
+						or watermarkconfig[item]
+
+				if enabled then
 					table.insert(values, item)
 				end
 			end
@@ -23413,6 +24390,10 @@ end
 
 function library:Notify(...)
 	notify(...)
+end
+
+function library:SetGradient(element, value)
+	return settextgradient(element, value)
 end
 
 function library:Destroy()
