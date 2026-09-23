@@ -66,6 +66,7 @@ end
 env.__blush_cleanup = function()
 	runservice:UnbindFromRenderStep("__blush_force_cursor")
 	contextactionservice:UnbindAction("__blush_menu_key")
+	contextactionservice:UnbindAction("__blush_keycapture")
 
 	for actionname in pairs(env.__blush_keyactions or {}) do
 		contextactionservice:UnbindAction(actionname)
@@ -84,6 +85,27 @@ env.__blush_cleanup = function()
 	then
 		pickeranimationconnection:Disconnect()
 		pickeranimationconnection = nil
+	end
+
+	if animateduiconnection
+		and animateduiconnection.Connected
+	then
+		animateduiconnection:Disconnect()
+		animateduiconnection = nil
+	end
+
+	if rainbowtextconnection
+		and rainbowtextconnection.Connected
+	then
+		rainbowtextconnection:Disconnect()
+		rainbowtextconnection = nil
+	end
+
+	if watermarkstatsconnection
+		and watermarkstatsconnection.Connected
+	then
+		watermarkstatsconnection:Disconnect()
+		watermarkstatsconnection = nil
 	end
 
 	local autosavetask = env.__blush_autosave_task
@@ -109,23 +131,6 @@ env.__blush_cleanup = function()
 	if destroybackgroundeditable then
 		destroybackgroundeditable()
 	end
-
-	local cancelledtweens = {}
-	for _, owners in pairs(
-		env.__blush_tweenowners or {}
-	) do
-		for _, animation in pairs(owners) do
-			if animation
-				and not cancelledtweens[animation]
-			then
-				cancelledtweens[animation] = true
-				invoke(function()
-					animation:Cancel()
-				end)
-			end
-		end
-	end
-	env.__blush_tweenowners = nil
 
 	for _, connection in ipairs(connections) do
 		if connection.Connected then
@@ -286,56 +291,50 @@ searchenabled = true
 uitransparency = 0
 menukey = Enum.KeyCode.RightShift
 keypickercapturing = false
-keypickersuppress = false
+keypickersuppress = nil
 
 
 defaultnotificationduration = 3.5
 maxnotifications = 5
 
 ti = TweenInfo.new(
-	.24,
+	.20,
 	Enum.EasingStyle.Quart,
 	Enum.EasingDirection.Out
 )
 
 fastti = TweenInfo.new(
-	.2,
+	.16,
 	Enum.EasingStyle.Quart,
 	Enum.EasingDirection.Out
 )
 
 hoverti = TweenInfo.new(
-	.24,
+	.18,
 	Enum.EasingStyle.Quart,
 	Enum.EasingDirection.Out
 )
 
 checkti = TweenInfo.new(
-	.24,
+	.16,
 	Enum.EasingStyle.Quart,
 	Enum.EasingDirection.Out
 )
 
 tabti = TweenInfo.new(
-	.24,
+	.20,
 	Enum.EasingStyle.Quart,
 	Enum.EasingDirection.Out
 )
 
 sectionti = TweenInfo.new(
-	.26,
-	Enum.EasingStyle.Quart,
-	Enum.EasingDirection.Out
-)
-
-resetti = TweenInfo.new(
-	.28,
+	.22,
 	Enum.EasingStyle.Quart,
 	Enum.EasingDirection.Out
 )
 
 dropti = TweenInfo.new(
-	.24,
+	.18,
 	Enum.EasingStyle.Quart,
 	Enum.EasingDirection.Out
 )
@@ -699,16 +698,6 @@ transparencybase = setmetatable({}, {
 	__mode = "k",
 })
 
-env.__blush_transparencyweights = {
-	window = 1,
-	sidebar = 1,
-	section = 1,
-	input = 1,
-	hover = 1,
-	popup = 1,
-	notification = 1,
-}
-
 env.__blush_background_visibility = env.__blush_background_visibility or 0
 
 function effectivetransparency(value, role)
@@ -719,15 +708,6 @@ function effectivetransparency(value, role)
 				0,
 				1
 			)
-end
-
-function applybackgroundalpha(value)
-	theme.backgroundAlpha =
-		math.clamp(value or 1, 0, 1)
-
-	applyuitransparency(
-		uitransparency * 100
-	)
 end
 
 function applyuitransparency(value)
@@ -847,92 +827,49 @@ function new(class, properties)
 	return object
 end
 
-function tween(object, properties, info)
+function tween(object, properties, info, raw)
 	if not object or not object.Parent then
 		return
 	end
 
-	env.__blush_tweenowners =
-		env.__blush_tweenowners
-		or setmetatable({}, { __mode = "k" })
-
 	local goals = {}
-	local owners = env.__blush_tweenowners
-	local objectowners = owners[object]
-
-	if not objectowners then
-		objectowners = {}
-		owners[object] = objectowners
-	end
-
-	local cancelled = {}
 
 	for property, value in pairs(properties) do
-		local previous = objectowners[property]
-		if previous
-			and previous.PlaybackState == Enum.PlaybackState.Playing
-			and not cancelled[previous]
-		then
-			cancelled[previous] = true
-			previous:Cancel()
-		end
+		if raw then
+			goals[property] = value
+		else
+			if property == "BackgroundColor3"
+				or property == "TextColor3"
+				or property == "ImageColor3"
+				or property == "ScrollBarImageColor3"
+				or (object:IsA("UIStroke") and property == "Color")
+			then
+				syncbinding(object, property, value)
+			end
 
-		if property == "BackgroundColor3"
-			or property == "TextColor3"
-			or property == "ImageColor3"
-			or property == "ScrollBarImageColor3"
-			or (object:IsA("UIStroke") and property == "Color")
-		then
-			syncbinding(object, property, value)
-		end
-
-		if property == "BackgroundTransparency"
-			and transparencybase[object] ~= nil
-		then
-			transparencybase[object].base = value
-			goals[property] =
-				effectivetransparency(
+			if property == "BackgroundTransparency"
+				and transparencybase[object] ~= nil
+			then
+				transparencybase[object].base = value
+				goals[property] = effectivetransparency(
 					value,
 					transparencybase[object].role
 				)
-
-		elseif setaccentalphabase(
-			object,
-			property,
-			value
-		) then
-			goals[property] =
-				effectiveaccentalpha(value)
-
-		elseif setfontalphabase(
-			object,
-			property,
-			value
-		) then
-			goals[property] =
-				effectivefontalpha(value)
-
-		else
-			goals[property] = value
+			elseif setaccentalphabase(object, property, value) then
+				goals[property] = effectiveaccentalpha(value)
+			elseif setfontalphabase(object, property, value) then
+				goals[property] = effectivefontalpha(value)
+			else
+				goals[property] = value
+			end
 		end
 	end
 
-	local tweeninfo = animationsenabled
-		and (info or ti)
-		or TweenInfo.new(.001)
-
-	local animation = tweenservice:Create(
-		object,
-		tweeninfo,
-		goals
-	)
-
-	for property in pairs(goals) do
-		objectowners[property] = animation
-	end
+	local groupshadows
 
 	if object:IsA("CanvasGroup") and goals.GroupTransparency ~= nil then
 		local grouptarget = math.clamp(goals.GroupTransparency, 0, 1)
+		groupshadows = {}
 
 		for _, child in ipairs(object:GetChildren()) do
 			if child:IsA("UIShadow") then
@@ -943,43 +880,39 @@ function tween(object, properties, info)
 					child:SetAttribute("BlushBaseTransparency", base)
 				end
 
-				tween(
-					child,
-					{
-						Transparency =
-							1 - (1 - base) * (1 - grouptarget),
-					},
-					tweeninfo
-				)
+				groupshadows[#groupshadows + 1] = {
+					object = child,
+					target = 1 - (1 - base) * (1 - grouptarget),
+				}
 			end
 		end
 	end
 
-	local completed
-	completed = animation.Completed:Connect(function()
-		if completed then
-			completed:Disconnect()
-			completed = nil
+	if not animationsenabled then
+		for property, value in pairs(goals) do
+			object[property] = value
 		end
 
-		local currentowners = owners[object]
-		if not currentowners then
-			return
+		for _, shadow in ipairs(groupshadows or {}) do
+			shadow.object.Transparency = shadow.target
 		end
 
-		for property in pairs(goals) do
-			if currentowners[property] == animation then
-				currentowners[property] = nil
-			end
-		end
+		return nil
+	end
 
-		if next(currentowners) == nil then
-			owners[object] = nil
-		end
-	end)
+	local tweeninfo = info or ti
+	local animation = tweenservice:Create(object, tweeninfo, goals)
+
+	for _, shadow in ipairs(groupshadows or {}) do
+		local shadowanimation = tweenservice:Create(
+			shadow.object,
+			tweeninfo,
+			{Transparency = shadow.target}
+		)
+		shadowanimation:Play()
+	end
 
 	animation:Play()
-
 	return animation
 end
 
@@ -1104,8 +1037,13 @@ function applytheme(
 		else
 			invoke(function()
 				local target = theme[binding.role]
+				local gradienttext = binding.property == "TextColor3"
+					and env.__blush_gradientstates
+					and env.__blush_gradientstates[binding.object]
 
-				if animate == true and animationsenabled then
+				if gradienttext then
+					binding.object.TextColor3 = Color3.new(1, 1, 1)
+				elseif animate == true and animationsenabled then
 					local objecttweens = env.__blush_theme_tweens[binding.object]
 					if not objecttweens then
 						objecttweens = {}
@@ -1119,7 +1057,7 @@ function applytheme(
 
 					local animation = tweenservice:Create(
 						binding.object,
-						TweenInfo.new(.30, Enum.EasingStyle.Quart, Enum.EasingDirection.Out),
+						TweenInfo.new(.18, Enum.EasingStyle.Quart, Enum.EasingDirection.Out),
 						{ [binding.property] = target }
 					)
 
@@ -1253,90 +1191,13 @@ function plaintext(value)
 	return value
 end
 
-env.__blush_textmeasurecache = {}
-env.__blush_textmeasurecount = 0
-
 function measuretext(value, size, face, bounds)
-	local visible = plaintext(value)
-	local key = table.concat({
-		visible,
-		tostring(size),
-		tostring(face),
-		tostring(math.floor(bounds.X + .5)),
-		tostring(math.floor(bounds.Y + .5)),
-	}, "\0")
-
-	local cached = env.__blush_textmeasurecache[key]
-	if cached then
-		return cached
-	end
-
-	local result = textservice:GetTextSize(
-		visible,
+	return textservice:GetTextSize(
+		plaintext(value),
 		size,
 		face,
 		bounds
 	)
-
-	env.__blush_textmeasurecount += 1
-
-	if env.__blush_textmeasurecount > 512 then
-		table.clear(env.__blush_textmeasurecache)
-		env.__blush_textmeasurecount = 1
-	end
-
-	env.__blush_textmeasurecache[key] = result
-	return result
-end
-
-function autoresizetextx(object, paddingx, minimum, maximum)
-	paddingx = tonumber(paddingx) or 0
-	minimum = tonumber(minimum) or 0
-	maximum = tonumber(maximum) or 100000
-	object.AutomaticSize = Enum.AutomaticSize.None
-
-	local lastwidth
-
-	local function resize()
-		if not object.Parent then
-			return
-		end
-
-		local bounds = measuretext(
-			object.Text,
-			object.TextSize,
-			object.Font,
-			Vector2.new(
-				100000,
-				math.max(1, object.AbsoluteSize.Y)
-			)
-		)
-
-		local width = math.clamp(
-			math.ceil(bounds.X) + paddingx,
-			minimum,
-			maximum
-		)
-
-		if width == lastwidth then
-			return
-		end
-
-		lastwidth = width
-		object.Size = UDim2.new(
-			0,
-			width,
-			object.Size.Y.Scale,
-			object.Size.Y.Offset
-		)
-	end
-
-	connect(object:GetPropertyChangedSignal("Text"), resize)
-	connect(object:GetPropertyChangedSignal("TextSize"), resize)
-	connect(object:GetPropertyChangedSignal("Font"), resize)
-	resize()
-
-	return resize
 end
 
 function richrgb(textvalue, r, g, b)
@@ -1357,6 +1218,17 @@ env.__blush_rgb = richrgb
 
 env.__blush_gradienttargets = setmetatable({}, { __mode = "k" })
 env.__blush_gradientstates = setmetatable({}, { __mode = "k" })
+env.__blush_rainbowgradients = setmetatable({}, { __mode = "k" })
+rainbowtextconnection = nil
+rainbowtextphase = 0
+rainbowtextsequence = ColorSequence.new({
+	ColorSequenceKeypoint.new(0, Color3.fromHSV(0, 1, 1)),
+	ColorSequenceKeypoint.new(.2, Color3.fromHSV(.16, 1, 1)),
+	ColorSequenceKeypoint.new(.4, Color3.fromHSV(.33, 1, 1)),
+	ColorSequenceKeypoint.new(.6, Color3.fromHSV(.5, 1, 1)),
+	ColorSequenceKeypoint.new(.8, Color3.fromHSV(.66, 1, 1)),
+	ColorSequenceKeypoint.new(1, Color3.fromHSV(.83, 1, 1)),
+})
 
 function registergradienttarget(target, textobject)
 	if target and textobject then
@@ -1391,7 +1263,14 @@ function resolvegradienttarget(target)
 	end
 
 	local mapped = env.__blush_gradienttargets[target]
-	if mapped and mapped.Parent then
+	if mapped
+		and mapped.Parent
+		and (
+			mapped:IsA("TextLabel")
+			or mapped:IsA("TextButton")
+			or mapped:IsA("TextBox")
+		)
+	then
 		return mapped
 	end
 
@@ -1399,23 +1278,76 @@ function resolvegradienttarget(target)
 end
 
 function normalizetextgradient(value)
-	if value == nil then
-		return nil
+	if value == nil or value == false then
+		return nil, false
+	end
+
+	if type(value) == "string"
+		and string.lower(value) == "rainbow"
+	then
+		return rainbowtextsequence, true
 	end
 
 	if typeof(value) == "ColorSequence" then
-		return value
+		return value, false
 	end
 
 	if type(value) == "table" then
-		local keypoints = value.Keypoints or value
+		if value.Rainbow == true or value.rainbow == true then
+			return rainbowtextsequence, true
+		end
 
+		local keypoints = value.Keypoints or value.keypoints or value
 		if #keypoints >= 2 then
-			return ColorSequence.new(keypoints)
+			return ColorSequence.new(keypoints), false
+		end
+	end
+
+	return nil, false
+end
+
+function textgradientrole(textobject)
+	for index = #themebindings, 1, -1 do
+		local binding = themebindings[index]
+		if binding.object == textobject
+			and binding.property == "TextColor3"
+		then
+			return binding.role
 		end
 	end
 
 	return nil
+end
+
+function stoprainbowtextloop()
+	if rainbowtextconnection and rainbowtextconnection.Connected then
+		rainbowtextconnection:Disconnect()
+	end
+	rainbowtextconnection = nil
+end
+
+function ensurerainbowtextloop()
+	if rainbowtextconnection and rainbowtextconnection.Connected then
+		return
+	end
+
+	rainbowtextconnection = runservice.RenderStepped:Connect(function(dt)
+		if next(env.__blush_rainbowgradients) == nil then
+			stoprainbowtextloop()
+			return
+		end
+
+		rainbowtextphase = (rainbowtextphase + dt * 2.15) % (math.pi * 2)
+		local offset = Vector2.new(math.sin(rainbowtextphase) * .28, 0)
+
+		for textobject, gradient in pairs(env.__blush_rainbowgradients) do
+			if not textobject.Parent or not gradient.Parent then
+				env.__blush_rainbowgradients[textobject] = nil
+			else
+				gradient.Offset = offset
+			end
+		end
+	end)
 end
 
 function settextgradient(target, value)
@@ -1425,127 +1357,55 @@ function settextgradient(target, value)
 	end
 
 	local previous = env.__blush_gradientstates[textobject]
+	local role = previous and previous.role or textgradientrole(textobject)
+	local basecolor = previous and previous.basecolor or textobject.TextColor3
+
 	if previous then
-		for _, connection in ipairs(previous.connections or {}) do
-			if connection.Connected then
-				connection:Disconnect()
-			end
+		env.__blush_rainbowgradients[textobject] = nil
+		if previous.gradient and previous.gradient.Parent then
+			previous.gradient:Destroy()
 		end
-
-		if previous.proxy and previous.proxy.Parent then
-			previous.proxy:Destroy()
-		end
-
-		if textobject.Parent then
-			textobject.TextTransparency = previous.transparency
-		end
-
 		env.__blush_gradientstates[textobject] = nil
 	end
 
-	local sequence = normalizetextgradient(value)
+	local sequence, rainbow = normalizetextgradient(value)
 	if not sequence then
-		return value == nil
+		if textobject.Parent then
+			textobject.TextColor3 = role and theme[role] or basecolor
+		end
+		if next(env.__blush_rainbowgradients) == nil then
+			stoprainbowtextloop()
+		end
+		return value == nil or value == false
 	end
-
-	local state = {
-		transparency = textobject.TextTransparency,
-		connections = {},
-		guard = false,
-	}
-
-	local proxy = rawnew("TextLabel", {
-		Name = "BlushTextGradient",
-		Parent = textobject,
-		Position = UDim2.fromScale(0, 0),
-		Size = UDim2.fromScale(1, 1),
-		BackgroundTransparency = 1,
-		BorderSizePixel = 0,
-		Text = textobject.Text,
-		TextColor3 = Color3.new(1, 1, 1),
-		TextTransparency = state.transparency,
-		TextStrokeColor3 = textobject.TextStrokeColor3,
-		TextStrokeTransparency = textobject.TextStrokeTransparency,
-		TextSize = textobject.TextSize,
-		Font = textobject.Font,
-		TextXAlignment = textobject.TextXAlignment,
-		TextYAlignment = textobject.TextYAlignment,
-		TextWrapped = textobject.TextWrapped,
-		TextScaled = textobject.TextScaled,
-		TextTruncate = textobject.TextTruncate,
-		RichText = textobject.RichText,
-		LineHeight = textobject.LineHeight,
-		Active = false,
-		Selectable = false,
-		ZIndex = textobject.ZIndex + 1,
-	})
 
 	local gradient = rawnew("UIGradient", {
 		Name = "BlushGradient",
-		Parent = proxy,
+		Parent = textobject,
 		Color = sequence,
+		Offset = Vector2.zero,
 	})
 
-	state.proxy = proxy
-	state.gradient = gradient
+	local state = {
+		gradient = gradient,
+		role = role,
+		basecolor = basecolor,
+		rainbow = rainbow,
+	}
+
 	env.__blush_gradientstates[textobject] = state
+	textobject.TextColor3 = Color3.new(1, 1, 1)
 
-	local function syncproperty(property)
-		if not proxy.Parent or not textobject.Parent then
-			return
-		end
-
-		proxy[property] = textobject[property]
+	if rainbow then
+		env.__blush_rainbowgradients[textobject] = gradient
+		ensurerainbowtextloop()
 	end
-
-	for _, property in ipairs({
-		"Text",
-		"TextSize",
-		"Font",
-		"TextXAlignment",
-		"TextYAlignment",
-		"TextWrapped",
-		"TextScaled",
-		"TextTruncate",
-		"TextStrokeColor3",
-		"TextStrokeTransparency",
-		"RichText",
-		"LineHeight",
-		"ZIndex",
-	}) do
-		table.insert(
-			state.connections,
-			textobject:GetPropertyChangedSignal(property):Connect(function()
-				if property == "ZIndex" then
-					proxy.ZIndex = textobject.ZIndex + 1
-				else
-					syncproperty(property)
-				end
-			end)
-		)
-	end
-
-	table.insert(
-		state.connections,
-		textobject:GetPropertyChangedSignal("TextTransparency"):Connect(function()
-			if state.guard or not proxy.Parent then
-				return
-			end
-
-			state.transparency = textobject.TextTransparency
-			proxy.TextTransparency = state.transparency
-
-			state.guard = true
-			textobject.TextTransparency = 1
-			state.guard = false
-		end)
-	)
-
-	state.guard = true
-	textobject.TextTransparency = 1
-	state.guard = false
 
 	return true
+end
+
+function settextrainbow(target, enabled)
+	return settextgradient(target, enabled == true and "Rainbow" or nil)
 end
 
 function label(parentobject, value, size, face, color)
@@ -2047,17 +1907,6 @@ end
 applywindowshadow()
 applywindowglow()
 
-env.__blush_closecover = new("Frame", {
-	Parent = window,
-	Size = UDim2.fromScale(1, 1),
-	BackgroundColor3 = theme.window,
-	BackgroundTransparency = 1,
-	BorderSizePixel = 0,
-	Visible = false,
-	Active = false,
-	ZIndex = 10000,
-})
-
 backgroundholder = rawnew("Frame", {
 	Parent = window,
 	Position = UDim2.fromOffset(0, 0),
@@ -2443,7 +2292,7 @@ resizeicon.AnchorPoint = Vector2.new(.5, .5)
 resizeicon.Position = UDim2.fromScale(.62, .62)
 resizeicon.Rotation = -45
 resizeicon.ImageTransparency = .42
-resizeiconglow = addshadow(
+addshadow(
 	resizeicon,
 	"ResizeGlow",
 	.982,
@@ -2499,8 +2348,25 @@ watermark = new("Frame", {
 	ZIndex = 100,
 })
 
+watermarkshown = true
+watermarkfadetoken = 0
+watermarkfadeanimations = {}
+watermarkstatsconnection = nil
+
 corner(watermark, 8)
-adddepthshadow(watermark, "floating")
+watermarkshadow = adddepthshadow(watermark, "floating")
+watermarkfadeparts = {
+	{watermark, "BackgroundTransparency", 0, "background"},
+}
+
+if watermarkshadow then
+	watermarkfadeparts[#watermarkfadeparts + 1] = {
+		watermarkshadow,
+		"Transparency",
+		watermarkshadow:GetAttribute("BlushBaseTransparency") or watermarkshadow.Transparency,
+		"direct",
+	}
+end
 
 watermarkcontent = new("Frame", {
 	Parent = watermark,
@@ -2545,6 +2411,86 @@ watermarklayout = new("UIListLayout", {
 
 watermarkorder = 0
 
+function setwatermarkvisible(value, animate)
+	value = value == true
+	local changed = watermarkshown ~= value
+	watermarkshown = value
+	watermark.Active = value
+
+	if setwatermarkstatsactive then
+		setwatermarkstatsactive(value)
+	end
+
+	watermarkfadetoken += 1
+	local token = watermarkfadetoken
+
+	for _, animation in ipairs(watermarkfadeanimations) do
+		invoke(function() animation:Cancel() end)
+	end
+	table.clear(watermarkfadeanimations)
+
+	if value then
+		watermark.Visible = true
+	end
+
+	local function targetalpha(part)
+		if not value then
+			return 1
+		end
+
+		if part[4] == "background" then
+			return effectivetransparency(part[3], "sidebar")
+		elseif part[4] == "font" then
+			return effectivefontalpha(part[3])
+		end
+
+		return part[3]
+	end
+
+	if not animate or not animationsenabled or not changed then
+		for _, part in ipairs(watermarkfadeparts) do
+			if part[1] and part[1].Parent then
+				part[1][part[2]] = targetalpha(part)
+			end
+		end
+		watermark.Visible = value
+		return
+	end
+
+	local primary
+	for _, part in ipairs(watermarkfadeparts) do
+		local object = part[1]
+		if object and object.Parent then
+			local animation = tween(
+				object,
+				{[part[2]] = targetalpha(part)},
+				TweenInfo.new(.18, Enum.EasingStyle.Quart, Enum.EasingDirection.Out),
+				true
+			)
+			if animation then
+				watermarkfadeanimations[#watermarkfadeanimations + 1] = animation
+				primary = primary or animation
+			end
+		end
+	end
+
+	local function finish()
+		if token ~= watermarkfadetoken then
+			return
+		end
+		table.clear(watermarkfadeanimations)
+		if not watermarkshown then
+			watermark.Visible = false
+		end
+	end
+
+	if primary then
+		primary.Completed:Connect(finish)
+	else
+		finish()
+	end
+end
+
 function watermarktext(
 	value,
 	strong,
@@ -2576,6 +2522,12 @@ function watermarktext(
 		Enum.TextTruncate.AtEnd
 
 	object.ZIndex = 102
+	watermarkfadeparts[#watermarkfadeparts + 1] = {
+		object,
+		"TextTransparency",
+		0,
+		"font",
+	}
 
 	return object
 end
@@ -2605,6 +2557,13 @@ function watermarkdivider()
 
 		ZIndex = 102,
 	})
+
+	watermarkfadeparts[#watermarkfadeparts + 1] = {
+		object,
+		"BackgroundTransparency",
+		.16,
+		"direct",
+	}
 
 	return object
 end
@@ -2793,7 +2752,6 @@ updatewatermarklayout()
 
 env.__blush_watermark_frames = 0
 env.__blush_watermark_elapsed = 0
-env.__blush_ping_samples = {}
 env.__blush_last_ping = 0
 
 function calculatewatermarkping()
@@ -2821,7 +2779,7 @@ function calculatewatermarkping()
 	return value
 end
 
-connect(runservice.PreRender, function(dt)
+function updatewatermarkstats(dt)
 	env.__blush_watermark_frames += 1
 	env.__blush_watermark_elapsed += dt
 
@@ -2834,52 +2792,45 @@ connect(runservice.PreRender, function(dt)
 	local fps = math.floor(frames / elapsed + .5)
 	local ping = math.floor(calculatewatermarkping() + .5)
 
-	if env.__blush_watermark_fps
-		and env.__blush_watermark_fps.Parent
-	then
-		resizewatermarktext(
-			env.__blush_watermark_fps,
-			tostring(fps) .. " fps",
-			false
-		)
+	if env.__blush_watermark_fps and env.__blush_watermark_fps.Parent then
+		resizewatermarktext(env.__blush_watermark_fps, tostring(fps) .. " fps", false)
 	end
 
-	if env.__blush_watermark_ping
-		and env.__blush_watermark_ping.Parent
-	then
-		resizewatermarktext(
-			env.__blush_watermark_ping,
-			tostring(ping) .. " ms",
-			false
-		)
+	if env.__blush_watermark_ping and env.__blush_watermark_ping.Parent then
+		resizewatermarktext(env.__blush_watermark_ping, tostring(ping) .. " ms", false)
 	end
 
-	if env.__blush_watermark_time
-		and env.__blush_watermark_time.Parent
-	then
-		resizewatermarktext(
-			env.__blush_watermark_time,
-			os.date("%H:%M"),
-			false
-		)
+	if env.__blush_watermark_time and env.__blush_watermark_time.Parent then
+		resizewatermarktext(env.__blush_watermark_time, os.date("%H:%M"), false)
 	end
 
-	if env.__blush_watermark_player
-		and env.__blush_watermark_player.Parent
-	then
-		resizewatermarktext(
-			env.__blush_watermark_player,
-			watermarkplayertext(),
-			false
-		)
+	if env.__blush_watermark_player and env.__blush_watermark_player.Parent then
+		resizewatermarktext(env.__blush_watermark_player, watermarkplayertext(), false)
 	end
 
 	updatewatermarksize()
-
 	env.__blush_watermark_frames = 0
 	env.__blush_watermark_elapsed = 0
-end)
+end
 
+function setwatermarkstatsactive(value)
+	if value then
+		if not watermarkstatsconnection or not watermarkstatsconnection.Connected then
+			watermarkstatsconnection = runservice.PreRender:Connect(updatewatermarkstats)
+		end
+		return
+	end
+
+	if watermarkstatsconnection and watermarkstatsconnection.Connected then
+		watermarkstatsconnection:Disconnect()
+	end
+
+	watermarkstatsconnection = nil
+	env.__blush_watermark_frames = 0
+	env.__blush_watermark_elapsed = 0
+end
+
+setwatermarkstatsactive(watermarkshown)
 calculatewatermarkping()
 
 watermarkdragarea = new("TextButton", {
@@ -3016,6 +2967,76 @@ username.TextTruncate =
 	Enum.TextTruncate.AtEnd
 username.ZIndex = 14
 
+function updatebrandlayout()
+	if not sidebar or not sidebar.Parent then
+		return
+	end
+
+	local width = math.max(1, sidebar.AbsoluteSize.X)
+	local hasicon = avat.Visible and avat.Image ~= ""
+	local iconwidth = hasicon and 22 or 0
+	local reservediconspace = hasicon and 32 or 0
+	local available = math.max(40, width - 28 - reservediconspace)
+
+	local brandwidth = brand.Visible and math.min(
+		math.ceil(measuretext(brand.Text, brand.TextSize, brand.Font, Vector2.new(100000, 23)).X),
+		available
+	) or 0
+	local versionwidth = version.Visible and version.Text ~= ""
+		and math.ceil(measuretext(version.Text, version.TextSize, version.Font, Vector2.new(100000, 18)).X)
+		or 0
+	local usernamewidth = username.Visible and username.Text ~= ""
+		and math.ceil(measuretext(username.Text, username.TextSize, username.Font, Vector2.new(100000, 18)).X)
+		or 0
+	local hasversion = versionwidth > 0
+	local hasusername = usernamewidth > 0
+	local separatorwidth = hasversion and hasusername and 17 or 0
+	local bottomwidth = versionwidth + separatorwidth + usernamewidth
+	local rightwidth = math.min(math.max(brandwidth, bottomwidth), available)
+	local icongap = hasicon and rightwidth > 0 and 10 or 0
+	local totalwidth = rightwidth + iconwidth + icongap
+	local left = math.round((width - totalwidth) * .5)
+	local textleft = left + iconwidth + icongap
+
+	if hasicon then
+		avat.Position = UDim2.fromOffset(left + 11, 45)
+	end
+
+	brand.Position = UDim2.fromOffset(textleft, 23)
+	brand.Size = UDim2.fromOffset(math.max(1, math.min(brandwidth, rightwidth)), 23)
+
+	version.Position = UDim2.fromOffset(textleft, 48)
+	version.Size = UDim2.fromOffset(math.min(versionwidth, rightwidth), 18)
+
+	local usernamex = textleft
+	if hasversion then
+		usernamex += math.min(versionwidth, rightwidth)
+	end
+
+	versiondivider.Visible = hasversion and hasusername
+	if versiondivider.Visible then
+		versiondivider.Position = UDim2.fromOffset(usernamex + 8, 51)
+		usernamex += 17
+	end
+
+	username.Position = UDim2.fromOffset(usernamex, 48)
+	username.Size = UDim2.fromOffset(
+		math.max(0, rightwidth - (usernamex - textleft)),
+		18
+	)
+end
+
+for _, object in ipairs({brand, version, username}) do
+	connect(object:GetPropertyChangedSignal("Text"), updatebrandlayout)
+	connect(object:GetPropertyChangedSignal("TextSize"), updatebrandlayout)
+	connect(object:GetPropertyChangedSignal("Font"), updatebrandlayout)
+	connect(object:GetPropertyChangedSignal("Visible"), updatebrandlayout)
+end
+connect(sidebar:GetPropertyChangedSignal("AbsoluteSize"), updatebrandlayout)
+connect(avat:GetPropertyChangedSignal("Image"), updatebrandlayout)
+connect(avat:GetPropertyChangedSignal("Visible"), updatebrandlayout)
+updatebrandlayout()
+
 sideheaderdrag = new("TextButton", {
 	Parent = sidebar,
 
@@ -3090,7 +3111,7 @@ nav = new("ScrollingFrame", {
 	ZIndex = 12,
 })
 
-navlayout = list(nav, 3)
+list(nav, 3)
 new("UIPadding", {
 	Parent = nav,
 	PaddingBottom = UDim.new(0, 10),
@@ -3200,7 +3221,6 @@ titleprimary.LayoutOrder = 1
 
 titleprimary.TextSize = 20
 titleprimary.ZIndex = 14
-autoresizetextx(titleprimary, 0, 0, 420)
 
 arrowholder = new("Frame", {
 	Parent = breadcrumb,
@@ -3255,7 +3275,6 @@ titlesecondary.LayoutOrder = 3
 
 titlesecondary.TextSize = 18
 titlesecondary.ZIndex = 14
-autoresizetextx(titlesecondary, 0, 0, 420)
 
 closebutton = new("TextButton", {
 	Parent = header,
@@ -3300,25 +3319,25 @@ closeline2 = new("Frame", {
 corner(closeline2, 999)
 
 closebutton.MouseEnter:Connect(function()
-	tween(closeline1, {
-		BackgroundColor3 = theme.text,
-		BackgroundTransparency = 0,
-	}, hoverti)
-	tween(closeline2, {
-		BackgroundColor3 = theme.text,
-		BackgroundTransparency = 0,
-	}, hoverti)
+	if not windowminimizebuttonenabled then
+		return
+	end
+
+	closeline1.BackgroundTransparency = 0
+	closeline2.BackgroundTransparency = 0
+	tween(closeline1, {BackgroundColor3 = theme.text}, hoverti)
+	tween(closeline2, {BackgroundColor3 = theme.text}, hoverti)
 end)
 
 closebutton.MouseLeave:Connect(function()
-	tween(closeline1, {
-		BackgroundColor3 = theme.text3,
-		BackgroundTransparency = .08,
-	}, hoverti)
-	tween(closeline2, {
-		BackgroundColor3 = theme.text3,
-		BackgroundTransparency = .08,
-	}, hoverti)
+	if not windowminimizebuttonenabled then
+		return
+	end
+
+	closeline1.BackgroundTransparency = .08
+	closeline2.BackgroundTransparency = .08
+	tween(closeline1, {BackgroundColor3 = theme.text3}, hoverti)
+	tween(closeline2, {BackgroundColor3 = theme.text3}, hoverti)
 end)
 
 closebutton.Activated:Connect(function()
@@ -3358,62 +3377,82 @@ searchholder = new("Frame", {
 	ZIndex = 14,
 })
 
-corner(searchholder, 9)
-addshadow(searchholder, "SearchShadow", .94, 8, 1, -1, Color3.fromRGB(0, 0, 0), UDim2.fromOffset(0, 2), false)
+searchfadetoken = 0
+searchfadeanimations = {}
+minimizelineanimation1 = nil
+minimizelineanimation2 = nil
 
-function updateheadercontrols()
-	if not header
-		or not header.Parent
-	then
+corner(searchholder, 9)
+searchshadow = addshadow(searchholder, "SearchShadow", .94, 8, 1, -1, Color3.fromRGB(0, 0, 0), UDim2.fromOffset(0, 2), false)
+
+function updatebreadcrumblayout()
+	if not header or not header.Parent then
 		return
 	end
 
-	local width =
-		math.max(
-			0,
-			header.AbsoluteSize.X
-		)
+	local width = math.max(1, header.AbsoluteSize.X)
+	local closevisible = windowminimizebuttonenabled == true
+	local rightinset = closevisible and 52 or 14
+	local searchvisible = searchenabled and not uis.TouchEnabled
+	local searchwidth = searchvisible and searchholder.AbsoluteSize.X or 0
+	local left = uis.TouchEnabled and 58 or 21
+	local right = searchvisible
+		and width - rightinset - searchwidth - 12
+		or width - rightinset
+	local available = math.max(40, right - left)
 
-	local closevisible =
-		closebutton.Visible == true
+	local primarywidth = math.ceil(measuretext(
+		titleprimary.Text,
+		titleprimary.TextSize,
+		titleprimary.Font,
+		Vector2.new(100000, 28)
+	).X)
+	local hassubtitle = titlesecondary.Visible and titlesecondary.Text ~= ""
+	local secondarywidth = hassubtitle and math.ceil(measuretext(
+		titlesecondary.Text,
+		titlesecondary.TextSize,
+		titlesecondary.Font,
+		Vector2.new(100000, 28)
+	).X) or 0
 
-	local rightinset =
-		closevisible and 52 or 14
+	if hassubtitle then
+		local textspace = math.max(0, available - 24)
+		if primarywidth + secondarywidth > textspace then
+			local primarymax = math.max(32, math.floor(textspace * .6))
+			primarywidth = math.min(primarywidth, primarymax)
+			secondarywidth = math.min(secondarywidth, math.max(0, textspace - primarywidth))
+		end
+	else
+		primarywidth = math.min(primarywidth, available)
+	end
 
-	local searchwidth =
-		math.clamp(
-			width - 190,
-			96,
-			150
-		)
+	titleprimary.Size = UDim2.fromOffset(math.max(1, primarywidth), 28)
+	titleprimary.TextTruncate = Enum.TextTruncate.AtEnd
+	titlesecondary.Size = UDim2.fromOffset(math.max(0, secondarywidth), 28)
+	titlesecondary.TextTruncate = Enum.TextTruncate.AtEnd
 
-	searchholder.Size =
-		UDim2.fromOffset(
-			searchwidth,
-			38
-		)
+	local contentwidth = primarywidth + (hassubtitle and (secondarywidth + 24) or 0)
+	contentwidth = math.min(contentwidth, available)
+	breadcrumb.AnchorPoint = Vector2.new(.5, .5)
+	breadcrumb.Position = UDim2.fromOffset(math.round((left + right) * .5), 31)
+	breadcrumb.Size = UDim2.fromOffset(math.max(1, contentwidth), 28)
+end
 
-	searchholder.Position =
-		UDim2.new(
-			1,
-			-rightinset,
-			.5,
-			0
-		)
+function updateheadercontrols()
+	if not header or not header.Parent then
+		return
+	end
 
-	closebutton.Size =
-		UDim2.fromOffset(
-			30,
-			30
-		)
+	local width = math.max(0, header.AbsoluteSize.X)
+	local closevisible = windowminimizebuttonenabled == true
+	local rightinset = closevisible and 52 or 14
+	local searchwidth = math.clamp(width - 190, 96, 150)
 
-	closebutton.Position =
-		UDim2.new(
-			1,
-			-14,
-			.5,
-			0
-		)
+	searchholder.Size = UDim2.fromOffset(searchwidth, 38)
+	searchholder.Position = UDim2.new(1, -rightinset, .5, 0)
+	closebutton.Size = UDim2.fromOffset(30, 30)
+	closebutton.Position = UDim2.new(1, -14, .5, 0)
+	updatebreadcrumblayout()
 end
 
 connect(
@@ -3421,7 +3460,154 @@ connect(
 	updateheadercontrols
 )
 
-task.defer(updateheadercontrols)
+updateheadercontrols()
+
+for _, object in ipairs({titleprimary, titlesecondary}) do
+	connect(object:GetPropertyChangedSignal("Text"), updatebreadcrumblayout)
+	connect(object:GetPropertyChangedSignal("TextSize"), updatebreadcrumblayout)
+	connect(object:GetPropertyChangedSignal("Font"), updatebreadcrumblayout)
+	connect(object:GetPropertyChangedSignal("Visible"), updatebreadcrumblayout)
+end
+
+function setminimizebuttonvisible(value, animate)
+	value = value == true
+	local changed = windowminimizebuttonenabled ~= value
+	windowminimizebuttonenabled = value
+
+	for _, animation in ipairs({minimizelineanimation1, minimizelineanimation2}) do
+		if animation then
+			invoke(function() animation:Cancel() end)
+		end
+	end
+
+	minimizelineanimation1 = nil
+	minimizelineanimation2 = nil
+	closebutton.Active = value
+
+	if value then
+		closebutton.Visible = true
+	end
+
+	updateheadercontrols()
+	if topnavigationenabled and updatetopnavigationlayout then
+		updatetopnavigationlayout()
+	end
+
+	if not animate or not animationsenabled or not changed then
+		closebutton.Visible = value
+		closeline1.BackgroundTransparency = value and .08 or 1
+		closeline2.BackgroundTransparency = value and .08 or 1
+		return
+	end
+
+	local target = value and .08 or 1
+	if value then
+		closeline1.BackgroundTransparency = 1
+		closeline2.BackgroundTransparency = 1
+	end
+
+	local info = TweenInfo.new(.18, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
+	minimizelineanimation1 = tween(closeline1, {BackgroundTransparency = target}, info)
+	minimizelineanimation2 = tween(closeline2, {BackgroundTransparency = target}, info)
+
+	local animation = minimizelineanimation2 or minimizelineanimation1
+	if animation then
+		animation.Completed:Connect(function()
+			if minimizelineanimation2 ~= animation and minimizelineanimation1 ~= animation then
+				return
+			end
+
+			minimizelineanimation1 = nil
+			minimizelineanimation2 = nil
+			if not windowminimizebuttonenabled then
+				closebutton.Visible = false
+			end
+		end)
+	end
+end
+
+function setsearchvisible(value, animate)
+	value = value == true and not uis.TouchEnabled
+	local changed = searchenabled ~= value
+	searchenabled = value
+	searchfadetoken += 1
+	local token = searchfadetoken
+	searchholder.Active = value
+
+	if search then
+		search.Active = value
+		search.TextEditable = value
+	end
+
+	for _, animation in ipairs(searchfadeanimations) do
+		invoke(function() animation:Cancel() end)
+	end
+	table.clear(searchfadeanimations)
+
+	if value then
+		searchholder.Visible = true
+	end
+
+	updateheadercontrols()
+	if topnavigationenabled and updatetopnavigationlayout then
+		updatetopnavigationlayout()
+	end
+
+	local parts = {
+		{searchholder, "BackgroundTransparency", value and effectivetransparency(0, "input") or 1},
+	}
+
+	if searchicon and searchicon.Parent then
+		parts[#parts + 1] = {searchicon, "ImageTransparency", value and effectivefontalpha(0) or 1}
+	end
+
+	if search and search.Parent then
+		parts[#parts + 1] = {search, "TextTransparency", value and effectivefontalpha(0) or 1}
+	end
+
+	if searchshadow and searchshadow.Parent then
+		local base = searchshadow:GetAttribute("BlushBaseTransparency") or .94
+		parts[#parts + 1] = {searchshadow, "Transparency", value and base or 1}
+	end
+
+	if not animate or not animationsenabled or not changed then
+		for _, part in ipairs(parts) do
+			part[1][part[2]] = part[3]
+		end
+		searchholder.Visible = value
+		return
+	end
+
+	local primary
+	for _, part in ipairs(parts) do
+		local animation = tween(
+			part[1],
+			{[part[2]] = part[3]},
+			TweenInfo.new(.18, Enum.EasingStyle.Quart, Enum.EasingDirection.Out),
+			true
+		)
+		if animation then
+			searchfadeanimations[#searchfadeanimations + 1] = animation
+			primary = primary or animation
+		end
+	end
+
+	local function finish()
+		if token ~= searchfadetoken then
+			return
+		end
+		table.clear(searchfadeanimations)
+		if not searchenabled then
+			searchholder.Visible = false
+		end
+	end
+
+	if primary then
+		primary.Completed:Connect(finish)
+	else
+		finish()
+	end
+end
 
 searchicon = image(
 	searchholder,
@@ -3568,13 +3754,7 @@ function makedragghost(source, zindex)
 	end
 	clone.ZIndex += (zindex or 460)
 
-	local scale = rawnew("UIScale", {
-		Parent = holder,
-		Scale = .96,
-	})
-	tween(scale, {Scale = 1}, TweenInfo.new(.24, Enum.EasingStyle.Quart, Enum.EasingDirection.Out))
-
-	return holder, clone, scale
+	return holder, clone
 end
 
 function hideforghost(source)
@@ -3640,7 +3820,7 @@ notificationholder = new("Frame", {
 	ZIndex = 700,
 })
 
-notificationlayout = new("UIListLayout", {
+new("UIListLayout", {
 	Parent = notificationholder,
 
 	FillDirection = Enum.FillDirection.Vertical,
@@ -4060,6 +4240,60 @@ sectiondrag = nil
 animatedpickers = {}
 pickeranimationconnection = nil
 interactionrenderconnection = nil
+animateduielements = setmetatable({}, { __mode = "k" })
+animateduiconnection = nil
+
+function stopanimateduiloop()
+	local connection = animateduiconnection
+	animateduiconnection = nil
+
+	if connection and connection.Connected then
+		connection:Disconnect()
+	end
+end
+
+function ensureanimateduiloop()
+	if animateduiconnection and animateduiconnection.Connected then
+		return
+	end
+
+	animateduiconnection = runservice.RenderStepped:Connect(function(dt)
+		if next(animateduielements) == nil then
+			stopanimateduiloop()
+			return
+		end
+
+		for object, data in pairs(animateduielements) do
+			if not object.Parent then
+				animateduielements[object] = nil
+			elseif data.kind == "spinner" then
+				if animationsenabled then
+					data.value = (data.value + dt * 180) % 360
+					object.Rotation = data.value
+				end
+			elseif data.kind == "bar" then
+				if animationsenabled then
+					data.value = (data.value + dt * .7) % 1
+					object.Position = UDim2.new(-.28 + data.value * 1.28, 0, 0, 0)
+				else
+					object.Position = UDim2.new(.36, 0, 0, 0)
+				end
+			end
+		end
+	end)
+end
+
+function registeranimatedui(object, kind)
+	animateduielements[object] = { kind = kind, value = 0 }
+	ensureanimateduiloop()
+
+	object.Destroying:Connect(function()
+		animateduielements[object] = nil
+		if next(animateduielements) == nil then
+			stopanimateduiloop()
+		end
+	end)
+end
 
 function stoppickeranimationloop()
 	local connection = pickeranimationconnection
@@ -4142,11 +4376,7 @@ function closepopup()
 		tween(
 			popup.panel,
 			{GroupTransparency = 1},
-			TweenInfo.new(
-				.24,
-				Enum.EasingStyle.Quart,
-				Enum.EasingDirection.Out
-			)
+			dropti
 		)
 
 	local function destroy()
@@ -4314,11 +4544,7 @@ function createpopup(
 	tween(
 		animationobject,
 		{GroupTransparency = 0},
-		TweenInfo.new(
-			.24,
-			Enum.EasingStyle.Quart,
-			Enum.EasingDirection.Out
-		)
+		dropti
 	)
 
 	if uis.TouchEnabled then
@@ -4741,7 +4967,7 @@ hotkeyheadericon.Position = UDim2.fromOffset(12, 16)
 hotkeyheadericon.ImageTransparency = .08
 
 hotkeytitle = label(hotkeylist, "Keybinds", UDim2.new(1, -72, 0, 30), medium, theme.text)
-hotkeytitle.Position = UDim2.fromOffset(34, 2)
+hotkeytitle.Position = UDim2.fromOffset(34, 1)
 hotkeytitle.TextXAlignment = Enum.TextXAlignment.Left
 hotkeytitle.TextSize = 16
 hotkeytitle.ZIndex = 321
@@ -4796,9 +5022,7 @@ hotkeyscroll = new("ScrollingFrame", {
 	ElasticBehavior = Enum.ElasticBehavior.Never,
 	ZIndex = 322,
 })
-list(hotkeyscroll, 3)
-
-hotkeysignature = ""
+list(hotkeyscroll, 2)
 hotkeyshown = false
 hotkeytargetposition = hotkeylist.Position
 hotkeydrag = nil
@@ -4809,8 +5033,7 @@ hotkeysizeanimation = nil
 hotkeyvisibilitytoken = 0
 hotkeyminimizetoken = 0
 hotkeyminimizeanimating = false
-hotkeyanimti = TweenInfo.new(.28, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
-hotkeyanimtiin = TweenInfo.new(.28, Enum.EasingStyle.Quart, Enum.EasingDirection.In)
+hotkeyanimti = TweenInfo.new(.18, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
 hotkeyfullheight = 54
 hotkeyrows = setmetatable({}, { __mode = "k" })
 hotkeygroups = {}
@@ -4924,13 +5147,13 @@ function sethotkeyminimized(value, animate)
 	hotkeysizeanimation = tween(
 		hotkeylist,
 		{Size = UDim2.fromOffset(hotkeylistwidth, targetheight)},
-		TweenInfo.new(.30, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
+		TweenInfo.new(.18, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
 	)
 
 	hotkeycollapseanimation = tween(
 		hotkeycollapse,
 		{Rotation = rotation},
-		TweenInfo.new(.26, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
+		TweenInfo.new(.18, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
 	)
 
 	hotkeycontentanimation = tween(
@@ -5048,7 +5271,7 @@ function sethotkeylistvisible(value)
 		hotkeymoveanimation = tween(
 			hotkeylist,
 			{GroupTransparency = 1},
-			hotkeyanimtiin
+			hotkeyanimti
 		)
 
 		local function finish()
@@ -5083,104 +5306,6 @@ function hotkeycategoryicon(binding)
 end
 
 
-function hotkeypathparts(binding)
-	return {
-		tostring(binding.name or "Toggle"),
-	}
-end
-
-function hotkeypath(binding)
-	return tostring(binding.name or "Toggle")
-end
-
-
-function sethotkeypathcolor(data, color, animate)
-	for _, object in ipairs(data.pathlabels or {}) do
-		if object and object.Parent then
-			if animate then
-				tween(object, {TextColor3 = color}, hotkeyanimti)
-			else
-				object.TextColor3 = color
-			end
-		end
-	end
-
-	for _, object in ipairs(data.pathicons or {}) do
-		if object and object.Parent then
-			if animate then
-				tween(object, {ImageColor3 = color}, hotkeyanimti)
-			else
-				object.ImageColor3 = color
-			end
-		end
-	end
-end
-
-function rebuildhotkeypath(data, binding)
-	if not data.pathholder or not data.pathholder.Parent then
-		return
-	end
-
-	for _, object in ipairs(data.pathlabels or {}) do
-		if object and object.Parent then object:Destroy() end
-	end
-	for _, object in ipairs(data.pathicons or {}) do
-		if object and object.Parent then object:Destroy() end
-	end
-
-	data.pathlabels = {}
-	data.pathicons = {}
-
-	local parts = hotkeypathparts(binding)
-	local x = 0
-	local color = data.active and theme.text2 or theme.text3
-
-	for index, part in ipairs(parts) do
-		local last = index == #parts
-		local bounds = measuretext(
-			part,
-			13,
-			font,
-			Vector2.new(180, 26)
-		)
-		local width = math.max(4, math.ceil(bounds.X))
-
-		local textobject = label(
-			data.pathholder,
-			part,
-			last and UDim2.new(1, -x, 1, 0) or UDim2.fromOffset(width, 26),
-			font,
-			color
-		)
-		textobject.Position = UDim2.fromOffset(x, 0)
-		textobject.TextSize = 13
-		textobject.TextXAlignment = Enum.TextXAlignment.Left
-		textobject.TextTruncate = last and Enum.TextTruncate.AtEnd or Enum.TextTruncate.None
-		textobject.ZIndex = 323
-		data.pathlabels[#data.pathlabels + 1] = textobject
-
-		if last then
-			break
-		end
-
-		x += width + 5
-
-		local chevron = image(
-			data.pathholder,
-			icons.right,
-			10,
-			color,
-			323
-		)
-		chevron.AnchorPoint = Vector2.new(0, .5)
-		chevron.Position = UDim2.fromOffset(x, 13)
-		chevron.ImageTransparency = .2
-		data.pathicons[#data.pathicons + 1] = chevron
-
-		x += 15
-	end
-end
-
 function updatehotkeygroup(data, category, binding)
 	local asset = hotkeycategoryicon(binding)
 	data.category = category
@@ -5188,44 +5313,30 @@ function updatehotkeygroup(data, category, binding)
 	if data.asset ~= asset then
 		data.asset = asset
 
-		if data.icon
-			and data.icon.Parent
-		then
+		if data.icon and data.icon.Parent then
 			data.icon:Destroy()
 		end
 
 		data.icon = nil
 
-		if asset ~= nil
-			and tostring(asset) ~= ""
-		then
-			data.icon = image(
-				data.holder,
-				asset,
-				13,
-				theme.text3,
-				323
-			)
+		if asset ~= nil and tostring(asset) ~= "" then
+			data.icon = image(data.holder, asset, 13, theme.text3, 323)
 			data.icon.AnchorPoint = Vector2.new(0, .5)
-			data.icon.Position = UDim2.fromOffset(4, 10)
+			data.icon.Position = UDim2.fromOffset(4, 20)
 			data.icon.ImageTransparency = .08
 		end
 	end
 
-	local textx =
-		data.icon
-		and 23
-		or 4
-
-	data.text.Text = tostring(category)
-	data.text.Position = UDim2.fromOffset(textx, 0)
-	data.text.Size = UDim2.new(1, -textx - 4, 1, 0)
+	local textx = data.icon and 23 or 4
+	data.text.Text = tostring(category == "Misc" and "Other" or category)
+	data.text.Position = UDim2.fromOffset(textx, 8)
+	data.text.Size = UDim2.new(1, -textx - 4, 0, 24)
 end
 
 function createhotkeygroup(key, category, binding)
 	local holder = new("Frame", {
 		Parent = hotkeyscroll,
-		Size = UDim2.new(1, 0, 0, 20),
+		Size = UDim2.new(1, 0, 0, 32),
 		BackgroundTransparency = 1,
 		BorderSizePixel = 0,
 		ZIndex = 322,
@@ -5234,11 +5345,11 @@ function createhotkeygroup(key, category, binding)
 	local textobject = label(
 		holder,
 		tostring(category),
-		UDim2.new(1, -8, 1, 0),
+		UDim2.new(1, -8, 0, 24),
 		medium,
 		theme.text2
 	)
-	textobject.Position = UDim2.fromOffset(4, 0)
+	textobject.Position = UDim2.fromOffset(4, 8)
 	textobject.TextSize = 13
 	textobject.TextXAlignment = Enum.TextXAlignment.Left
 	textobject.ZIndex = 323
@@ -5252,21 +5363,15 @@ function createhotkeygroup(key, category, binding)
 		key = key,
 	}
 
-	updatehotkeygroup(
-		data,
-		category,
-		binding
-	)
-
+	updatehotkeygroup(data, category, binding)
 	hotkeygroups[key] = data
 	return data
 end
 
-
 function createhotkeyrow(binding)
 	local row = new("TextButton", {
 		Parent = hotkeyscroll,
-		Size = UDim2.new(1, 0, 0, 28),
+		Size = UDim2.new(1, 0, 0, 26),
 		BackgroundColor3 = theme.hover,
 		BackgroundTransparency = 1,
 		BorderSizePixel = 0,
@@ -5276,75 +5381,31 @@ function createhotkeyrow(binding)
 	})
 	corner(row, 6)
 
-	local activebox, renderactive =
-		makecheckbox(
-			row,
-			15,
-			false
-		)
-
-	activebox.AnchorPoint =
-		Vector2.new(0, .5)
-
-	activebox.Position =
-		UDim2.fromOffset(
-			4,
-			14
-		)
-
-	activebox.ZIndex = 324
-
 	local nametext = label(
 		row,
 		tostring(binding.name or "Toggle"),
-		UDim2.new(1, -140, 1, 0),
+		UDim2.new(1, -62, 1, 0),
 		font,
 		theme.text3
 	)
-	nametext.Position = UDim2.fromOffset(25, 0)
+	nametext.Position = UDim2.fromOffset(10, 0)
 	nametext.TextSize = 13
 	nametext.TextXAlignment = Enum.TextXAlignment.Left
 	nametext.TextTruncate = Enum.TextTruncate.AtEnd
 	nametext.ZIndex = 323
 
-	local modeholder = new("Frame", {
-		Parent = row,
-		AnchorPoint = Vector2.new(1, .5),
-		Position = UDim2.new(1, -54, .5, 0),
-		Size = UDim2.fromOffset(58, 25),
-		BackgroundTransparency = 1,
-		BorderSizePixel = 0,
-		ZIndex = 323,
-	})
-
-	local modetext = label(
-		modeholder,
-		"",
-		UDim2.fromScale(1, 1),
-		font,
-		theme.text3
-	)
-	modetext.TextSize = 12
-	modetext.TextXAlignment = Enum.TextXAlignment.Right
-	modetext.ZIndex = 324
-
 	local keyholder = new("Frame", {
 		Parent = row,
 		AnchorPoint = Vector2.new(1, .5),
 		Position = UDim2.new(1, -4, .5, 0),
-		Size = UDim2.fromOffset(42, 25),
+		Size = UDim2.fromOffset(34, 22),
 		BackgroundColor3 = theme.input,
 		BackgroundTransparency = .34,
 		BorderSizePixel = 0,
 		ZIndex = 323,
 	})
 	corner(keyholder, 6)
-	stroke(
-		keyholder,
-		.7,
-		theme.border,
-		.6
-	)
+	stroke(keyholder, .7, theme.border, .6)
 
 	local keytext = label(
 		keyholder,
@@ -5353,7 +5414,7 @@ function createhotkeyrow(binding)
 		medium,
 		theme.text3
 	)
-	keytext.TextSize = 14
+	keytext.TextSize = 13
 	keytext.TextXAlignment = Enum.TextXAlignment.Center
 	keytext.ZIndex = 324
 
@@ -5361,48 +5422,32 @@ function createhotkeyrow(binding)
 		binding = binding,
 		row = row,
 		nametext = nametext,
-		modeholder = modeholder,
-		modetext = modetext,
 		keyholder = keyholder,
 		keytext = keytext,
-		activebox = activebox,
-		renderactive = renderactive,
 		active = nil,
 		name = nil,
-		mode = nil,
 		keyname = nil,
 	}
 
 	row.MouseEnter:Connect(function()
 		if row.Parent then
-			tween(nametext, {
-				TextColor3 = theme.text,
-			}, hoverti)
-			tween(modetext, {
-				TextColor3 = theme.text2,
-			}, hoverti)
-			tween(keytext, {
-				TextColor3 = theme.text2,
-			}, hoverti)
+			tween(nametext, {TextColor3 = theme.text}, hoverti)
+			tween(keytext, {TextColor3 = theme.text2}, hoverti)
 		end
 	end)
 
 	row.MouseLeave:Connect(function()
 		if row.Parent then
-			local color =
-				data.active
-				and theme.text2
-				or theme.text3
+			local color = data.active and theme.text2 or theme.text3
+			tween(nametext, {TextColor3 = color}, hoverti)
+			tween(keytext, {TextColor3 = color}, hoverti)
+		end
+	end)
 
-			tween(nametext, {
-				TextColor3 = color,
-			}, hoverti)
-			tween(modetext, {
-				TextColor3 = theme.text3,
-			}, hoverti)
-			tween(keytext, {
-				TextColor3 = color,
-			}, hoverti)
+	row.Activated:Connect(function()
+		local ok, current = invoke(binding.get)
+		if ok and binding.set then
+			binding.set(not (current == true), true)
 		end
 	end)
 
@@ -5412,9 +5457,7 @@ end
 
 function updatehotkeyrow(data, binding, active, layoutorder, animate)
 	local name = tostring(binding.name or "Toggle")
-	local mode = tostring(binding.mode or "Toggle")
 	local keyname = togglekeyname(binding.key)
-
 	data.row.LayoutOrder = layoutorder
 
 	if data.name ~= name then
@@ -5422,108 +5465,36 @@ function updatehotkeyrow(data, binding, active, layoutorder, animate)
 		data.nametext.Text = name
 	end
 
-	if data.mode ~= mode then
-		data.mode = mode
-		data.modetext.Text = mode
-	end
-
 	if data.keyname ~= keyname then
 		data.keyname = keyname
 		data.keytext.Text = keyname
 	end
 
-	local keybounds = measuretext(
-		keyname,
-		14,
-		medium,
-		Vector2.new(200, 25)
-	)
-
-	local singlecharacter =
-		#plaintext(keyname) == 1
-
+	local keybounds = measuretext(keyname, 13, medium, Vector2.new(200, 22))
+	local singlecharacter = #plaintext(keyname) == 1
 	local keywidth = math.clamp(
-		math.ceil(keybounds.X)
-			+ (singlecharacter and 14 or 20),
-		singlecharacter and 30 or 42,
-		92
+		math.ceil(keybounds.X) + (singlecharacter and 14 or 18),
+		singlecharacter and 28 or 38,
+		88
 	)
 
-	local modebounds = measuretext(
-		mode,
-		12,
-		font,
-		Vector2.new(120, 25)
-	)
-
-	local modewidth = math.clamp(
-		math.ceil(modebounds.X) + 10,
-		38,
-		72
-	)
-
-	data.keyholder.Size =
-		UDim2.fromOffset(
-			keywidth,
-			25
-		)
-
-	data.modeholder.Size =
-		UDim2.fromOffset(
-			modewidth,
-			25
-		)
-
-	data.modeholder.Position =
-		UDim2.new(
-			1,
-			-keywidth - 10,
-			.5,
-			0
-		)
-
-	data.nametext.Size =
-		UDim2.new(
-			1,
-			-keywidth - modewidth - 45,
-			1,
-			0
-		)
+	data.keyholder.Size = UDim2.fromOffset(keywidth, 22)
+	data.nametext.Size = UDim2.new(1, -keywidth - 20, 1, 0)
 
 	local changed = data.active ~= active
-
-	if data.renderactive then
-		data.renderactive(active == true)
-	end
-
 	data.active = active
+	local color = active and theme.text2 or theme.text3
 
-	local color =
-		active
-		and theme.text2
-		or theme.text3
-
-	if changed
-		and animate
-	then
-		tween(data.nametext, {
-			TextColor3 = color,
-		}, hotkeyanimti)
-		tween(data.keytext, {
-			TextColor3 = color,
-		}, hotkeyanimti)
-		tween(data.keyholder, {
-			BackgroundTransparency = active and .18 or .34,
-		}, hotkeyanimti)
+	if changed and animate then
+		tween(data.nametext, {TextColor3 = color}, hotkeyanimti)
+		tween(data.keytext, {TextColor3 = color}, hotkeyanimti)
+		tween(data.keyholder, {BackgroundTransparency = active and .18 or .34}, hotkeyanimti)
 	else
 		data.nametext.TextColor3 = color
 		data.keytext.TextColor3 = color
 		data.keyholder.BackgroundTransparency = active and .18 or .34
 	end
-
-	data.modetext.TextColor3 = theme.text3
 end
-
 
 function refreshhotkeylist()
 	if not hotkeylist.Visible then
@@ -5546,8 +5517,15 @@ function refreshhotkeylist()
 				or binding.anchor.Parent
 			)
 		then
-			local category =
-				tostring(binding.category or "Misc")
+			local category = tostring(
+				binding.subpage
+					or binding.category
+					or "Misc"
+			)
+
+			if category == "Extras" then
+				category = "Other"
+			end
 			local groupkey =
 				binding.page
 				or category
@@ -5598,7 +5576,7 @@ function refreshhotkeylist()
 		seengroups[group.key] = true
 		layoutorder += 1
 		groupdata.holder.LayoutOrder = layoutorder
-		contentheight += 20
+		contentheight += 32
 		itemcount += 1
 
 		for _, binding in ipairs(group.bindings) do
@@ -5629,7 +5607,7 @@ function refreshhotkeylist()
 				layoutorder,
 				not created
 			)
-			contentheight += 28
+			contentheight += 26
 			itemcount += 1
 		end
 	end
@@ -5682,7 +5660,7 @@ function refreshhotkeylist()
 	end
 
 	if itemcount > 1 then
-		contentheight += (itemcount - 1) * 3
+		contentheight += (itemcount - 1) * 2
 	end
 
 	hotkeyscroll.CanvasSize =
@@ -5757,12 +5735,23 @@ end
 
 keycaptureowner = nil
 
-function beginkeycapture(owner, cancelcallback)
-	if keycaptureowner
-		and keycaptureowner.owner ~= owner
-	then
+function capturephysicalkey(input)
+	if input.UserInputType == Enum.UserInputType.Keyboard then
+		return input.KeyCode
+	end
+
+	if validmousebind(input.UserInputType) then
+		return input.UserInputType
+	end
+
+	return nil
+end
+
+function beginkeycapture(owner, cancelcallback, selectcallback, ignorecallback)
+	if keycaptureowner and keycaptureowner.owner ~= owner then
 		local previous = keycaptureowner
 		keycaptureowner = nil
+		contextactionservice:UnbindAction("__blush_keycapture")
 
 		if previous.cancel then
 			previous.cancel()
@@ -5771,35 +5760,87 @@ function beginkeycapture(owner, cancelcallback)
 		releaseinteraction(previous.owner)
 	end
 
-	if not acquireinteraction(
-		"keycapture",
-		owner
-	) then
+	if not acquireinteraction("keycapture", owner) then
 		return false
 	end
 
 	keycaptureowner = {
 		owner = owner,
 		cancel = cancelcallback,
+		select = selectcallback,
+		ignore = ignorecallback,
 	}
-
 	keypickercapturing = true
+
+	contextactionservice:UnbindAction("__blush_keycapture")
+	contextactionservice:BindActionAtPriority(
+		"__blush_keycapture",
+		function(_, inputstate, input)
+			local capture = keycaptureowner
+			if not capture or capture.owner ~= owner then
+				return Enum.ContextActionResult.Pass
+			end
+
+			if inputstate ~= Enum.UserInputState.Begin then
+				return Enum.ContextActionResult.Pass
+			end
+
+			if capture.ignore and capture.ignore(input) then
+				return Enum.ContextActionResult.Pass
+			end
+
+			local physical = capturephysicalkey(input)
+			if not physical or physical == Enum.KeyCode.Unknown then
+				return Enum.ContextActionResult.Pass
+			end
+
+			if physical == Enum.KeyCode.Escape then
+				local cancel = capture.cancel
+				endkeycapture(owner, physical)
+				if cancel then
+					cancel()
+				end
+				return Enum.ContextActionResult.Sink
+			end
+
+			local selected = physical
+			if physical == Enum.KeyCode.Backspace
+				or physical == Enum.KeyCode.Delete
+			then
+				selected = nil
+			end
+
+			local selectcallback = capture.select
+			endkeycapture(owner, physical)
+			if selectcallback then
+				selectcallback(selected, input)
+			end
+
+			return Enum.ContextActionResult.Sink
+		end,
+		false,
+		Enum.ContextActionPriority.High.Value + 2000,
+		Enum.UserInputType.Keyboard,
+		Enum.UserInputType.MouseButton1,
+		Enum.UserInputType.MouseButton2,
+		Enum.UserInputType.MouseButton3
+	)
+
 	return true
 end
 
-function endkeycapture(owner, suppress)
-	if keycaptureowner
-		and keycaptureowner.owner ~= owner
-	then
+function endkeycapture(owner, suppresskey)
+	if keycaptureowner and keycaptureowner.owner ~= owner then
 		return false
 	end
 
 	keycaptureowner = nil
 	keypickercapturing = false
+	contextactionservice:UnbindAction("__blush_keycapture")
 	releaseinteraction(owner)
 
-	if suppress then
-		keypickersuppress = true
+	if suppresskey then
+		keypickersuppress = suppresskey
 	end
 
 	return true
@@ -5809,7 +5850,7 @@ env.__blush_keyactions = env.__blush_keyactions or {}
 
 function dispatchtogglebinding(key, began)
 	if keypickercapturing
-		or keypickersuppress
+		or keypickersuppress == key
 	then
 		return
 	end
@@ -5853,7 +5894,10 @@ function dispatchtogglebinding(key, began)
 end
 
 function keyactionname(key)
-	return "__blush_keybind_" .. tostring(key.Name)
+	return "__blush_keybind_"
+		.. tostring(key.EnumType.Name)
+		.. "_"
+		.. tostring(key.Name)
 end
 
 function refreshkeyaction(key)
@@ -5936,8 +5980,6 @@ function setbindingkey(binding, key, persist)
 	if binding.refreshkey then
 		binding.refreshkey()
 	end
-
-	hotkeysignature = ""
 	requesthotkeyrefresh(binding)
 
 	if persist ~= false then
@@ -5960,8 +6002,12 @@ function unregistertogglebinding(binding)
 	end
 
 	refreshkeyaction(previous)
+
+	local row = hotkeyrows[binding]
+	if row and row.row and row.row.Parent then
+		row.row:Destroy()
+	end
 	hotkeyrows[binding] = nil
-	hotkeysignature = ""
 	requesthotkeyrefresh()
 end
 
@@ -6300,7 +6346,6 @@ function opentoggleconfig(anchor, binding, clickposition, togglesame)
 	local listening = false
 	local modeopen = false
 	local modeentries = {}
-	local outsideconnection
 
 	local function rendermode()
 		modetext.Text = binding.mode
@@ -6448,7 +6493,6 @@ function opentoggleconfig(anchor, binding, clickposition, togglesame)
 		option.Activated:Connect(function()
 			binding.mode = mode
 			rendermode()
-			hotkeysignature = ""
 			requesthotkeyrefresh(binding)
 			requestconfigautosave()
 
@@ -6487,7 +6531,7 @@ function opentoggleconfig(anchor, binding, clickposition, togglesame)
 		keybutton.Activated:Connect(function()
 			if listening then
 				listening = false
-				endkeycapture(popup, false)
+				endkeycapture(popup, nil)
 				renderkey()
 				return
 			end
@@ -6499,6 +6543,15 @@ function opentoggleconfig(anchor, binding, clickposition, togglesame)
 				function()
 					listening = false
 					renderkey()
+				end,
+				function(selectedkey)
+					listening = false
+					setbindingkey(binding, selectedkey)
+					renderkey()
+				end,
+				function(input)
+					return input.UserInputType == Enum.UserInputType.MouseButton1
+						and inside(keybutton, point(input))
 				end
 			) then
 				listening = false
@@ -6508,132 +6561,10 @@ function opentoggleconfig(anchor, binding, clickposition, togglesame)
 		end)
 	end
 
-	local captureconnection =
-		connect(
-			uis.InputBegan,
-			function(input)
-			if hasinlinekey
-				or not listening
-				or not panel.Parent
-			then
-				return
-			end
-
-			local kind = input.UserInputType
-			local keyboard =
-				kind == Enum.UserInputType.Keyboard
-			local mouse = validmousebind(kind)
-
-			if not keyboard and not mouse then
-				return
-			end
-
-			if keyboard
-				and input.KeyCode == Enum.KeyCode.Escape
-			then
-				listening = false
-				endkeycapture(popup, true)
-				renderkey()
-				return
-			end
-
-			local selectedkey
-
-			if keyboard
-				and (
-					input.KeyCode == Enum.KeyCode.Backspace
-					or input.KeyCode == Enum.KeyCode.Delete
-				)
-			then
-				selectedkey = nil
-			elseif keyboard then
-				if input.KeyCode == Enum.KeyCode.Unknown then
-					return
-				end
-
-				selectedkey = input.KeyCode
-			else
-				if kind == Enum.UserInputType.MouseButton1
-					and inside(keybutton, point(input))
-				then
-					return
-				end
-
-				selectedkey = kind
-			end
-
-			listening = false
-			endkeycapture(popup, true)
-			setbindingkey(binding, selectedkey)
-			renderkey()
-		end
-		)
-	task.defer(function()
-		if activepopup ~= popup
-			or not panel.Parent
-		then
-			return
-		end
-
-		outsideconnection =
-			connect(uis.InputBegan, function(input)
-				if activepopup ~= popup then
-					if outsideconnection
-						and outsideconnection.Connected
-					then
-						outsideconnection:Disconnect()
-					end
-					return
-				end
-
-				local kind = input.UserInputType
-
-				if kind ~= Enum.UserInputType.MouseButton1
-					and kind ~= Enum.UserInputType.MouseButton2
-					and kind ~= Enum.UserInputType.Touch
-				then
-					return
-				end
-
-				local inputpoint =
-					point(input)
-
-				local overconfig =
-					binding.configbutton
-					and binding.configbutton.Parent
-					and inside(
-						binding.configbutton,
-						inputpoint
-					)
-
-				if not inside(
-					panel,
-					inputpoint
-				)
-					and not inside(
-						anchor,
-						inputpoint
-					)
-					and not overconfig
-				then
-					closepopup()
-				end
-			end)
-	end)
 
 	popup.onclose = function()
 		listening = false
 		endkeycapture(popup, false)
-
-		if captureconnection.Connected then
-			captureconnection:Disconnect()
-		end
-
-		if outsideconnection
-			and outsideconnection.Connected
-		then
-			outsideconnection:Disconnect()
-		end
 	end
 
 	rendermode()
@@ -6690,8 +6621,6 @@ function applysavedkeybind(binding, data)
 	then
 		binding.set(true, false)
 	end
-
-	hotkeysignature = ""
 	requesthotkeyrefresh(binding)
 end
 
@@ -6779,8 +6708,6 @@ function registertogglebinding(binding)
 			pending
 		)
 	end
-
-	hotkeysignature = ""
 	requesthotkeyrefresh(binding)
 end
 
@@ -6909,7 +6836,7 @@ connect(
 	function(input)
 		if uis.TouchEnabled
 			or keypickercapturing
-			or keypickersuppress
+			or bindingmatchesinput(keypickersuppress, input)
 		then
 			return
 		end
@@ -6964,8 +6891,8 @@ connect(
 connect(
 	uis.InputEnded,
 	function(input)
-		if keypickersuppress then
-			keypickersuppress = false
+		if bindingmatchesinput(keypickersuppress, input) then
+			keypickersuppress = nil
 		end
 
 		if uis.TouchEnabled
@@ -6983,7 +6910,7 @@ connect(
 
 inlinekeycapture = nil
 
-function stopinlinekeycapture(suppress)
+function stopinlinekeycapture(suppresskey)
 	local state = inlinekeycapture
 	if not state then
 		return
@@ -6991,7 +6918,7 @@ function stopinlinekeycapture(suppress)
 
 	inlinekeycapture = nil
 	state.listening = false
-	endkeycapture(state, suppress)
+	endkeycapture(state, suppresskey)
 
 	if state.render then
 		state.render()
@@ -7083,13 +7010,13 @@ function attachinlinekeypicker(
 
 	keybutton.Activated:Connect(function()
 		if inlinekeycapture == state then
-			stopinlinekeycapture(false)
+			stopinlinekeycapture(nil)
 			binding.suppressclick = false
 			return
 		end
 
 		if inlinekeycapture then
-			stopinlinekeycapture(false)
+			stopinlinekeycapture(nil)
 		end
 
 		inlinekeycapture = state
@@ -7101,9 +7028,22 @@ function attachinlinekeypicker(
 				if inlinekeycapture == state then
 					inlinekeycapture = nil
 				end
-
 				state.listening = false
 				renderkey()
+			end,
+			function(selectedkey)
+				inlinekeycapture = nil
+				state.listening = false
+				setbindingkey(binding, selectedkey)
+				renderkey()
+
+				if state.callback then
+					state.callback(binding.key)
+				end
+			end,
+			function(input)
+				return input.UserInputType == Enum.UserInputType.MouseButton1
+					and inside(keybutton, point(input))
 			end
 		) then
 			inlinekeycapture = nil
@@ -7123,73 +7063,10 @@ function attachinlinekeypicker(
 	end)
 
 	renderkey()
-	hotkeysignature = ""
 	refreshhotkeylist()
 
 	return keybutton, configbutton
 end
-
-connect(uis.InputBegan, function(input)
-	local state = inlinekeycapture
-	if not state then
-		return
-	end
-
-	local button = state.button
-	local binding = state.binding
-
-	if not button or not button.Parent then
-		stopinlinekeycapture(false)
-		return
-	end
-
-	local kind = input.UserInputType
-	local keyboard = kind == Enum.UserInputType.Keyboard
-	local mouse = validmousebind(kind)
-
-	if not keyboard and not mouse then
-		return
-	end
-
-	if keyboard and input.KeyCode == Enum.KeyCode.Escape then
-		stopinlinekeycapture(true)
-		return
-	end
-
-	if kind == Enum.UserInputType.MouseButton1
-		and inside(button, point(input))
-	then
-		return
-	end
-
-	local selectedkey
-
-	if keyboard
-		and (
-			input.KeyCode == Enum.KeyCode.Backspace
-			or input.KeyCode == Enum.KeyCode.Delete
-		)
-	then
-		selectedkey = nil
-	elseif keyboard then
-		if input.KeyCode == Enum.KeyCode.Unknown then
-			return
-		end
-		selectedkey = input.KeyCode
-	else
-		selectedkey = kind
-	end
-
-	inlinekeycapture = nil
-	state.listening = false
-	endkeycapture(state, true)
-	setbindingkey(binding, selectedkey)
-	state.render()
-
-	if state.callback then
-		state.callback(binding.key)
-	end
-end)
 
 -- page scrollbar
 
@@ -7544,7 +7421,7 @@ function createpage(
 
 			self.left.CanvasSize = UDim2.fromOffset(0, 0)
 			self.left.AutomaticCanvasSize = Enum.AutomaticSize.Y
-			task.defer(self.scrollupdates.left)
+			self.scrollupdates.left()
 			return
 		end
 
@@ -7614,9 +7491,7 @@ function createpage(
 				)
 			)
 
-		task.defer(
-			self.scrollupdates[column]
-		)
+		self.scrollupdates[column]()
 	end
 
 	function page:reflowall(animate)
@@ -7636,86 +7511,80 @@ function createpage(
 	return page
 end
 
-function showpage(name)
-	local page =
-		pages[name]
+function fadepage(page, transparency, callback)
+	local previous = page.fadeanimation
+	page.fadeanimation = nil
 
-	if not page
-		or page == currentpage
-	then
+	if previous then
+		invoke(function() previous:Cancel() end)
+	end
+
+	local animation = tween(
+		page.frame,
+		{GroupTransparency = transparency},
+		TweenInfo.new(.18, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
+	)
+
+	page.fadeanimation = animation
+
+	if not animation then
+		if callback then
+			callback()
+		end
+		return
+	end
+
+	animation.Completed:Connect(function()
+		if page.fadeanimation ~= animation then
+			return
+		end
+
+		page.fadeanimation = nil
+		if callback then
+			callback()
+		end
+	end)
+end
+
+function showpage(name)
+	local page = pages[name]
+
+	if not page or page == currentpage then
 		return
 	end
 
 	closepopup()
 
-	local previous =
-		currentpage
-
+	local previous = currentpage
 	currentpage = page
 
-	titleprimary.Text =
-		page.primary
+	titleprimary.Text = page.primary
 
-	local hassubtitle =
-		page.secondary ~= nil
-		and page.secondary ~= ""
-
-	arrowholder.Visible =
-		hassubtitle
-
-	titlesecondary.Visible =
-		hassubtitle
-
-	titlesecondary.Text =
-		page.secondary or ""
+	local hassubtitle = page.secondary ~= nil and page.secondary ~= ""
+	arrowholder.Visible = hassubtitle
+	titlesecondary.Visible = hassubtitle
+	titlesecondary.Text = page.secondary or ""
 
 	if updatetopnavigationstate then
 		updatetopnavigationstate()
 	end
 
 	if previous then
-		local animation =
-			tween(
-				previous.frame,
-				{GroupTransparency = 1},
-				TweenInfo.new(
-					.24,
-					Enum.EasingStyle.Quart,
-					Enum.EasingDirection.Out
-				)
-			)
-
-		local function hideprevious()
+		fadepage(previous, 1, function()
 			if previous ~= currentpage then
 				previous.frame.Visible = false
 			end
-		end
-
-		if animation then
-			local completed
-			completed = animation.Completed:Connect(function()
-				if completed then
-					completed:Disconnect()
-					completed = nil
-				end
-
-				hideprevious()
-			end)
-		else
-			hideprevious()
-		end
+		end)
 	end
 
+	local wasvisible = page.frame.Visible
 	page.frame.Visible = true
 	page.frame.Position = UDim2.fromOffset(0, 0)
-	page.frame.GroupTransparency = 1
+	if not wasvisible then
+		page.frame.GroupTransparency = 1
+	end
 	page:reflowall(false)
-
-	tween(
-		page.frame,
-		{GroupTransparency = 0},
-		TweenInfo.new(.24, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
-	)
+	fadepage(page, 0)
 
 	search.Text = ""
 end
@@ -7728,24 +7597,15 @@ function makecheckbox(
 	default
 )
 	local checked = default == true
+	local indicatortween
 
 	local box = new("Frame", {
 		Parent = parentobject,
-
-		Size =
-			UDim2.fromOffset(
-				size,
-				size
-			),
-
-		BackgroundColor3 =
-			theme.input,
-
+		Size = UDim2.fromOffset(size, size),
+		BackgroundColor3 = theme.input,
 		BorderSizePixel = 0,
-
 		ZIndex = 16,
 	})
-
 	corner(box, 5)
 
 	local boxstroke = stroke(
@@ -7757,112 +7617,83 @@ function makecheckbox(
 
 	local fill = new("Frame", {
 		Parent = box,
-
-		Size =
-			UDim2.fromScale(
-				1,
-				1
-			),
-
-		BackgroundColor3 =
-			theme.white,
-
-		BackgroundTransparency =
-			checked and 0 or 1,
-
+		Size = UDim2.fromScale(1, 1),
+		BackgroundColor3 = theme.white,
+		BackgroundTransparency = checked and 0 or 1,
 		BorderSizePixel = 0,
-
 		ZIndex = 17,
 	})
-
 	corner(fill, 5)
 
-	local checkedglow =
-		addshadow(
-			fill,
-			"CheckedGlow",
-			checked and .64 or 1,
-			7,
-			1,
-			-1
-		)
+	local checkedglow = addshadow(
+		fill,
+		"CheckedGlow",
+		checked and .64 or 1,
+		7,
+		1,
+		-1
+	)
 
 	local check = new("ImageLabel", {
 		Parent = box,
-
-		AnchorPoint =
-			Vector2.new(
-				.5,
-				.5
-			),
-
-		Position =
-			UDim2.new(
-				.5,
-				-.5,
-				.5,
-				.333
-			),
-
-		Size =
-			UDim2.fromOffset(
-				math.max(
-					size - 4,
-					12
-				),
-				math.max(
-					size - 4,
-					12
-				)
-			),
-
+		AnchorPoint = Vector2.new(.5, .5),
+		Position = UDim2.new(.5, -.5, .5, .333),
+		Size = UDim2.fromOffset(
+			math.max(size - 4, 12),
+			math.max(size - 4, 12)
+		),
 		BackgroundTransparency = 1,
 		BorderSizePixel = 0,
-
-		Image =
-			icons.check,
-
-		ImageColor3 =
-			theme.black,
-
-		ImageTransparency =
-			checked and .02 or 1,
-
-		ScaleType =
-			Enum.ScaleType.Fit,
-
+		Image = icons.check,
+		ImageColor3 = theme.black,
+		ImageTransparency = checked and .02 or 1,
+		ScaleType = Enum.ScaleType.Fit,
 		ZIndex = 18,
 	})
 
 	local function render(value)
 		checked = value == true
 
-		if boxstroke then
-			boxstroke.Transparency = checked and .26 or .4
-			boxstroke.Color = checked and theme.white or theme.border
+		if indicatortween then
+			invoke(function()
+				indicatortween:Cancel()
+			end)
+			indicatortween = nil
 		end
+
+		local strokecolor = checked and theme.white or theme.border
+		if boxstroke then
+			syncbinding(boxstroke, "Color", strokecolor)
+			boxstroke.Color = strokecolor
+			boxstroke.Transparency = checked and .26 or .4
+		end
+
+		fill.BackgroundTransparency = checked and 0 or 1
 
 		if checkedglow then
 			checkedglow.Transparency = checked and .64 or 1
 		end
 
-		tween(
-			fill,
-			{
-				BackgroundTransparency =
-					checked and 0 or 1,
-			},
+		local target = checked and .02 or 1
+		if not animationsenabled then
+			check.ImageTransparency = target
+			return
+		end
+
+		indicatortween = tween(
+			check,
+			{ImageTransparency = target},
 			checkti
 		)
 
-		tween(
-			check,
-			{
-				ImageTransparency =
-					checked and .02 or 1,
-			},
-			checkti
-		)
+		local current = indicatortween
+		if current then
+			current.Completed:Connect(function()
+				if indicatortween == current then
+					indicatortween = nil
+				end
+			end)
+		end
 	end
 
 	return box, render
@@ -7964,7 +7795,6 @@ function createcolorstate(
 
 		fadevalue = 1,
 		fadedirection = -1,
-		fadephase = 0,
 
 		fading = false,
 		rainbow = false,
@@ -8044,11 +7874,7 @@ function createcolorstate(
 				colorvalue
 
 			self.swatch.BackgroundTransparency =
-				math.clamp(
-					1 - alphavalue,
-					0,
-					.82
-				)
+				math.clamp(1 - alphavalue, 0, 1)
 
 			if self.swatchglow then
 				self.swatchglow.Color = colorvalue
@@ -8143,9 +7969,23 @@ function createcolorstate(
 		self.h, self.s, self.v = colorvalue:ToHSV()
 
 		if alphavalue ~= nil then
+			local previousalpha = self.alpha
 			self.alpha = math.clamp(alphavalue, 0, 1)
-			self.fadevalue = self.alpha
-			self.fadephase = 0
+
+			if self.fading then
+				if previousalpha > 0 then
+					self.fadevalue = math.clamp(
+						self.fadevalue * self.alpha / previousalpha,
+						0,
+						self.alpha
+					)
+				else
+					self.fadevalue = self.alpha
+				end
+			else
+				self.fadevalue = self.alpha
+				self.fadedirection = -1
+			end
 		end
 
 		if fire == false then
@@ -8170,33 +8010,26 @@ function createcolorstate(
 			return
 		end
 
-		if self.dragging then
-			return
-		end
-
 		local active = false
 
 		if self.rainbow then
-			self.h =
-				(
-					self.h
-					+ dt * .27
-				)
-				% 1
-
+			self.h = (self.h + dt * .27) % 1
 			active = true
 		end
 
 		if self.fading then
-			self.fadephase =
-				(self.fadephase + dt * math.pi * 1.05)
-				% (math.pi * 2)
+			local step = dt * math.max(self.alpha, .0001) * 1.8
+			local nextvalue = self.fadevalue + step * self.fadedirection
 
-			local wave =
-				.5 + .5 * math.cos(self.fadephase)
-
-			self.fadevalue =
-				self.alpha * (.1 + wave * .9)
+			if self.fadedirection < 0 and nextvalue <= 0 then
+				self.fadevalue = 0
+				self.fadedirection = 1
+			elseif self.fadedirection > 0 and nextvalue >= self.alpha then
+				self.fadevalue = self.alpha
+				self.fadedirection = -1
+			else
+				self.fadevalue = math.clamp(nextvalue, 0, self.alpha)
+			end
 
 			active = true
 		end
@@ -8782,14 +8615,14 @@ function opencolorpicker(
 	local rgba =
 		colorinput(
 			UDim2.fromOffset(0, 0),
-			UDim2.new(.58, -3, 1, 0),
+			UDim2.new(.5, -3, 1, 0),
 			"RGBA"
 		)
 
 	local hex =
 		colorinput(
-			UDim2.new(.58, 3, 0, 0),
-			UDim2.new(.42, -3, 1, 0),
+			UDim2.new(.5, 3, 0, 0),
+			UDim2.new(.5, -3, 1, 0),
 			"HEX"
 		)
 
@@ -8897,7 +8730,7 @@ function opencolorpicker(
 	end
 
 	optiontoggle(
-		"Fading",
+		"Alpha Fading",
 		UDim2.fromOffset(
 			0,
 			0
@@ -8909,18 +8742,8 @@ function opencolorpicker(
 
 		function(value)
 			state.fading = value
-
-			if value then
-				state.fadephase = 0
-				state.fadevalue =
-					state.alpha
-
-				state.fadedirection =
-					-1
-			else
-				state.fadevalue =
-					state.alpha
-			end
+			state.fadevalue = state.alpha
+			state.fadedirection = -1
 		end
 	)
 
@@ -9081,7 +8904,6 @@ function opencolorpicker(
 
 			state.alpha = value
 			state.fadevalue = value
-			state.fadephase = 0
 		end
 
 		state:apply()
@@ -9100,7 +8922,17 @@ function opencolorpicker(
 			return
 		end
 
+		if typename == "alpha" then
+			if state.fading then
+				state.fading = false
+				state.fadevalue = state.alpha
+			end
+		elseif state.rainbow then
+			state.rainbow = false
+		end
+
 		state.dragging = true
+		state:refresh()
 
 		pickerdrag = {
 			input = input,
@@ -9471,6 +9303,8 @@ function beginsectiondrag(drag)
 
 	drag.started = true
 	drag.ghost = ghost
+	drag.clone = clone
+	drag.cloneanimations = {}
 
 	drag.previewcolumn =
 		section.column
@@ -9501,7 +9335,7 @@ function beginsectiondrag(drag)
 			)
 
 		if clonedcollapse then
-			tween(
+			drag.cloneanimations[#drag.cloneanimations + 1] = tween(
 				clonedcollapse,
 				{
 					Rotation = -90,
@@ -9511,7 +9345,7 @@ function beginsectiondrag(drag)
 		end
 
 		if cloneddivider then
-			tween(
+			drag.cloneanimations[#drag.cloneanimations + 1] = tween(
 				cloneddivider,
 				{
 					BackgroundTransparency = 1,
@@ -9521,7 +9355,7 @@ function beginsectiondrag(drag)
 		end
 
 		if clonedclip then
-			tween(
+			drag.cloneanimations[#drag.cloneanimations + 1] = tween(
 				clonedclip,
 				{
 					Size =
@@ -9536,7 +9370,7 @@ function beginsectiondrag(drag)
 			)
 		end
 
-		tween(
+		drag.cloneanimations[#drag.cloneanimations + 1] = tween(
 			clone,
 			{
 				Size =
@@ -9548,20 +9382,10 @@ function beginsectiondrag(drag)
 			tabti
 		)
 
-		tween(
+		drag.ghostsizeanimation = tween(
 			ghost,
-			{
-				Size =
-					UDim2.fromOffset(
-						originalsize.X,
-						43
-					),
-			},
-			TweenInfo.new(
-				.24,
-				Enum.EasingStyle.Quart,
-				Enum.EasingDirection.Out
-			)
+			{Size = UDim2.fromOffset(originalsize.X, 43)},
+			sectionti
 		)
 	end
 
@@ -9662,6 +9486,109 @@ function updatesectiondrag(drag)
 			column,
 			index
 		)
+	end
+end
+
+function attachsectiontransition(drag)
+	local section = drag.section
+	local ghost = drag.ghost
+
+	if drag.ghostsizeanimation then
+		invoke(function()
+			drag.ghostsizeanimation:Cancel()
+		end)
+		drag.ghostsizeanimation = nil
+	end
+
+	for _, animation in ipairs(drag.cloneanimations or {}) do
+		if animation then
+			invoke(function()
+				animation:Cancel()
+			end)
+		end
+	end
+	drag.cloneanimations = nil
+
+	section.floating = false
+	section.floatingwidth = nil
+	section.dragging = true
+	section.frame.Visible = false
+
+	if section.shadow then
+		section.shadow.Enabled = false
+	end
+
+	local targetparent = section.page[section.column]
+	if section.frame.Parent ~= targetparent then
+		section.frame.Parent = targetparent
+	end
+
+	section:SetCollapsed(drag.wascollapsed, false, false)
+	section.page:reflow(section.column, false)
+	applyuitransparency(uitransparency * 100)
+
+	local target = section.frame.AbsolutePosition - draglayer.AbsolutePosition
+	local targetheight = section.targetheight or section.frame.AbsoluteSize.Y
+	local targetsize = UDim2.fromOffset(section.frame.AbsoluteSize.X, targetheight)
+	local clone = drag.clone
+
+	if clone and clone.Parent then
+		local clonedcollapse = clone:FindFirstChild("SectionCollapse")
+		local cloneddivider = clone:FindFirstChild("SectionDivider")
+		local clonedclip = clone:FindFirstChild("SectionClip")
+		local visibleheight = drag.wascollapsed and 0 or math.max(0, targetheight - 43)
+
+		tween(clone, {Size = targetsize}, sectionti)
+		if clonedclip then
+			tween(clonedclip, {Size = UDim2.new(1, 0, 0, visibleheight)}, sectionti)
+		end
+		if clonedcollapse then
+			tween(clonedcollapse, {Rotation = drag.wascollapsed and -90 or 0}, sectionti)
+		end
+		if cloneddivider then
+			tween(cloneddivider, {BackgroundTransparency = drag.wascollapsed and 1 or .52}, sectionti)
+		end
+	end
+
+	local finished = false
+	local function finish()
+		if finished then
+			return
+		end
+
+		finished = true
+		section.dragging = false
+		section.frame.Visible = true
+		section.page:reflow(section.column, false)
+		applyuitransparency(uitransparency * 100)
+
+		if ghost and ghost.Parent then
+			ghost:Destroy()
+		end
+
+		if drag.wasfloating then
+			notify("Section attached", section.name, 2.25)
+		end
+	end
+
+	if not ghost or not ghost.Parent then
+		finish()
+		return
+	end
+
+	local animation = tween(
+		ghost,
+		{
+			Position = UDim2.fromOffset(target.X, target.Y),
+			Size = targetsize,
+		},
+		sectionti
+	)
+
+	if animation then
+		animation.Completed:Connect(finish)
+	else
+		finish()
 	end
 end
 
@@ -9782,83 +9709,8 @@ function finishsectiondrag()
 		return
 	end
 
-	section.floating = false
-	section.floatingwidth = nil
-	section.dragging = false
+	attachsectiontransition(drag)
 
-	if section.shadow then
-		section.shadow.Enabled = false
-	end
-
-	if section.frame.Parent
-		~= section.page[section.column]
-	then
-		section.frame.Parent =
-			section.page[section.column]
-	end
-
-	section:SetCollapsed(
-		drag.wascollapsed,
-		false,
-		false
-	)
-
-	section.frame.Visible = true
-	section.page:reflow(
-		section.column,
-		false
-	)
-
-	applyuitransparency(
-		uitransparency * 100
-	)
-
-	local target =
-		section.frame.AbsolutePosition
-		- draglayer.AbsolutePosition
-
-	local targetheight =
-		section.targetheight
-		or section.frame.AbsoluteSize.Y
-
-	local animation =
-		tween(
-			drag.ghost,
-			{
-				Position =
-					UDim2.fromOffset(
-						target.X,
-						target.Y
-					),
-
-				Size =
-					UDim2.fromOffset(
-						section.frame.AbsoluteSize.X,
-						targetheight
-					),
-			},
-			sectionti
-		)
-
-	if not animation then
-		return
-	end
-
-	animation.Completed:Connect(function()
-		if drag.ghost
-			and drag.ghost.Parent
-		then
-			drag.ghost:Destroy()
-		end
-
-		if drag.wasfloating then
-			notify(
-				"Section attached",
-				section.name,
-				2.25
-			)
-		end
-	end)
 end
 
 -- section
@@ -10039,14 +9891,14 @@ function createsection(
 
 		Position =
 			UDim2.fromOffset(
-				0,
+				12,
 				42
 			),
 
 		Size =
 			UDim2.new(
 				1,
-				0,
+				-24,
 				0,
 				1
 			),
@@ -10134,6 +9986,7 @@ function createsection(
 		name = titletext,
 
 		controls = {},
+		transitions = {},
 
 		collapsed = false,
 		dragging = false,
@@ -10147,6 +10000,33 @@ function createsection(
 		headerdragged = false,
 		lastdragend = 0,
 	}
+
+	local function sectiontransition(key, object, properties, animate)
+		local previous = section.transitions[key]
+		section.transitions[key] = nil
+
+		if previous then
+			invoke(function() previous:Cancel() end)
+		end
+
+		if not animate or not animationsenabled then
+			for property, value in pairs(properties) do
+				object[property] = value
+			end
+			return
+		end
+
+		local animation = tween(object, properties, tabti)
+		section.transitions[key] = animation
+
+		if animation then
+			animation.Completed:Connect(function()
+				if section.transitions[key] == animation then
+					section.transitions[key] = nil
+				end
+			end)
+		end
+	end
 
 	table.insert(
 		page.sections,
@@ -10253,31 +10133,8 @@ function createsection(
 				visibleheight
 			)
 
-		if animate then
-			tween(
-				frame,
-				{
-					Size =
-						framesize,
-				},
-				tabti
-			)
-
-			tween(
-				clip,
-				{
-					Size =
-						clipsize,
-				},
-				tabti
-			)
-		else
-			frame.Size =
-				framesize
-
-			clip.Size =
-				clipsize
-		end
+		sectiontransition("frame", frame, {Size = framesize}, animate)
+		sectiontransition("clip", clip, {Size = clipsize}, animate)
 
 		page:reflow(
 			section.column,
@@ -10303,39 +10160,19 @@ function createsection(
 		frame.ClipsDescendants = false
 		clip.ClipsDescendants = true
 
-		if animate then
-			tween(
-				collapse,
-				{
-					Rotation =
-						self.collapsed
-						and -90
-						or 0,
-				},
-				tabti
-			)
+		sectiontransition(
+			"collapse",
+			collapse,
+			{Rotation = self.collapsed and -90 or 0},
+			animate
+		)
 
-			tween(
-				divider,
-				{
-					BackgroundTransparency =
-						self.collapsed
-						and 1
-						or .52,
-				},
-				tabti
-			)
-		else
-			collapse.Rotation =
-				self.collapsed
-				and -90
-				or 0
-
-			divider.BackgroundTransparency =
-				self.collapsed
-				and 1
-				or .52
-		end
+		sectiontransition(
+			"divider",
+			divider,
+			{BackgroundTransparency = self.collapsed and 1 or .52},
+			animate
+		)
 
 		resize(
 			animate,
@@ -10365,23 +10202,14 @@ function createsection(
 		end
 	end)
 
-	task.defer(function()
-		section.ready = true
+	section.ready = true
+	resize(false, false)
 
-		resize(
-			false,
-			false
-		)
-
-		if uis.TouchEnabled then
-			section:RefreshMobileLayout()
-		else
-			page:reflow(
-				column,
-				false
-			)
-		end
-	end)
+	if uis.TouchEnabled then
+		section:RefreshMobileLayout()
+	else
+		page:reflow(column, false)
+	end
 
 	draghandle.Activated:Connect(function()
 		if (sectiondrag
@@ -10822,7 +10650,6 @@ function createsection(
 		local function setenabled(value, fire)
 			enabled = value == true
 			render(enabled)
-			hotkeysignature = ""
 			requesthotkeyrefresh(binding)
 
 			if fire ~= false
@@ -11122,7 +10949,6 @@ function createsection(
 		local function setenabled(value, fire)
 			enabled = value == true
 			render(enabled)
-			hotkeysignature = ""
 			requesthotkeyrefresh(binding)
 
 			if fire ~= false
@@ -11330,7 +11156,7 @@ function createsection(
 		keybutton.Activated:Connect(function()
 			if listening then
 				listening = false
-				endkeycapture(row, false)
+				endkeycapture(row, nil)
 				binding.suppressclick = false
 				renderkey()
 				return
@@ -11343,6 +11169,19 @@ function createsection(
 				function()
 					listening = false
 					renderkey()
+				end,
+				function(selectedkey)
+					listening = false
+					setbindingkey(binding, selectedkey)
+					renderkey()
+
+					if keycallback then
+						keycallback(binding.key)
+					end
+				end,
+				function(input)
+					return input.UserInputType == Enum.UserInputType.MouseButton1
+						and inside(keybutton, point(input))
 				end
 			) then
 				listening = false
@@ -11352,65 +11191,12 @@ function createsection(
 			renderkey()
 		end)
 
-		local captureconnection =
-			connect(uis.InputBegan, function(input)
-			if not listening then
-				return
-			end
-
-			local kind = input.UserInputType
-			local keyboard = kind == Enum.UserInputType.Keyboard
-			local mouse = validmousebind(kind)
-
-			if not keyboard and not mouse then
-				return
-			end
-
-			if keyboard and input.KeyCode == Enum.KeyCode.Escape then
-				listening = false
-				endkeycapture(row, true)
-				renderkey()
-				return
-			end
-
-			if kind == Enum.UserInputType.MouseButton1
-				and inside(keybutton, point(input))
-			then
-				return
-			end
-
-			if keyboard and input.KeyCode == Enum.KeyCode.Unknown then
-				return
-			end
-
-			local selectedkey =
-				keyboard
-				and input.KeyCode
-				or kind
-
-			listening = false
-			endkeycapture(row, true)
-			setbindingkey(
-				binding,
-				selectedkey
-			)
-			renderkey()
-
-			if keycallback then
-				keycallback(binding.key)
-			end
-			end)
-
 		connect(
 			row.Destroying,
 			function()
-				if captureconnection.Connected then
-					captureconnection:Disconnect()
-				end
-
 				if listening then
 					listening = false
-					endkeycapture(row, false)
+					endkeycapture(row, nil)
 				end
 			end
 		)
@@ -11424,7 +11210,6 @@ function createsection(
 		end)
 
 		renderkey()
-		hotkeysignature = ""
 		refreshhotkeylist()
 
 		control.KeyObject = keybutton
@@ -12318,7 +12103,7 @@ function createsection(
 
 		scroll:GetPropertyChangedSignal("AbsoluteCanvasSize"):Connect(update)
 		scroll:GetPropertyChangedSignal("AbsoluteSize"):Connect(update)
-		task.defer(update)
+		update()
 	end
 
 	-- dropdown
@@ -12903,12 +12688,11 @@ function createsection(
 					end
 				end)
 
-					if not uis.TouchEnabled then
-					task.defer(function()
-						if searchbox and searchbox.Parent then
-							searchbox:CaptureFocus()
-						end
-					end)
+					if not uis.TouchEnabled
+					and searchbox
+					and searchbox.Parent
+				then
+					searchbox:CaptureFocus()
 				end
 			end
 		end)
@@ -13142,13 +12926,15 @@ function createsection(
 								selected[key] = nil
 							end
 						end
+						selected[value] = true
+					else
+						selected[value] = nil
 					end
-					selected[value] = nextstate
 				elseif typeof(value) == "Instance" and value:IsA("Player") then
 					selected[everyonevalue] = nil
-					selected[value] = nextstate
+					selected[value] = nextstate and true or nil
 				else
-					selected[value] = nextstate
+					selected[value] = nextstate and true or nil
 				end
 			else
 				selected = value
@@ -13510,12 +13296,11 @@ function createsection(
 					end
 				end)
 
-				if not uis.TouchEnabled then
-					task.defer(function()
-						if playersearch and playersearch.Parent then
-							playersearch:CaptureFocus()
-						end
-					end)
+				if not uis.TouchEnabled
+					and playersearch
+					and playersearch.Parent
+				then
+					playersearch:CaptureFocus()
 				end
 			end
 		end)
@@ -13920,8 +13705,11 @@ function createsection(
 				end)
 
 				row.Activated:Connect(function()
-					selected[option] =
-						not selected[option]
+					if selected[option] then
+						selected[option] = nil
+					else
+						selected[option] = true
+					end
 
 					tween(
 						textobject,
@@ -14112,23 +13900,23 @@ function createsection(
 			focused = true
 			settruncate(Enum.TextTruncate.None)
 			tween(box, { TextColor3 = theme.text }, hoverti)
-			task.defer(updateinputviewport, true)
+			updateinputviewport(true)
 		end)
 
 		box:GetPropertyChangedSignal("Text"):Connect(function()
 			if focused then
-				task.defer(updateinputviewport, true)
+				updateinputviewport(true)
 			end
 		end)
 
 		box:GetPropertyChangedSignal("CursorPosition"):Connect(function()
 			if focused then
-				task.defer(updateinputviewport, true)
+				updateinputviewport(true)
 			end
 		end)
 
 		field:GetPropertyChangedSignal("AbsoluteSize"):Connect(function()
-			task.defer(updateinputviewport, focused)
+			updateinputviewport(focused)
 		end)
 
 		field.MouseEnter:Connect(function()
@@ -14350,6 +14138,15 @@ function createsection(
 		end
 
 		local function setkey(key, fire)
+			if key == nil then
+				selected = nil
+				render()
+				if fire ~= false and callback then
+					callback(nil)
+				end
+				return
+			end
+
 			if typeof(key) == "string" then
 				key = keyfromname(key)
 			end
@@ -14388,7 +14185,7 @@ function createsection(
 		button.Activated:Connect(function()
 			if listening then
 				listening = false
-				endkeycapture(row, false)
+				endkeycapture(row, nil)
 				render()
 				return
 			end
@@ -14400,6 +14197,14 @@ function createsection(
 				function()
 					listening = false
 					render()
+				end,
+				function(selectedkey)
+					listening = false
+					setkey(selectedkey, true)
+				end,
+				function(input)
+					return input.UserInputType == Enum.UserInputType.MouseButton1
+						and inside(button, point(input))
 				end
 			) then
 				listening = false
@@ -14408,62 +14213,12 @@ function createsection(
 			render()
 		end)
 
-		local captureconnection =
-			connect(uis.InputBegan, function(input)
-				if not listening then
-					return
-				end
-
-				local kind = input.UserInputType
-				local keyboard =
-					kind == Enum.UserInputType.Keyboard
-				local mouse = validmousebind(kind)
-
-				if not keyboard and not mouse then
-					return
-				end
-
-				if keyboard
-					and input.KeyCode == Enum.KeyCode.Escape
-				then
-					listening = false
-					endkeycapture(row, true)
-					render()
-					return
-				end
-
-				if keyboard
-					and input.KeyCode == Enum.KeyCode.Unknown
-				then
-					return
-				end
-
-				if kind == Enum.UserInputType.MouseButton1
-					and inside(button, point(input))
-				then
-					return
-				end
-
-				listening = false
-				endkeycapture(row, true)
-
-				setkey(
-					keyboard and input.KeyCode or kind,
-					true
-				)
-
-			end)
-
 		connect(
 			row.Destroying,
 			function()
-				if captureconnection.Connected then
-					captureconnection:Disconnect()
-				end
-
 				if listening then
 					listening = false
-					endkeycapture(row, false)
+					endkeycapture(row, nil)
 				end
 			end
 		)
@@ -15157,20 +14912,7 @@ function createsection(
 		local spinner = image(holder, icons.settings, 18, theme.text2, 16)
 		spinner.AnchorPoint = Vector2.new(.5, .5)
 		spinner.Position = UDim2.new(1, -10, .5, 0)
-		local rotation = 0
-		local animationconnection =
-			connect(runservice.RenderStepped, function(dt)
-				if animationsenabled then
-					rotation = (rotation + dt * 180) % 360
-					spinner.Rotation = rotation
-				end
-			end)
-
-		spinner.Destroying:Connect(function()
-			if animationconnection.Connected then
-				animationconnection:Disconnect()
-			end
-		end)
+		registeranimatedui(spinner, "spinner")
 
 		register(holder, name)
 		return spinner
@@ -15208,22 +14950,7 @@ function createsection(
 			ZIndex = 17,
 		})
 		corner(bar, 999)
-		local elapsed = 0
-		local animationconnection =
-			connect(runservice.RenderStepped, function(dt)
-				if animationsenabled then
-					elapsed = (elapsed + dt * .7) % 1
-					bar.Position = UDim2.new(-.28 + elapsed * 1.28, 0, 0, 0)
-				else
-					bar.Position = UDim2.new(.36, 0, 0, 0)
-				end
-			end)
-
-		bar.Destroying:Connect(function()
-			if animationconnection.Connected then
-				animationconnection:Disconnect()
-			end
-		end)
+		registeranimatedui(bar, "bar")
 
 		register(holder, name)
 		return bar
@@ -16417,9 +16144,9 @@ components =
 	)
 
 home.icon = icons.home
-combatmain.icon = icons.combat
-combatvisuals.icon = icons.combat
-combatextras.icon = icons.combat
+combatmain.icon = icons.target
+combatvisuals.icon = icons.visuals
+combatextras.icon = icons.extras
 farming.icon = icons.farming
 settings.icon = icons.settings
 components.icon = icons.sliders
@@ -16546,10 +16273,6 @@ backgroundimageblurmax = 100
 backgroundimagemode = "Crop"
 env.__blush_background_token = 0
 
-backgroundscaletypes = {
-	Crop = Enum.ScaleType.Crop,
-}
-
 function trimbackgroundsource(value)
 	value = tostring(value or "")
 	value = value:gsub("^%s+", ""):gsub("%s+$", "")
@@ -16624,41 +16347,6 @@ function backgroundextension(source, headers)
 	return "png"
 end
 
-function backgroundlooksimage(data, extension)
-	if type(data) ~= "string" or #data < 4 then
-		return false
-	end
-
-	local head = data:sub(1, 32)
-	local trimmed = data:match("^%s*(.-)$") or data
-	if trimmed:sub(1, 1) == "<"
-		or trimmed:sub(1, 1) == "{"
-	then
-		return false
-	end
-
-	extension = string.lower(tostring(extension or ""))
-
-	if extension == "png" then
-		return head:sub(1, 8) == "\137PNG\r\n\26\n"
-	elseif extension == "jpg" or extension == "jpeg" then
-		return head:byte(1) == 0xFF and head:byte(2) == 0xD8
-	elseif extension == "webp" then
-		return head:sub(1, 4) == "RIFF" and head:sub(9, 12) == "WEBP"
-	elseif extension == "gif" then
-		return head:sub(1, 6) == "GIF87a" or head:sub(1, 6) == "GIF89a"
-	elseif extension == "bmp" then
-		return head:sub(1, 2) == "BM"
-	elseif extension == "avif" then
-		return head:find("ftypavif", 1, true) ~= nil
-			or head:find("ftypavis", 1, true) ~= nil
-	elseif extension == "tga" then
-		return #data >= 18
-	end
-
-	return true
-end
-
 function backgroundcustomasset(path)
 	local providers = {}
 
@@ -16680,41 +16368,6 @@ function backgroundcustomasset(path)
 	end
 
 	return nil, "custom asset API unavailable"
-end
-
-function backgroundheader(headers, wanted)
-	if typeof(headers) ~= "table" then
-		return nil
-	end
-
-	wanted = string.lower(wanted)
-	for key, value in pairs(headers) do
-		if string.lower(tostring(key)) == wanted then
-			return tostring(value)
-		end
-	end
-end
-
-function backgroundabsoluteurl(base, location)
-	if not location or location == "" then
-		return nil
-	end
-
-	if location:match("^https?://") then
-		return location
-	end
-
-	local origin = base:match("^(https?://[^/]+)")
-	if not origin then
-		return nil
-	end
-
-	if location:sub(1, 1) == "/" then
-		return origin .. location
-	end
-
-	local directory = base:match("^(https?://.*/)") or (origin .. "/")
-	return directory .. location
 end
 
 function backgroundrequest(url)
@@ -17804,11 +17457,8 @@ searchtoggle = nil
 menukeypicker = nil
 hotkeylisttoggle = nil
 minimizebuttoncontrol = nil
-uiscalecontrol = nil
 uitransparencycontrol = nil
 notificationtoggle = nil
-notificationdurationcontrol = nil
-maxnotificationcontrol = nil
 configselector = nil
 configinput = nil
 autosaveconfigcontrol = nil
@@ -17853,7 +17503,7 @@ function currentuipayload()
 	return {
 		watermark = watermarktoggle
 			and watermarktoggle:Get()
-			or watermark.Visible,
+			or watermarkshown,
 
 		watermarkInfo = {
 			Player = watermarkconfig.Player == true,
@@ -18788,10 +18438,6 @@ function deletethemefile(name)
 	return ok
 end
 
-function autosavethemefile()
-	return
-end
-
 settingssection =
 	createsection(
 		settings,
@@ -18806,13 +18452,12 @@ watermarktoggle = interfaceflags:AddToggle(
 	"Watermark",
 	savedsettings.watermark == true,
 	function(value)
-		watermark.Visible = value
+		setwatermarkvisible(value, true)
 		saveuisettings()
 	end
 )
 
-watermark.Visible =
-	savedsettings.watermark == true
+setwatermarkvisible(savedsettings.watermark == true, false)
 
 if type(savedsettings.watermarkInfo) == "table" then
 	watermarkconfig.Player =
@@ -18917,14 +18562,12 @@ animationtoggle = interfaceflags:AddToggle(
 		animationsenabled = value == true
 
 		if animationsenabled then
-			task.defer(function()
-				if updatetopnavigationstate then
-					updatetopnavigationstate(false)
-				end
-				if refreshhotkeylist then
-					refreshhotkeylist()
-				end
-			end)
+			if updatetopnavigationstate then
+				updatetopnavigationstate(false)
+			end
+			if refreshhotkeylist then
+				refreshhotkeylist()
+			end
 		end
 
 		saveuisettings()
@@ -18937,14 +18580,9 @@ searchtoggle = interfaceflags2:AddToggle(
 	"Search",
 	searchenabled,
 	function(value)
-		searchenabled = value
-		if uis.TouchEnabled then
-			searchholder.Visible = false
-		else
-			searchholder.Visible = value
-		end
+		setsearchvisible(value, true)
 
-		if not value then
+		if not searchenabled then
 			search.Text = ""
 		end
 
@@ -18952,7 +18590,7 @@ searchtoggle = interfaceflags2:AddToggle(
 	end
 )
 
-searchholder.Visible = searchenabled and not uis.TouchEnabled
+setsearchvisible(searchenabled, false)
 
 notificationtoggle = interfaceflags2:AddToggle(
 	"Notifications",
@@ -18996,35 +18634,12 @@ minimizebuttoncontrol = settingssection:AddToggle(
 	"Minimize button",
 	savedsettings.minimizeButton ~= false,
 	function(value)
-		windowminimizebuttonenabled =
-			value == true
-
-		closebutton.Visible =
-			windowminimizebuttonenabled
-
-		closebutton.Active =
-			windowminimizebuttonenabled
-
-		updateheadercontrols()
-
-		if topnavigationenabled then
-			updatetopnavigationlayout()
-		end
-
+		setminimizebuttonvisible(value, true)
 		saveuisettings()
 	end
 )
 
-windowminimizebuttonenabled =
-	savedsettings.minimizeButton ~= false
-
-closebutton.Visible =
-	windowminimizebuttonenabled
-
-closebutton.Active =
-	windowminimizebuttonenabled
-
-updateheadercontrols()
+setminimizebuttonvisible(savedsettings.minimizeButton ~= false, false)
 
 menukeypicker = settingssection:AddKeyPicker(
 	"Menu key",
@@ -19727,8 +19342,7 @@ function applysaveduisettings(data, silent)
 	end
 
 	if data.minimizeButton ~= nil then
-		windowminimizebuttonenabled =
-			data.minimizeButton == true
+		setminimizebuttonvisible(data.minimizeButton == true, true)
 
 		if minimizebuttoncontrol then
 			minimizebuttoncontrol:Set(
@@ -19736,14 +19350,6 @@ function applysaveduisettings(data, silent)
 				false
 			)
 		end
-
-		closebutton.Visible =
-			windowminimizebuttonenabled
-
-		closebutton.Active =
-			windowminimizebuttonenabled
-
-		updateheadercontrols()
 	end
 
 	backgroundexcludesidebar = data.backgroundImageExcludeSidebar == true
@@ -19877,20 +19483,18 @@ function applysaveduisettings(data, silent)
 
 	syncwindowglowcolor(false)
 
-	task.defer(function()
-		if windowglowcolorpicker then
-			windowglowcolorpicker:Set(
-				theme.white,
-				windowglowalpha,
-				false
-			)
+	if windowglowcolorpicker then
+		windowglowcolorpicker:Set(
+			theme.white,
+			windowglowalpha,
+			false
+		)
 
-			windowglowrenderalpha =
-				windowglowcolorpicker:currentalpha()
-		end
+		windowglowrenderalpha =
+			windowglowcolorpicker:currentalpha()
+	end
 
-		syncwindowglowcolor(false)
-	end)
+	syncwindowglowcolor(false)
 
 	backgroundpalette = nil
 	if loadedimagesource ~= "" then
@@ -20012,8 +19616,6 @@ loadingsettings = false
 env.__blush_visibility_busy = false
 env.__blush_visibility_token = 0
 env.__blush_windowvisible = true
-env.__blush_fadegroup = nil
-env.__blush_faderoots = nil
 env.__blush_fadeanimations = {}
 
 function cancelreopenanimations()
@@ -20052,11 +19654,10 @@ function animatereopenbutton(show, token)
 		end
 	end
 
-	local duration = animationsenabled and .24 or .001
 	local info = TweenInfo.new(
-		duration,
+		.18,
 		Enum.EasingStyle.Quart,
-		show and Enum.EasingDirection.Out or Enum.EasingDirection.In
+		Enum.EasingDirection.Out
 	)
 
 	local targets = {
@@ -20077,6 +19678,24 @@ function animatereopenbutton(show, token)
 			reopenshadow,
 			{Transparency = show and normalshadow or 1},
 		}
+	end
+
+	if not animationsenabled then
+		for _, entry in ipairs(targets) do
+			if entry[1] and entry[1].Parent then
+				for property, value in pairs(entry[2]) do
+					entry[1][property] = value
+				end
+			end
+		end
+
+		env.__blush_reopen_fading = false
+		if show then
+			reopenbutton.Active = true
+		else
+			reopengui.Enabled = false
+		end
+		return
 	end
 
 	local primary
@@ -20152,11 +19771,10 @@ function playvisibilityfade(show, token)
 
 	cancelvisibilityanimations()
 
-	local duration = animationsenabled and .32 or .001
 	local info = TweenInfo.new(
-		duration,
+		.18,
 		Enum.EasingStyle.Quart,
-		show and Enum.EasingDirection.Out or Enum.EasingDirection.In
+		Enum.EasingDirection.Out
 	)
 
 	local roots = {
@@ -20164,6 +19782,26 @@ function playvisibilityfade(show, token)
 		{popuplayer, show and uitransparency or 1},
 		{draglayer, show and 0 or 1},
 	}
+
+	if not animationsenabled then
+		for _, entry in ipairs(roots) do
+			local object = entry[1]
+			if object and object.Parent then
+				object.GroupTransparency = entry[2]
+			end
+		end
+
+		if show then
+			setvisibilityrootsvisible(true)
+		else
+			setvisibilityrootsvisible(false)
+			restorecursorstate()
+			animatereopenbutton(true, token)
+		end
+
+		env.__blush_visibility_busy = false
+		return
+	end
 
 	local primary = nil
 	for _, entry in ipairs(roots) do
@@ -20218,13 +19856,21 @@ function playvisibilityfade(show, token)
 	end
 end
 
-function requestvisibilitytoggle()
+function requestvisibilitytoggle(target)
+	local show = target == nil
+		and not env.__blush_windowvisible
+		or target == true
+
+	if show == env.__blush_windowvisible
+		and not env.__blush_visibility_busy
+	then
+		return
+	end
+
 	env.__blush_visibility_busy = true
 	env.__blush_visibility_token += 1
 
 	local token = env.__blush_visibility_token
-	local show = not env.__blush_windowvisible
-
 	closepopup()
 	closemodal()
 	playvisibilityfade(show, token)
@@ -20242,7 +19888,7 @@ function refreshmenukeybinding()
 		function(_, inputstate)
 			if inputstate == Enum.UserInputState.Begin
 				and not keypickercapturing
-				and not keypickersuppress
+				and keypickersuppress ~= menukey
 			then
 				requestvisibilitytoggle()
 			end
@@ -20260,7 +19906,7 @@ connect(
 	function(input)
 		if menukey == Enum.KeyCode.Tab
 			or keypickercapturing
-			or keypickersuppress
+			or bindingmatchesinput(keypickersuppress, input)
 		then
 			return
 		end
@@ -20324,20 +19970,6 @@ mobilesideclose = new("ImageButton", {
 	Visible = uis.TouchEnabled,
 	ZIndex = 30,
 })
-
-function mobilepagehascolumn(page, column)
-	if not page then
-		return false
-	end
-
-	for _, section in ipairs(page.sections or {}) do
-		if section.column == column and not section.floating then
-			return true
-		end
-	end
-
-	return false
-end
 
 function applymobiletextscale(scale)
 	if not uis.TouchEnabled then
@@ -20924,11 +20556,7 @@ function applysearch()
 			or any
 	end
 
-	task.defer(function()
-		currentpage:reflowall(
-			true
-		)
-	end)
+	currentpage:reflowall(true)
 end
 
 search:GetPropertyChangedSignal(
@@ -21499,7 +21127,7 @@ topnavdivider = new("Frame", {
 	ZIndex = 19,
 })
 
-topsublayout = new("UIListLayout", {
+new("UIListLayout", {
 	Parent = topsubholder,
 	FillDirection = Enum.FillDirection.Horizontal,
 	HorizontalAlignment = Enum.HorizontalAlignment.Center,
@@ -21861,6 +21489,10 @@ function createlibrarytabsection(name)
 		return settextgradient(self.TextObject, value)
 	end
 
+	function sectiontab:SetRainbow(value)
+		return settextrainbow(self.TextObject, value)
+	end
+
 	header.Activated:Connect(function()
 		sectiontab:SetCollapsed(not sectiontab.Collapsed, true)
 	end)
@@ -21877,9 +21509,7 @@ function createlibrarytabsection(name)
 	return sectiontab
 end
 
-task.defer(function()
-	refreshsidegroups(false)
-end)
+refreshsidegroups(false)
 
 naventries = {
 	[homebutton] = {
@@ -22009,14 +21639,15 @@ function updatetopnavigationlayout()
 		return
 	end
 
-	local searchwidth = compact and 116 or 150
-	local searchinset = closebutton.Visible
+	local searchvisible = searchenabled and not uis.TouchEnabled
+	local searchwidth = searchvisible and (compact and 116 or 150) or 0
+	local searchinset = windowminimizebuttonenabled
 		and 52
 		or (compact and 10 or 14)
 	local leftbound = compact and 112 or 162
 	local rightbound = math.max(
 		leftbound + 190,
-		width - searchinset - searchwidth - 12
+		width - searchinset - (searchvisible and searchwidth + 12 or 0)
 	)
 	local available = math.max(190, rightbound - leftbound)
 	local holderwidth = math.min(compact and 168 or 172, available)
@@ -22097,7 +21728,7 @@ function updatetopnavigationstate(animate)
 			local iconcolor = active and theme.text or theme.text3
 			local textalpha = active and 0 or 1
 			local pillalpha = active and .18 or 1
-			local info = animationsenabled and animate ~= false and tabti or TweenInfo.new(.001)
+			local info = tabti
 
 			data.icon.AnchorPoint = active and Vector2.new(0, .5) or Vector2.new(.5, .5)
 			data.icon.Position = active
@@ -22318,34 +21949,67 @@ topextrasbutton.Activated:Connect(function()
 	selectmain(combatbutton) selectsub(extrasbutton) expandsubtabs(true) showpage("combat_extras")
 end)
 
+function naventrytween(entry, key, object, goals)
+	local previous = entry[key]
+	if previous then
+		invoke(function() previous:Cancel() end)
+	end
+
+	local animation = tween(object, goals, tabti)
+	entry[key] = animation
+
+	if animation then
+		animation.Completed:Connect(function()
+			if entry[key] == animation then
+				entry[key] = nil
+			end
+		end)
+	end
+end
+
+function rendernaventry(button, sub, hovered)
+	local entry = sub and subentries[button] or naventries[button]
+	if not entry then
+		return
+	end
+
+	local active = sub and currentsub == button or (not sub and currentnav == button)
+	local textcolor = (active or hovered) and theme.text or theme.text3
+	local iconcolor = active
+		and (sub and theme.text2 or theme.text)
+		or (hovered and (sub and theme.text2 or theme.text) or theme.text3)
+
+	naventrytween(entry, "textanimation", entry.text, {TextColor3 = textcolor})
+	if entry.icon then
+		naventrytween(entry, "iconanimation", entry.icon, {ImageColor3 = iconcolor})
+	end
+
+	if not sub and entry.indicator then
+		naventrytween(
+			entry,
+			"indicatoranimation",
+			entry.indicator,
+			{BackgroundTransparency = active and 0 or 1}
+		)
+
+		if entry.glow then
+			naventrytween(
+				entry,
+				"glowanimation",
+				entry.glow,
+				{Transparency = active and .68 or 1}
+			)
+		end
+	end
+end
+
 function bindnavhover(button, sub)
 	button.MouseEnter:Connect(function()
-		local entry = sub and subentries[button] or naventries[button]
-		if not entry then
-			return
-		end
-
-		tween(entry.text, {TextColor3 = theme.text}, hoverti)
-
-		if entry.icon then
-			tween(entry.icon, {ImageColor3 = sub and theme.text2 or theme.text}, hoverti)
-		end
+		rendernaventry(button, sub, true)
 	end)
 
 	button.MouseLeave:Connect(function()
-		local active = sub and currentsub == button or (not sub and currentnav == button)
-		local entry = sub and subentries[button] or naventries[button]
-		if not entry then
-			return
-		end
-
-		tween(entry.text, {TextColor3 = active and theme.text or theme.text3}, hoverti)
-
-		if entry.icon then
-			tween(entry.icon, {
-				ImageColor3 = active and (sub and theme.text2 or theme.text) or theme.text3,
-			}, hoverti)
-		end
+		rendernaventry(button, sub, false)
 	end)
 end
 
@@ -22360,88 +22024,14 @@ bindnavhover(visualbutton, true)
 bindnavhover(extrasbutton, true)
 
 function selectmain(button)
-	if currentnav then
-		local previous =
-			naventries[currentnav]
+	local previous = currentnav
+	currentnav = button
 
-		tween(
-			previous.text,
-			{
-				TextColor3 =
-					theme.text3,
-			},
-			tabti
-		)
-
-		if previous.icon then
-			tween(
-				previous.icon,
-				{
-					ImageColor3 =
-						theme.text3,
-				},
-				tabti
-			)
-		end
-
-		tween(
-			previous.indicator,
-			{BackgroundTransparency = 1},
-			tabti
-		)
-
-		if previous.glow then
-			tween(
-				previous.glow,
-				{
-					Transparency = 1,
-				},
-				tabti
-			)
-		end
+	if previous and previous ~= button then
+		rendernaventry(previous, false, false)
 	end
 
-	currentnav =
-		button
-
-	local active =
-		naventries[button]
-
-	tween(
-		active.text,
-		{
-			TextColor3 =
-				theme.text,
-		},
-		tabti
-	)
-
-	if active.icon then
-		tween(
-			active.icon,
-			{
-				ImageColor3 =
-					theme.text,
-			},
-			tabti
-		)
-	end
-
-	tween(
-		active.indicator,
-		{BackgroundTransparency = 0},
-		tabti
-	)
-
-	if active.glow then
-		tween(
-			active.glow,
-			{
-				Transparency = .68,
-			},
-			tabti
-		)
-	end
+	rendernaventry(button, false, false)
 
 	if updatetopnavigationstate then
 		updatetopnavigationstate(true)
@@ -22449,56 +22039,14 @@ function selectmain(button)
 end
 
 function selectsub(button)
-	if currentsub then
-		local previous =
-			subentries[currentsub]
+	local previous = currentsub
+	currentsub = button
 
-		tween(
-			previous.text,
-			{
-				TextColor3 =
-					theme.text3,
-			},
-			tabti
-		)
-
-		if previous.icon then
-			tween(
-				previous.icon,
-				{
-					ImageColor3 =
-						theme.text3,
-				},
-				tabti
-			)
-		end
+	if previous and previous ~= button then
+		rendernaventry(previous, true, false)
 	end
 
-	currentsub =
-		button
-
-	local active =
-		subentries[button]
-
-	tween(
-		active.text,
-		{
-			TextColor3 =
-				theme.text,
-		},
-		tabti
-	)
-
-	if active.icon then
-		tween(
-			active.icon,
-			{
-				ImageColor3 =
-					theme.text2,
-			},
-			tabti
-		)
-	end
+	rendernaventry(button, true, false)
 
 	if updatetopnavigationstate then
 		updatetopnavigationstate(true)
@@ -22934,7 +22482,7 @@ end
 
 -- footer
 
-footerbackground = rawnew("Frame", {
+rawnew("Frame", {
 	Parent = sidebar,
 	Position = UDim2.new(0, 0, 1, -72),
 	Size = UDim2.new(1, 0, 0, 72),
@@ -23227,6 +22775,8 @@ function applysidebarlayout(width, animate)
 		sectiontab.Header.Visible = not sidebarcompact
 	end
 
+	updatebrandlayout()
+
 	if backgroundexcludesidebar then
 		updatebackgroundbounds()
 	end
@@ -23335,7 +22885,7 @@ function beginwindowdrag(
 
 	if closebutton
 		and closebutton.Parent
-		and closebutton.Visible
+		and windowminimizebuttonenabled
 		and inside(closebutton, start)
 	then
 		releaseinteraction(input)
@@ -23344,9 +22894,9 @@ function beginwindowdrag(
 
 	if allowdouble
 		and not uis.TouchEnabled
-		and not inside(
-			searchholder,
-			start
+		and not (
+			searchenabled
+			and inside(searchholder, start)
 		)
 	then
 		local now =
@@ -23395,10 +22945,8 @@ function beginwindowdrag(
 			shell.Position,
 
 		search =
-			inside(
-				searchholder,
-				start
-			),
+			searchenabled
+			and inside(searchholder, start),
 
 		moved = false,
 		deferpopup = deferpopup == true,
@@ -24103,18 +23651,6 @@ connect(
 
 			local state =
 				pickerdrag.state
-
-			if pickerdrag.type
-				== "alpha"
-			then
-				state.fadevalue =
-					state.alpha
-
-				if state.fading then
-					state.fadedirection =
-						-1
-				end
-			end
 
 			state.dragging =
 				false
@@ -25243,31 +24779,31 @@ function libraryenhancesection(section)
 		return settextgradient(self.TextObject, value)
 	end
 
+	function section:SetRainbow(value)
+		return settextrainbow(self.TextObject, value)
+	end
+
 	return section
 end
 
 function librarysetlogo(asset, color)
-	local custom = asset ~= nil
+	local hidden = asset == false or tostring(asset or "") == ""
+	local custom = asset ~= nil and not hidden
 
-	if not custom then
+	if hidden then
+		asset = ""
+	elseif not custom then
 		asset = thumbnail
 	elseif icons[asset] then
 		asset = icons[asset]
 	end
 
-	logocoloroverride =
-		typeof(color) == "Color3"
-		and color
-		or nil
-
+	logocoloroverride = typeof(color) == "Color3" and color or nil
+	avat.Visible = not hidden
 	avat.Image = tostring(asset)
-	avat.ImageColor3 =
-		logocoloroverride
-		or (
-			custom
-			and theme.text2
-			or Color3.new(1, 1, 1)
-		)
+	avat.ImageColor3 = logocoloroverride
+		or (custom and theme.text2 or Color3.new(1, 1, 1))
+	updatebrandlayout()
 end
 
 function librarysetbrand(title, versiontext)
@@ -25277,6 +24813,7 @@ function librarysetbrand(title, versiontext)
 	brand.Text = title
 	version.Text = versiontext
 	reopenlabel.Text = title
+	updatebrandlayout()
 
 	if env.__blush_watermark_title then
 		setwatermarktitle(title)
@@ -25338,12 +24875,6 @@ function librarysetsettingstab(config)
 
 	settings:reflowall(false)
 	libraryrefreshothergroupvisibility()
-end
-
-function librarysetsettingsvisible(value)
-	librarysetsettingstab({
-		Enabled = value ~= false,
-	})
 end
 
 function librarygetsettingstab()
@@ -25669,6 +25200,10 @@ function librarycreatetab(windowapi, options, icon, group)
 		return settextgradient(textobject, value)
 	end
 
+	function tab:SetRainbow(value)
+		return settextrainbow(textobject, value)
+	end
+
 	function tab:SetVisible(value)
 		button.Visible = value ~= false
 
@@ -25765,8 +25300,7 @@ function library:CreateWindow(options)
 	resizehandle.Visible = windowresizeenabled
 	resizehandle.Active = windowresizeenabled
 
-	closebutton.Visible = windowminimizebuttonenabled
-	closebutton.Active = windowminimizebuttonenabled
+	setminimizebuttonvisible(windowminimizebuttonenabled, false)
 
 	if minimizebuttoncontrol then
 		minimizebuttoncontrol:Set(
@@ -25775,7 +25309,6 @@ function library:CreateWindow(options)
 		)
 	end
 
-	updateheadercontrols()
 
 	if options.Roundness ~= nil then
 		windowcorner.CornerRadius = UDim.new(
@@ -25921,8 +25454,7 @@ function library:CreateWindow(options)
 	end
 
 	if options.Search ~= nil then
-		searchenabled = options.Search == true
-		searchholder.Visible = searchenabled
+		setsearchvisible(options.Search == true, false)
 
 		if searchtoggle then
 			searchtoggle:Set(searchenabled, false)
@@ -25939,7 +25471,7 @@ function library:CreateWindow(options)
 
 	if options.Watermark ~= nil then
 		local visible = options.Watermark == true
-		watermark.Visible = visible
+		setwatermarkvisible(visible, false)
 
 		if watermarktoggle then
 			watermarktoggle:Set(visible, false)
@@ -26079,7 +25611,13 @@ function library:CreateWindow(options)
 	end
 
 	function librarywindow:SetGradient(element, value)
-		if value == nil and (typeof(element) == "ColorSequence" or type(element) == "table") then
+		if value == nil
+			and (
+				typeof(element) == "ColorSequence"
+				or type(element) == "table"
+				or type(element) == "string"
+			)
+		then
 			value = element
 			element = self
 		end
@@ -26091,18 +25629,21 @@ function library:CreateWindow(options)
 		return settextgradient(brand, value)
 	end
 
+	function librarywindow:SetRainbow(element, value)
+		if type(element) == "boolean" and value == nil then
+			value = element
+			element = self
+		end
+
+		return settextrainbow(element, value)
+	end
+
+	function librarywindow:SetTitleRainbow(value)
+		return settextrainbow(brand, value)
+	end
+
 	function librarywindow:SetVisible(value)
-		value = value == true
-
-		if value == env.__blush_windowvisible then
-			return
-		end
-
-		if env.__blush_visibility_busy then
-			return
-		end
-
-		requestvisibilitytoggle()
+		requestvisibilitytoggle(value == true)
 	end
 
 	function librarywindow:Toggle()
@@ -26147,21 +25688,13 @@ function library:CreateWindow(options)
 	end
 
 	function librarywindow:SetMinimizeButtonVisible(value)
-		windowminimizebuttonenabled = value == true
-		closebutton.Visible = windowminimizebuttonenabled
-		closebutton.Active = windowminimizebuttonenabled
+		setminimizebuttonvisible(value, true)
 
 		if minimizebuttoncontrol then
 			minimizebuttoncontrol:Set(
 				windowminimizebuttonenabled,
 				false
 			)
-		end
-
-		updateheadercontrols()
-
-		if topnavigationenabled then
-			updatetopnavigationlayout()
 		end
 	end
 
@@ -26373,7 +25906,7 @@ function library:CreateWindow(options)
 
 	function librarywindow:SetWatermark(value)
 		local visible = value == true
-		watermark.Visible = visible
+		setwatermarkvisible(visible, true)
 
 		if watermarktoggle then
 			watermarktoggle:Set(visible, false)
@@ -26465,8 +25998,7 @@ function library:CreateWindow(options)
 	end
 
 	function librarywindow:SetSearch(value)
-		searchenabled = value == true
-		searchholder.Visible = searchenabled
+		setsearchvisible(value, true)
 
 		if not searchenabled then
 			search.Text = ""
@@ -26578,6 +26110,7 @@ function library:CreateWindow(options)
 
 	function librarywindow:SetVersion(value)
 		version.Text = tostring(value or "")
+		updatebrandlayout()
 	end
 
 	function librarywindow:GetGui()
@@ -26632,6 +26165,10 @@ end
 
 function library:SetGradient(element, value)
 	return settextgradient(element, value)
+end
+
+function library:SetRainbow(element, value)
+	return settextrainbow(element, value)
 end
 
 function library:Destroy()
