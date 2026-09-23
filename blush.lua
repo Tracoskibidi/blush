@@ -48,6 +48,16 @@ watermarkgui = nil
 connections = {}
 
 function connect(signal, callback)
+	if #connections >= 64
+		and #connections % 32 == 0
+	then
+		for index = #connections, 1, -1 do
+			if not connections[index].Connected then
+				table.remove(connections, index)
+			end
+		end
+	end
+
 	local connection = signal:Connect(callback)
 	table.insert(connections, connection)
 	return connection
@@ -57,6 +67,41 @@ env.__blush_cleanup = function()
 	runservice:UnbindFromRenderStep("__blush_force_cursor")
 	contextactionservice:UnbindAction("__blush_menu_key")
 
+	for actionname in pairs(env.__blush_keyactions or {}) do
+		contextactionservice:UnbindAction(actionname)
+	end
+	env.__blush_keyactions = {}
+
+	if interactionrenderconnection
+		and interactionrenderconnection.Connected
+	then
+		interactionrenderconnection:Disconnect()
+		interactionrenderconnection = nil
+	end
+
+	if pickeranimationconnection
+		and pickeranimationconnection.Connected
+	then
+		pickeranimationconnection:Disconnect()
+		pickeranimationconnection = nil
+	end
+
+	local autosavetask = env.__blush_autosave_task
+	if autosavetask
+		and coroutine.status(autosavetask) == "suspended"
+	then
+		pcall(task.cancel, autosavetask)
+	end
+	env.__blush_autosave_task = nil
+
+	local settingstask = env.__blush_save_task
+	if settingstask
+		and coroutine.status(settingstask) == "suspended"
+	then
+		pcall(task.cancel, settingstask)
+	end
+	env.__blush_save_task = nil
+
 	if restorecursorstate then
 		restorecursorstate()
 	end
@@ -64,6 +109,23 @@ env.__blush_cleanup = function()
 	if destroybackgroundeditable then
 		destroybackgroundeditable()
 	end
+
+	local cancelledtweens = {}
+	for _, owners in pairs(
+		env.__blush_tweenowners or {}
+	) do
+		for _, animation in pairs(owners) do
+			if animation
+				and not cancelledtweens[animation]
+			then
+				cancelledtweens[animation] = true
+				invoke(function()
+					animation:Cancel()
+				end)
+			end
+		end
+	end
+	env.__blush_tweenowners = nil
 
 	for _, connection in ipairs(connections) do
 		if connection.Connected then
@@ -790,9 +852,31 @@ function tween(object, properties, info)
 		return
 	end
 
+	env.__blush_tweenowners =
+		env.__blush_tweenowners
+		or setmetatable({}, { __mode = "k" })
+
 	local goals = {}
+	local owners = env.__blush_tweenowners
+	local objectowners = owners[object]
+
+	if not objectowners then
+		objectowners = {}
+		owners[object] = objectowners
+	end
+
+	local cancelled = {}
 
 	for property, value in pairs(properties) do
+		local previous = objectowners[property]
+		if previous
+			and previous.PlaybackState == Enum.PlaybackState.Playing
+			and not cancelled[previous]
+		then
+			cancelled[previous] = true
+			previous:Cancel()
+		end
+
 		if property == "BackgroundColor3"
 			or property == "TextColor3"
 			or property == "ImageColor3"
@@ -843,26 +927,56 @@ function tween(object, properties, info)
 		goals
 	)
 
+	for property in pairs(goals) do
+		objectowners[property] = animation
+	end
+
 	if object:IsA("CanvasGroup") and goals.GroupTransparency ~= nil then
 		local grouptarget = math.clamp(goals.GroupTransparency, 0, 1)
+
 		for _, child in ipairs(object:GetChildren()) do
 			if child:IsA("UIShadow") then
 				local base = child:GetAttribute("BlushBaseTransparency")
+
 				if type(base) ~= "number" then
 					base = child.Transparency
 					child:SetAttribute("BlushBaseTransparency", base)
 				end
 
-				local shadowtarget = 1 - (1 - base) * (1 - grouptarget)
-				local shadowanimation = tweenservice:Create(
+				tween(
 					child,
-					tweeninfo,
-					{ Transparency = shadowtarget }
+					{
+						Transparency =
+							1 - (1 - base) * (1 - grouptarget),
+					},
+					tweeninfo
 				)
-				shadowanimation:Play()
 			end
 		end
 	end
+
+	local completed
+	completed = animation.Completed:Connect(function()
+		if completed then
+			completed:Disconnect()
+			completed = nil
+		end
+
+		local currentowners = owners[object]
+		if not currentowners then
+			return
+		end
+
+		for property in pairs(goals) do
+			if currentowners[property] == animation then
+				currentowners[property] = nil
+			end
+		end
+
+		if next(currentowners) == nil then
+			owners[object] = nil
+		end
+	end)
 
 	animation:Play()
 
@@ -1115,21 +1229,64 @@ end
 
 function plaintext(value)
 	value = tostring(value or "")
-	value = string.gsub(value, "<br%s*/?>", "\n")
+	value = string.gsub(value, "<[bB][rR]%s*/?>", "\n")
 	value = string.gsub(value, "<[^>]->", "")
+	value = string.gsub(value, "&nbsp;", " ")
+	value = string.gsub(value, "&quot;", '"')
+	value = string.gsub(value, "&#39;", "'")
 	value = string.gsub(value, "&lt;", "<")
 	value = string.gsub(value, "&gt;", ">")
 	value = string.gsub(value, "&amp;", "&")
+	value = string.gsub(value, "&#(%d+);", function(code)
+		local number = tonumber(code)
+
+		if not number
+			or number < 0
+			or number > 255
+		then
+			return ""
+		end
+
+		return string.char(number)
+	end)
+
 	return value
 end
 
+env.__blush_textmeasurecache = {}
+env.__blush_textmeasurecount = 0
+
 function measuretext(value, size, face, bounds)
-	return textservice:GetTextSize(
-		plaintext(value),
+	local visible = plaintext(value)
+	local key = table.concat({
+		visible,
+		tostring(size),
+		tostring(face),
+		tostring(math.floor(bounds.X + .5)),
+		tostring(math.floor(bounds.Y + .5)),
+	}, "\0")
+
+	local cached = env.__blush_textmeasurecache[key]
+	if cached then
+		return cached
+	end
+
+	local result = textservice:GetTextSize(
+		visible,
 		size,
 		face,
 		bounds
 	)
+
+	env.__blush_textmeasurecount += 1
+
+	if env.__blush_textmeasurecount > 512 then
+		table.clear(env.__blush_textmeasurecache)
+		env.__blush_textmeasurecount = 1
+	end
+
+	env.__blush_textmeasurecache[key] = result
+	return result
 end
 
 function autoresizetextx(object, paddingx, minimum, maximum)
@@ -1137,6 +1294,8 @@ function autoresizetextx(object, paddingx, minimum, maximum)
 	minimum = tonumber(minimum) or 0
 	maximum = tonumber(maximum) or 100000
 	object.AutomaticSize = Enum.AutomaticSize.None
+
+	local lastwidth
 
 	local function resize()
 		if not object.Parent then
@@ -1147,12 +1306,26 @@ function autoresizetextx(object, paddingx, minimum, maximum)
 			object.Text,
 			object.TextSize,
 			object.Font,
-			Vector2.new(100000, math.max(1, object.AbsoluteSize.Y))
+			Vector2.new(
+				100000,
+				math.max(1, object.AbsoluteSize.Y)
+			)
 		)
 
+		local width = math.clamp(
+			math.ceil(bounds.X) + paddingx,
+			minimum,
+			maximum
+		)
+
+		if width == lastwidth then
+			return
+		end
+
+		lastwidth = width
 		object.Size = UDim2.new(
 			0,
-			math.clamp(math.ceil(bounds.X) + paddingx, minimum, maximum),
+			width,
 			object.Size.Y.Scale,
 			object.Size.Y.Offset
 		)
@@ -1922,6 +2095,7 @@ backgroundblurbaseheight = 0
 backgroundblurlastsignature = nil
 backgroundblurtoken = 0
 backgroundblurdebounce = 0
+backgroundblurtask = nil
 backgroundsectionframes = setmetatable({}, { __mode = "k" })
 
 backgroundblurdisplay = rawnew("ImageLabel", {
@@ -1941,6 +2115,13 @@ backgroundblurdisplay = rawnew("ImageLabel", {
 
 function destroybackgroundeditable()
 	backgroundblurtoken += 1
+
+	if backgroundblurtask
+		and coroutine.status(backgroundblurtask) == "suspended"
+	then
+		pcall(task.cancel, backgroundblurtask)
+	end
+	backgroundblurtask = nil
 
 	if backgroundeditable then
 		invoke(function()
@@ -2533,24 +2714,22 @@ function updatewatermarksize()
 		return
 	end
 
-	task.defer(function()
-		runservice.PreRender:Wait()
+	local width = math.ceil(
+		watermarklayout.AbsoluteContentSize.X
+	) + 20
 
-		if watermark
-			and watermark.Parent
-			and watermarklayout
-		then
-			local width = math.ceil(
-				watermarklayout.AbsoluteContentSize.X
-			) + 20
-
-			watermark.Size = UDim2.fromOffset(
-				math.max(84, width),
-				38
-			)
-		end
-	end)
+	watermark.Size = UDim2.fromOffset(
+		math.max(84, width),
+		38
+	)
 end
+
+connect(
+	watermarklayout:GetPropertyChangedSignal(
+		"AbsoluteContentSize"
+	),
+	updatewatermarksize
+)
 
 function updatewatermarklayout()
 	local playerenabled =
@@ -3541,22 +3720,30 @@ function dismissnotification(data, velocity)
 		return
 	end
 
+	local animation
+
 	if card and card.Parent then
-		tween(
-			card,
-			{GroupTransparency = 1},
-			notificationout
-		)
+		animation =
+			tween(
+				card,
+				{GroupTransparency = 1},
+				notificationout
+			)
 	end
 
-	task.delay(
-		notificationout.Time + .06,
-		function()
-			if wrapper and wrapper.Parent then
-				wrapper:Destroy()
-			end
+	local function destroy()
+		if wrapper and wrapper.Parent then
+			wrapper:Destroy()
 		end
-	)
+	end
+
+	if animation then
+		animation.Completed:Connect(
+			destroy
+		)
+	else
+		destroy()
+	end
 end
 
 function notify(
@@ -3860,6 +4047,9 @@ currentnav = nil
 currentsub = nil
 
 activepopup = nil
+topprimarypopup = nil
+interactionowner = nil
+topprimarygesture = nil
 
 windowdrag = nil
 watermarkdrag = nil
@@ -3868,6 +4058,63 @@ pickerdrag = nil
 sectiondrag = nil
 
 animatedpickers = {}
+pickeranimationconnection = nil
+interactionrenderconnection = nil
+
+function stoppickeranimationloop()
+	local connection = pickeranimationconnection
+	pickeranimationconnection = nil
+
+	if connection and connection.Connected then
+		connection:Disconnect()
+	end
+end
+
+function ensurepickeranimationloop()
+	if pickeranimationconnection
+		and pickeranimationconnection.Connected
+	then
+		return
+	end
+
+	pickeranimationconnection =
+		runservice.RenderStepped:Connect(function(dt)
+			if next(animatedpickers) == nil then
+				stoppickeranimationloop()
+				return
+			end
+
+			for pickerstate in pairs(animatedpickers) do
+				pickerstate:update(dt)
+			end
+		end)
+end
+
+function acquireinteraction(kind, owner)
+	if interactionowner
+		and interactionowner.owner ~= owner
+	then
+		return false
+	end
+
+	interactionowner = {
+		kind = kind,
+		owner = owner,
+	}
+
+	return true
+end
+
+function releaseinteraction(owner)
+	if interactionowner
+		and (
+			owner == nil
+			or interactionowner.owner == owner
+		)
+	then
+		interactionowner = nil
+	end
+end
 
 -- popup
 
@@ -3891,21 +4138,38 @@ function closepopup()
 		return
 	end
 
-	tween(
-		popup.panel,
-		{GroupTransparency = 1},
-		TweenInfo.new(
-			.24,
-			Enum.EasingStyle.Quart,
-			Enum.EasingDirection.Out
+	local animation =
+		tween(
+			popup.panel,
+			{GroupTransparency = 1},
+			TweenInfo.new(
+				.24,
+				Enum.EasingStyle.Quart,
+				Enum.EasingDirection.Out
+			)
 		)
-	)
 
-	task.delay(.25, function()
-		if popup.panel and popup.panel.Parent then
+	local function destroy()
+		if popup.panel
+			and popup.panel.Parent
+		then
 			popup.panel:Destroy()
 		end
-	end)
+	end
+
+	if animation then
+		local completed
+		completed = animation.Completed:Connect(function()
+			if completed then
+				completed:Disconnect()
+				completed = nil
+			end
+
+			destroy()
+		end)
+	else
+		destroy()
+	end
 end
 
 function createpopup(
@@ -4079,10 +4343,21 @@ connect(uis.InputBegan, function(input)
 		return
 	end
 
+	local inputpoint = point(input)
+
+	if topprimarypopup
+		and activepopup == topprimarypopup
+		and topprimarybutton
+		and topprimarybutton.Parent
+		and inside(topprimarybutton, inputpoint)
+	then
+		return
+	end
+
 	local content = activepopup.content
 	if content
 		and content.Parent
-		and inside(content, point(input))
+		and inside(content, inputpoint)
 	then
 		return
 	end
@@ -4106,7 +4381,7 @@ function opencontextmenu(position, entries)
 
 	local rootpos = popuplayer.AbsolutePosition
 	local localpos = position - rootpos
-	local panel = createpopup(
+	local panel, popup = createpopup(
 		Vector2.new(localpos.X + 4, localpos.Y + 4),
 		width,
 		height,
@@ -4191,7 +4466,7 @@ function opencontextmenu(position, entries)
 		end
 	end
 
-	return panel
+	return panel, popup
 end
 
 function attachcontextmenu(object, entries)
@@ -4454,8 +4729,19 @@ addshadow(
 	true
 )
 
-hotkeytitle = label(hotkeylist, "Keybinds", UDim2.new(1, -46, 0, 30), medium, theme.text)
-hotkeytitle.Position = UDim2.fromOffset(12, 2)
+hotkeyheadericon = image(
+	hotkeylist,
+	icons.keyboard,
+	15,
+	theme.text3,
+	323
+)
+hotkeyheadericon.AnchorPoint = Vector2.new(0, .5)
+hotkeyheadericon.Position = UDim2.fromOffset(12, 16)
+hotkeyheadericon.ImageTransparency = .08
+
+hotkeytitle = label(hotkeylist, "Keybinds", UDim2.new(1, -72, 0, 30), medium, theme.text)
+hotkeytitle.Position = UDim2.fromOffset(34, 2)
 hotkeytitle.TextXAlignment = Enum.TextXAlignment.Left
 hotkeytitle.TextSize = 16
 hotkeytitle.ZIndex = 321
@@ -4463,7 +4749,7 @@ hotkeytitle.ZIndex = 321
 hotkeycollapse = new("ImageButton", {
 	Parent = hotkeylist,
 	AnchorPoint = Vector2.new(1, .5),
-	Position = UDim2.new(1, -31, 0, 16),
+	Position = UDim2.new(1, -8, 0, 16),
 	Size = UDim2.fromOffset(20, 20),
 	BackgroundColor3 = theme.hover,
 	BackgroundTransparency = 1,
@@ -4782,31 +5068,31 @@ function sethotkeylistvisible(value)
 	end
 end
 
-function hotkeycategoryicon(category)
-	local key = string.lower(tostring(category or ""))
-	if key == "combat" then return icons.combat end
-	if key == "farming" then return icons.farming end
-	if key == "components" then return icons.sliders end
-	if key == "settings" then return icons.settings end
-	if key == "home" then return icons.home end
-	return icons.keyboard
+function hotkeycategoryicon(binding)
+	if not binding then
+		return nil
+	end
+
+	if binding.page
+		and binding.page.icon ~= nil
+	then
+		return binding.page.icon
+	end
+
+	return binding.categoryicon
 end
 
+
 function hotkeypathparts(binding)
-	local parts = {}
-	if binding.subpage and binding.subpage ~= "" then
-		parts[#parts + 1] = tostring(binding.subpage)
-	end
-	if binding.sectionname and binding.sectionname ~= "" then
-		parts[#parts + 1] = tostring(binding.sectionname)
-	end
-	parts[#parts + 1] = tostring(binding.name or "Toggle")
-	return parts
+	return {
+		tostring(binding.name or "Toggle"),
+	}
 end
 
 function hotkeypath(binding)
-	return table.concat(hotkeypathparts(binding), " > ")
+	return tostring(binding.name or "Toggle")
 end
+
 
 function sethotkeypathcolor(data, color, animate)
 	for _, object in ipairs(data.pathlabels or {}) do
@@ -4895,7 +5181,48 @@ function rebuildhotkeypath(data, binding)
 	end
 end
 
-function createhotkeygroup(category)
+function updatehotkeygroup(data, category, binding)
+	local asset = hotkeycategoryicon(binding)
+	data.category = category
+
+	if data.asset ~= asset then
+		data.asset = asset
+
+		if data.icon
+			and data.icon.Parent
+		then
+			data.icon:Destroy()
+		end
+
+		data.icon = nil
+
+		if asset ~= nil
+			and tostring(asset) ~= ""
+		then
+			data.icon = image(
+				data.holder,
+				asset,
+				13,
+				theme.text3,
+				323
+			)
+			data.icon.AnchorPoint = Vector2.new(0, .5)
+			data.icon.Position = UDim2.fromOffset(4, 10)
+			data.icon.ImageTransparency = .08
+		end
+	end
+
+	local textx =
+		data.icon
+		and 23
+		or 4
+
+	data.text.Text = tostring(category)
+	data.text.Position = UDim2.fromOffset(textx, 0)
+	data.text.Size = UDim2.new(1, -textx - 4, 1, 0)
+end
+
+function createhotkeygroup(key, category, binding)
 	local holder = new("Frame", {
 		Parent = hotkeyscroll,
 		Size = UDim2.new(1, 0, 0, 20),
@@ -4904,38 +5231,37 @@ function createhotkeygroup(category)
 		ZIndex = 322,
 	})
 
-	local iconobject = image(
-		holder,
-		hotkeycategoryicon(category),
-		13,
-		theme.text3,
-		323
-	)
-	iconobject.AnchorPoint = Vector2.new(0, .5)
-	iconobject.Position = UDim2.fromOffset(4, 10)
-	iconobject.ImageTransparency = .08
-
 	local textobject = label(
 		holder,
 		tostring(category),
-		UDim2.new(1, -25, 1, 0),
+		UDim2.new(1, -8, 1, 0),
 		medium,
 		theme.text2
 	)
-	textobject.Position = UDim2.fromOffset(23, 0)
+	textobject.Position = UDim2.fromOffset(4, 0)
 	textobject.TextSize = 13
 	textobject.TextXAlignment = Enum.TextXAlignment.Left
 	textobject.ZIndex = 323
 
 	local data = {
 		holder = holder,
-		icon = iconobject,
+		icon = nil,
 		text = textobject,
 		category = category,
+		asset = nil,
+		key = key,
 	}
-	hotkeygroups[category] = data
+
+	updatehotkeygroup(
+		data,
+		category,
+		binding
+	)
+
+	hotkeygroups[key] = data
 	return data
 end
+
 
 function createhotkeyrow(binding)
 	local row = new("TextButton", {
@@ -4968,33 +5294,57 @@ function createhotkeyrow(binding)
 
 	activebox.ZIndex = 324
 
-	local pathholder = new("Frame", {
+	local nametext = label(
+		row,
+		tostring(binding.name or "Toggle"),
+		UDim2.new(1, -140, 1, 0),
+		font,
+		theme.text3
+	)
+	nametext.Position = UDim2.fromOffset(25, 0)
+	nametext.TextSize = 13
+	nametext.TextXAlignment = Enum.TextXAlignment.Left
+	nametext.TextTruncate = Enum.TextTruncate.AtEnd
+	nametext.ZIndex = 323
+
+	local modeholder = new("Frame", {
 		Parent = row,
-		Position = UDim2.fromOffset(25, 1),
-		Size = UDim2.new(1, -80, 1, -2),
+		AnchorPoint = Vector2.new(1, .5),
+		Position = UDim2.new(1, -54, .5, 0),
+		Size = UDim2.fromOffset(58, 25),
 		BackgroundTransparency = 1,
 		BorderSizePixel = 0,
-		ClipsDescendants = true,
 		ZIndex = 323,
 	})
+
+	local modetext = label(
+		modeholder,
+		"",
+		UDim2.fromScale(1, 1),
+		font,
+		theme.text3
+	)
+	modetext.TextSize = 12
+	modetext.TextXAlignment = Enum.TextXAlignment.Right
+	modetext.ZIndex = 324
 
 	local keyholder = new("Frame", {
 		Parent = row,
 		AnchorPoint = Vector2.new(1, .5),
 		Position = UDim2.new(1, -4, .5, 0),
-		Size = UDim2.fromOffset(30, 25),
+		Size = UDim2.fromOffset(42, 25),
 		BackgroundColor3 = theme.input,
 		BackgroundTransparency = .34,
 		BorderSizePixel = 0,
 		ZIndex = 323,
 	})
 	corner(keyholder, 6)
-stroke(
-	keyholder,
-	.7,
-	theme.border,
-	.6
-)
+	stroke(
+		keyholder,
+		.7,
+		theme.border,
+		.6
+	)
 
 	local keytext = label(
 		keyholder,
@@ -5010,23 +5360,27 @@ stroke(
 	local data = {
 		binding = binding,
 		row = row,
-		pathholder = pathholder,
-		pathlabels = {},
-		pathicons = {},
+		nametext = nametext,
+		modeholder = modeholder,
+		modetext = modetext,
 		keyholder = keyholder,
 		keytext = keytext,
 		activebox = activebox,
 		renderactive = renderactive,
 		active = nil,
-		path = nil,
+		name = nil,
+		mode = nil,
 		keyname = nil,
 	}
 
-	rebuildhotkeypath(data, binding)
-
 	row.MouseEnter:Connect(function()
 		if row.Parent then
-			sethotkeypathcolor(data, theme.text, true)
+			tween(nametext, {
+				TextColor3 = theme.text,
+			}, hoverti)
+			tween(modetext, {
+				TextColor3 = theme.text2,
+			}, hoverti)
 			tween(keytext, {
 				TextColor3 = theme.text2,
 			}, hoverti)
@@ -5035,14 +5389,17 @@ stroke(
 
 	row.MouseLeave:Connect(function()
 		if row.Parent then
-			local color = data.active and theme.text2 or theme.text3
+			local color =
+				data.active
+				and theme.text2
+				or theme.text3
 
-			sethotkeypathcolor(
-				data,
-				color,
-				true
-			)
-
+			tween(nametext, {
+				TextColor3 = color,
+			}, hoverti)
+			tween(modetext, {
+				TextColor3 = theme.text3,
+			}, hoverti)
 			tween(keytext, {
 				TextColor3 = color,
 			}, hoverti)
@@ -5054,14 +5411,20 @@ stroke(
 end
 
 function updatehotkeyrow(data, binding, active, layoutorder, animate)
-	local path = hotkeypath(binding)
+	local name = tostring(binding.name or "Toggle")
+	local mode = tostring(binding.mode or "Toggle")
 	local keyname = togglekeyname(binding.key)
 
 	data.row.LayoutOrder = layoutorder
 
-	if data.path ~= path then
-		data.path = path
-		rebuildhotkeypath(data, binding)
+	if data.name ~= name then
+		data.name = name
+		data.nametext.Text = name
+	end
+
+	if data.mode ~= mode then
+		data.mode = mode
+		data.modetext.Text = mode
 	end
 
 	if data.keyname ~= keyname then
@@ -5069,7 +5432,7 @@ function updatehotkeyrow(data, binding, active, layoutorder, animate)
 		data.keytext.Text = keyname
 	end
 
-	local bounds = measuretext(
+	local keybounds = measuretext(
 		keyname,
 		14,
 		medium,
@@ -5080,10 +5443,23 @@ function updatehotkeyrow(data, binding, active, layoutorder, animate)
 		#plaintext(keyname) == 1
 
 	local keywidth = math.clamp(
-		math.ceil(bounds.X)
+		math.ceil(keybounds.X)
 			+ (singlecharacter and 14 or 20),
 		singlecharacter and 30 or 42,
-		112
+		92
+	)
+
+	local modebounds = measuretext(
+		mode,
+		12,
+		font,
+		Vector2.new(120, 25)
+	)
+
+	local modewidth = math.clamp(
+		math.ceil(modebounds.X) + 10,
+		38,
+		72
 	)
 
 	data.keyholder.Size =
@@ -5092,12 +5468,26 @@ function updatehotkeyrow(data, binding, active, layoutorder, animate)
 			25
 		)
 
-	data.pathholder.Size =
+	data.modeholder.Size =
+		UDim2.fromOffset(
+			modewidth,
+			25
+		)
+
+	data.modeholder.Position =
 		UDim2.new(
 			1,
-			-keywidth - 36,
+			-keywidth - 10,
+			.5,
+			0
+		)
+
+	data.nametext.Size =
+		UDim2.new(
 			1,
-			-2
+			-keywidth - modewidth - 45,
+			1,
+			0
 		)
 
 	local changed = data.active ~= active
@@ -5105,30 +5495,35 @@ function updatehotkeyrow(data, binding, active, layoutorder, animate)
 	if data.renderactive then
 		data.renderactive(active == true)
 	end
+
 	data.active = active
 
-	local color = active and theme.text2 or theme.text3
+	local color =
+		active
+		and theme.text2
+		or theme.text3
 
-	if changed then
-		sethotkeypathcolor(data, color, animate == true)
-
-		if animate then
-			tween(data.keytext, {
-				TextColor3 = color,
-			}, hotkeyanimti)
-			tween(data.keyholder, {
-				BackgroundTransparency = active and .18 or .34,
-			}, hotkeyanimti)
-		else
-			data.keytext.TextColor3 = color
-			data.keyholder.BackgroundTransparency = active and .18 or .34
-		end
+	if changed
+		and animate
+	then
+		tween(data.nametext, {
+			TextColor3 = color,
+		}, hotkeyanimti)
+		tween(data.keytext, {
+			TextColor3 = color,
+		}, hotkeyanimti)
+		tween(data.keyholder, {
+			BackgroundTransparency = active and .18 or .34,
+		}, hotkeyanimti)
 	else
-		sethotkeypathcolor(data, color, false)
+		data.nametext.TextColor3 = color
 		data.keytext.TextColor3 = color
 		data.keyholder.BackgroundTransparency = active and .18 or .34
 	end
+
+	data.modetext.TextColor3 = theme.text3
 end
+
 
 function refreshhotkeylist()
 	if not hotkeylist.Visible then
@@ -5145,17 +5540,28 @@ function refreshhotkeylist()
 	local count = 0
 
 	for _, binding in ipairs(env.__blush_togglebindings or {}) do
-		if binding.key ~= nil then
-			local category = tostring(binding.category or "Misc")
-			local group = groupmap[category]
+		if binding.key ~= nil
+			and (
+				not binding.anchor
+				or binding.anchor.Parent
+			)
+		then
+			local category =
+				tostring(binding.category or "Misc")
+			local groupkey =
+				binding.page
+				or category
+			local group = groupmap[groupkey]
 
 			if not group then
 				group = {
+					key = groupkey,
 					name = category,
 					bindings = {},
+					first = binding,
 				}
 
-				groupmap[category] = group
+				groupmap[groupkey] = group
 				groups[#groups + 1] = group
 			end
 
@@ -5169,12 +5575,27 @@ function refreshhotkeylist()
 	local itemcount = 0
 
 	for _, group in ipairs(groups) do
-		local groupdata = hotkeygroups[group.name]
-		if not groupdata or not groupdata.holder or not groupdata.holder.Parent then
-			groupdata = createhotkeygroup(group.name)
+		local groupdata = hotkeygroups[group.key]
+
+		if not groupdata
+			or not groupdata.holder
+			or not groupdata.holder.Parent
+		then
+			groupdata =
+				createhotkeygroup(
+					group.key,
+					group.name,
+					group.first
+				)
+		else
+			updatehotkeygroup(
+				groupdata,
+				group.name,
+				group.first
+			)
 		end
 
-		seengroups[group.name] = true
+		seengroups[group.key] = true
 		layoutorder += 1
 		groupdata.holder.LayoutOrder = layoutorder
 		contentheight += 20
@@ -5184,19 +5605,30 @@ function refreshhotkeylist()
 			seen[binding] = true
 			local active = false
 			local ok, value = invoke(binding.get)
+
 			if ok then
 				active = value == true
 			end
 
 			local data = hotkeyrows[binding]
 			local created = false
-			if not data or not data.row or not data.row.Parent then
+
+			if not data
+				or not data.row
+				or not data.row.Parent
+			then
 				data = createhotkeyrow(binding)
 				created = true
 			end
 
 			layoutorder += 1
-			updatehotkeyrow(data, binding, active, layoutorder, not created)
+			updatehotkeyrow(
+				data,
+				binding,
+				active,
+				layoutorder,
+				not created
+			)
 			contentheight += 28
 			itemcount += 1
 		end
@@ -5207,21 +5639,25 @@ function refreshhotkeylist()
 			if data.row and data.row.Parent then
 				data.row:Destroy()
 			end
+
 			hotkeyrows[binding] = nil
 		end
 	end
 
-	for category, data in pairs(hotkeygroups) do
-		if not seengroups[category] then
+	for groupkey, data in pairs(hotkeygroups) do
+		if not seengroups[groupkey] then
 			if data.holder and data.holder.Parent then
 				data.holder:Destroy()
 			end
-			hotkeygroups[category] = nil
+
+			hotkeygroups[groupkey] = nil
 		end
 	end
 
 	if count == 0 then
-		if not hotkeyempty or not hotkeyempty.Parent then
+		if not hotkeyempty
+			or not hotkeyempty.Parent
+		then
 			hotkeyempty = label(
 				hotkeyscroll,
 				"No hotkeys",
@@ -5232,12 +5668,16 @@ function refreshhotkeylist()
 			hotkeyempty.TextSize = hotkeyfontsize
 			hotkeyempty.ZIndex = 322
 		end
+
 		contentheight = 26
 		itemcount = 1
 	else
-		if hotkeyempty and hotkeyempty.Parent then
+		if hotkeyempty
+			and hotkeyempty.Parent
+		then
 			hotkeyempty:Destroy()
 		end
+
 		hotkeyempty = nil
 	end
 
@@ -5245,12 +5685,27 @@ function refreshhotkeylist()
 		contentheight += (itemcount - 1) * 3
 	end
 
-	hotkeyscroll.CanvasSize = UDim2.fromOffset(0, math.max(26, contentheight))
+	hotkeyscroll.CanvasSize =
+		UDim2.fromOffset(
+			0,
+			math.max(26, contentheight)
+		)
 
-	local maxcontent = uis.TouchEnabled and 220 or 340
-	hotkeyfullheight = 39 + math.min(math.max(26, contentheight), maxcontent)
+	local maxcontent =
+		uis.TouchEnabled
+		and 220
+		or 340
+
+	hotkeyfullheight =
+		39
+		+ math.min(
+			math.max(26, contentheight),
+			maxcontent
+		)
+
 	synchotkeyminimizedstate()
 end
+
 
 function togglekeyname(key)
 	if not key then
@@ -5298,6 +5753,216 @@ function bindingmatchesinput(key, input)
 	end
 
 	return false
+end
+
+keycaptureowner = nil
+
+function beginkeycapture(owner, cancelcallback)
+	if keycaptureowner
+		and keycaptureowner.owner ~= owner
+	then
+		local previous = keycaptureowner
+		keycaptureowner = nil
+
+		if previous.cancel then
+			previous.cancel()
+		end
+
+		releaseinteraction(previous.owner)
+	end
+
+	if not acquireinteraction(
+		"keycapture",
+		owner
+	) then
+		return false
+	end
+
+	keycaptureowner = {
+		owner = owner,
+		cancel = cancelcallback,
+	}
+
+	keypickercapturing = true
+	return true
+end
+
+function endkeycapture(owner, suppress)
+	if keycaptureowner
+		and keycaptureowner.owner ~= owner
+	then
+		return false
+	end
+
+	keycaptureowner = nil
+	keypickercapturing = false
+	releaseinteraction(owner)
+
+	if suppress then
+		keypickersuppress = true
+	end
+
+	return true
+end
+
+env.__blush_keyactions = env.__blush_keyactions or {}
+
+function dispatchtogglebinding(key, began)
+	if keypickercapturing
+		or keypickersuppress
+	then
+		return
+	end
+
+	for _, binding in ipairs(
+		env.__blush_togglebindings or {}
+	) do
+		local anchor = binding.anchor
+
+		if binding.key == key
+			and (
+				not anchor
+				or anchor.Parent
+			)
+		then
+			if began then
+				if not binding.held then
+					binding.held = true
+
+					if binding.mode == "Toggle" then
+						binding.set(
+							not binding.get(),
+							true
+						)
+
+					elseif binding.mode == "Hold"
+						or binding.mode == "Always On"
+					then
+						binding.set(true, true)
+					end
+				end
+			else
+				binding.held = false
+
+				if binding.mode == "Hold" then
+					binding.set(false, true)
+				end
+			end
+		end
+	end
+end
+
+function keyactionname(key)
+	return "__blush_keybind_" .. tostring(key.Name)
+end
+
+function refreshkeyaction(key)
+	if not key
+		or key.EnumType ~= Enum.KeyCode
+		or key == Enum.KeyCode.Unknown
+	then
+		return
+	end
+
+	local actionname = keyactionname(key)
+	contextactionservice:UnbindAction(actionname)
+	env.__blush_keyactions[actionname] = nil
+
+	local required = false
+
+	for _, binding in ipairs(
+		env.__blush_togglebindings or {}
+	) do
+		if binding.key == key
+			and (
+				not binding.anchor
+				or binding.anchor.Parent
+			)
+		then
+			required = true
+			break
+		end
+	end
+
+	if not required then
+		return
+	end
+
+	contextactionservice:BindActionAtPriority(
+		actionname,
+		function(_, inputstate)
+			if inputstate == Enum.UserInputState.Begin then
+				dispatchtogglebinding(key, true)
+			elseif inputstate == Enum.UserInputState.End
+				or inputstate == Enum.UserInputState.Cancel
+			then
+				dispatchtogglebinding(key, false)
+			end
+
+			return Enum.ContextActionResult.Pass
+		end,
+		false,
+		Enum.ContextActionPriority.High.Value + 1100,
+		key
+	)
+
+	env.__blush_keyactions[actionname] = key
+end
+
+function setbindingkey(binding, key, persist)
+	if not binding then
+		return
+	end
+
+	local previous = binding.key
+
+	if previous == key then
+		binding.held = false
+
+		if binding.refreshkey then
+			binding.refreshkey()
+		end
+
+		requesthotkeyrefresh(binding)
+		return
+	end
+
+	binding.key = key
+	binding.held = false
+
+	refreshkeyaction(previous)
+	refreshkeyaction(key)
+
+	if binding.refreshkey then
+		binding.refreshkey()
+	end
+
+	hotkeysignature = ""
+	requesthotkeyrefresh(binding)
+
+	if persist ~= false then
+		requestconfigautosave()
+	end
+end
+
+function unregistertogglebinding(binding)
+	if not binding then
+		return
+	end
+
+	local previous = binding.key
+
+	for index = #env.__blush_togglebindings, 1, -1 do
+		if env.__blush_togglebindings[index] == binding then
+			table.remove(env.__blush_togglebindings, index)
+			break
+		end
+	end
+
+	refreshkeyaction(previous)
+	hotkeyrows[binding] = nil
+	hotkeysignature = ""
+	requesthotkeyrefresh()
 end
 
 function opentoggleconfig(anchor, binding, clickposition, togglesame)
@@ -5785,6 +6450,7 @@ function opentoggleconfig(anchor, binding, clickposition, togglesame)
 			rendermode()
 			hotkeysignature = ""
 			requesthotkeyrefresh(binding)
+			requestconfigautosave()
 
 			if mode == "Always On" then
 				binding.set(true, true)
@@ -5819,8 +6485,25 @@ function opentoggleconfig(anchor, binding, clickposition, togglesame)
 
 	if not hasinlinekey then
 		keybutton.Activated:Connect(function()
-			listening = not listening
-			keypickercapturing = listening
+			if listening then
+				listening = false
+				endkeycapture(popup, false)
+				renderkey()
+				return
+			end
+
+			listening = true
+
+			if not beginkeycapture(
+				popup,
+				function()
+					listening = false
+					renderkey()
+				end
+			) then
+				listening = false
+			end
+
 			renderkey()
 		end)
 	end
@@ -5849,10 +6532,12 @@ function opentoggleconfig(anchor, binding, clickposition, togglesame)
 				and input.KeyCode == Enum.KeyCode.Escape
 			then
 				listening = false
-				keypickercapturing = false
+				endkeycapture(popup, true)
 				renderkey()
 				return
 			end
+
+			local selectedkey
 
 			if keyboard
 				and (
@@ -5860,13 +6545,13 @@ function opentoggleconfig(anchor, binding, clickposition, togglesame)
 					or input.KeyCode == Enum.KeyCode.Delete
 				)
 			then
-				binding.key = nil
+				selectedkey = nil
 			elseif keyboard then
 				if input.KeyCode == Enum.KeyCode.Unknown then
 					return
 				end
 
-				binding.key = input.KeyCode
+				selectedkey = input.KeyCode
 			else
 				if kind == Enum.UserInputType.MouseButton1
 					and inside(keybutton, point(input))
@@ -5874,19 +6559,13 @@ function opentoggleconfig(anchor, binding, clickposition, togglesame)
 					return
 				end
 
-				binding.key = kind
+				selectedkey = kind
 			end
 
 			listening = false
-			keypickercapturing = false
-			keypickersuppress = true
+			endkeycapture(popup, true)
+			setbindingkey(binding, selectedkey)
 			renderkey()
-			hotkeysignature = ""
-			requesthotkeyrefresh(binding)
-
-			task.defer(function()
-				keypickersuppress = false
-			end)
 		end
 		)
 	task.defer(function()
@@ -5897,7 +6576,7 @@ function opentoggleconfig(anchor, binding, clickposition, togglesame)
 		end
 
 		outsideconnection =
-			uis.InputBegan:Connect(function(input)
+			connect(uis.InputBegan, function(input)
 				if activepopup ~= popup then
 					if outsideconnection
 						and outsideconnection.Connected
@@ -5944,7 +6623,7 @@ function opentoggleconfig(anchor, binding, clickposition, togglesame)
 
 	popup.onclose = function()
 		listening = false
-		keypickercapturing = false
+		endkeycapture(popup, false)
 
 		if captureconnection.Connected then
 			captureconnection:Disconnect()
@@ -5982,11 +6661,11 @@ function applysavedkeybind(binding, data)
 		or nil
 
 	if key ~= nil then
-		binding.key = key
+		setbindingkey(binding, key, false)
 	elseif data.key == false
 		or data.key == "None"
 	then
-		binding.key = nil
+		setbindingkey(binding, nil, false)
 	end
 
 	local mode =
@@ -6086,6 +6765,7 @@ function registertogglebinding(binding)
 		or hotkeybindingid(binding)
 
 	table.insert(env.__blush_togglebindings, binding)
+	refreshkeyaction(binding.key)
 
 	local pending =
 		env.__blush_pending_keybinds
@@ -6117,6 +6797,16 @@ function attachtoggleconfig(anchor, binding)
 
 	registertogglebinding(binding)
 
+	local destroying
+	destroying = anchor.Destroying:Connect(function()
+		if destroying then
+			destroying:Disconnect()
+			destroying = nil
+		end
+
+		unregistertogglebinding(binding)
+	end)
+
 	anchor.TouchLongPress:Connect(function(touchpositions, state)
 		if state == Enum.UserInputState.Begin then
 			binding.suppressclick = true
@@ -6134,9 +6824,7 @@ function attachtoggleconfig(anchor, binding)
 			)
 
 		elseif state == Enum.UserInputState.End then
-			task.delay(.12, function()
-				binding.suppressclick = false
-			end)
+			binding.suppressclick = false
 		end
 	end)
 end
@@ -6210,10 +6898,7 @@ function addtoggleconfigicon(
 		)
 
 		clickposition = nil
-
-		task.delay(.08, function()
-			binding.suppressclick = false
-		end)
+		binding.suppressclick = false
 	end)
 
 	return button
@@ -6221,12 +6906,11 @@ end
 
 connect(
 	uis.InputBegan,
-	function(input, processed)
-		if uis.TouchEnabled then
-			return
-		end
-
-		if keypickercapturing then
+	function(input)
+		if uis.TouchEnabled
+			or keypickercapturing
+			or keypickersuppress
+		then
 			return
 		end
 
@@ -6260,84 +6944,40 @@ connect(
 						false
 					)
 
-					task.defer(function()
-						binding.suppressclick = false
-					end)
-
+					binding.suppressclick = false
 					return
 				end
 			end
 		end
 
-		local keyboard =
-			input.UserInputType
-				== Enum.UserInputType.Keyboard
-
-		if keyboard
-			and input.KeyCode == Enum.KeyCode.Unknown
-		then
+		if not validmousebind(input.UserInputType) then
 			return
 		end
 
-		if not keyboard
-			and not validmousebind(input.UserInputType)
-		then
-			return
-		end
-
-		for _, binding in ipairs(
-			env.__blush_togglebindings
-		) do
-			if bindingmatchesinput(binding.key, input)
-				and not binding.held
-			then
-				binding.held = true
-
-				if binding.mode == "Toggle" then
-					binding.set(
-						not binding.get(),
-						true
-					)
-
-				elseif binding.mode == "Hold" then
-					binding.set(true, true)
-
-				elseif binding.mode == "Always On" then
-					binding.set(true, true)
-				end
-			end
-		end
+		dispatchtogglebinding(
+			input.UserInputType,
+			true
+		)
 	end
 )
 
 connect(
 	uis.InputEnded,
 	function(input)
-		if uis.TouchEnabled then
-			return
+		if keypickersuppress then
+			keypickersuppress = false
 		end
 
-		local keyboard =
-			input.UserInputType
-				== Enum.UserInputType.Keyboard
-
-		if not keyboard
-			and not validmousebind(input.UserInputType)
+		if uis.TouchEnabled
+			or not validmousebind(input.UserInputType)
 		then
 			return
 		end
 
-		for _, binding in ipairs(
-			env.__blush_togglebindings
-		) do
-			if bindingmatchesinput(binding.key, input) then
-				binding.held = false
-
-				if binding.mode == "Hold" then
-					binding.set(false, true)
-				end
-			end
-		end
+		dispatchtogglebinding(
+			input.UserInputType,
+			false
+		)
 	end
 )
 
@@ -6351,18 +6991,12 @@ function stopinlinekeycapture(suppress)
 
 	inlinekeycapture = nil
 	state.listening = false
-	keypickercapturing = false
+	endkeycapture(state, suppress)
 
 	if state.render then
 		state.render()
 	end
 
-	if suppress then
-		keypickersuppress = true
-		task.defer(function()
-			keypickersuppress = false
-		end)
-	end
 end
 
 function attachinlinekeypicker(
@@ -6373,7 +7007,7 @@ function attachinlinekeypicker(
 	keycallback
 )
 	attachtoggleconfig(row, binding)
-	binding.key = defaultkey or binding.key or Enum.KeyCode.F
+	setbindingkey(binding, defaultkey or binding.key or Enum.KeyCode.F, false)
 	binding.inlinekey = true
 
 	local configbutton = addtoggleconfigicon(
@@ -6444,15 +7078,13 @@ function attachinlinekeypicker(
 			or input.UserInputType == Enum.UserInputType.Touch
 		then
 			binding.suppressclick = true
-			task.delay(.08, function()
-				binding.suppressclick = false
-			end)
 		end
 	end)
 
 	keybutton.Activated:Connect(function()
 		if inlinekeycapture == state then
 			stopinlinekeycapture(false)
+			binding.suppressclick = false
 			return
 		end
 
@@ -6462,8 +7094,24 @@ function attachinlinekeypicker(
 
 		inlinekeycapture = state
 		state.listening = true
-		keypickercapturing = true
+
+		if not beginkeycapture(
+			state,
+			function()
+				if inlinekeycapture == state then
+					inlinekeycapture = nil
+				end
+
+				state.listening = false
+				renderkey()
+			end
+		) then
+			inlinekeycapture = nil
+			state.listening = false
+		end
+
 		renderkey()
+		binding.suppressclick = false
 	end)
 
 	keybutton.MouseEnter:Connect(function()
@@ -6504,7 +7152,7 @@ connect(uis.InputBegan, function(input)
 	end
 
 	if keyboard and input.KeyCode == Enum.KeyCode.Escape then
-		stopinlinekeycapture(false)
+		stopinlinekeycapture(true)
 		return
 	end
 
@@ -6514,37 +7162,33 @@ connect(uis.InputBegan, function(input)
 		return
 	end
 
+	local selectedkey
+
 	if keyboard
 		and (
 			input.KeyCode == Enum.KeyCode.Backspace
 			or input.KeyCode == Enum.KeyCode.Delete
 		)
 	then
-		binding.key = nil
+		selectedkey = nil
 	elseif keyboard then
 		if input.KeyCode == Enum.KeyCode.Unknown then
 			return
 		end
-		binding.key = input.KeyCode
+		selectedkey = input.KeyCode
 	else
-		binding.key = kind
+		selectedkey = kind
 	end
 
 	inlinekeycapture = nil
 	state.listening = false
-	keypickercapturing = false
-	keypickersuppress = true
+	endkeycapture(state, true)
+	setbindingkey(binding, selectedkey)
 	state.render()
-	hotkeysignature = ""
-	refreshhotkeylist()
 
 	if state.callback then
 		state.callback(binding.key)
 	end
-
-	task.defer(function()
-		keypickersuppress = false
-	end)
 end)
 
 -- page scrollbar
@@ -7030,22 +7674,36 @@ function showpage(name)
 	end
 
 	if previous then
-		tween(
-			previous.frame,
-			{GroupTransparency = 1},
-			TweenInfo.new(
-				.24,
-				Enum.EasingStyle.Quart,
-				Enum.EasingDirection.Out
+		local animation =
+			tween(
+				previous.frame,
+				{GroupTransparency = 1},
+				TweenInfo.new(
+					.24,
+					Enum.EasingStyle.Quart,
+					Enum.EasingDirection.Out
+				)
 			)
-		)
 
-		local pagedelay = animationsenabled and .24 or 0
-		task.delay(pagedelay, function()
+		local function hideprevious()
 			if previous ~= currentpage then
 				previous.frame.Visible = false
 			end
-		end)
+		end
+
+		if animation then
+			local completed
+			completed = animation.Completed:Connect(function()
+				if completed then
+					completed:Disconnect()
+					completed = nil
+				end
+
+				hideprevious()
+			end)
+		else
+			hideprevious()
+		end
 	end
 
 	page.frame.Visible = true
@@ -7069,6 +7727,8 @@ function makecheckbox(
 	size,
 	default
 )
+	local checked = default == true
+
 	local box = new("Frame", {
 		Parent = parentobject,
 
@@ -7087,10 +7747,11 @@ function makecheckbox(
 	})
 
 	corner(box, 5)
+
 	local boxstroke = stroke(
 		box,
-		default and .26 or .4,
-		default and theme.white or theme.border,
+		checked and .26 or .4,
+		checked and theme.white or theme.border,
 		.7
 	)
 
@@ -7107,7 +7768,7 @@ function makecheckbox(
 			theme.white,
 
 		BackgroundTransparency =
-			default and 0 or 1,
+			checked and 0 or 1,
 
 		BorderSizePixel = 0,
 
@@ -7120,7 +7781,7 @@ function makecheckbox(
 		addshadow(
 			fill,
 			"CheckedGlow",
-			default and .64 or 1,
+			checked and .64 or 1,
 			7,
 			1,
 			-1
@@ -7165,7 +7826,7 @@ function makecheckbox(
 			theme.black,
 
 		ImageTransparency =
-			default and .02 or 1,
+			checked and .02 or 1,
 
 		ScaleType =
 			Enum.ScaleType.Fit,
@@ -7174,11 +7835,22 @@ function makecheckbox(
 	})
 
 	local function render(value)
+		checked = value == true
+
+		if boxstroke then
+			boxstroke.Transparency = checked and .26 or .4
+			boxstroke.Color = checked and theme.white or theme.border
+		end
+
+		if checkedglow then
+			checkedglow.Transparency = checked and .64 or 1
+		end
+
 		tween(
 			fill,
 			{
 				BackgroundTransparency =
-					value and 0 or 1,
+					checked and 0 or 1,
 			},
 			checkti
 		)
@@ -7187,47 +7859,90 @@ function makecheckbox(
 			check,
 			{
 				ImageTransparency =
-					value and .02 or 1,
+					checked and .02 or 1,
 			},
 			checkti
 		)
-
-		if checkedglow then
-			tween(
-				checkedglow,
-				{
-					Transparency =
-						value and .64 or 1,
-				},
-				value
-					and checkti
-					or TweenInfo.new(
-						checkti.Time,
-						Enum.EasingStyle.Quart,
-						Enum.EasingDirection.In
-					)
-			)
-		end
-
-		if boxstroke then
-			tween(
-				boxstroke,
-				{
-					Transparency = value and .26 or .4,
-					Color = value and theme.white or theme.border,
-				},
-				value
-					and checkti
-					or TweenInfo.new(
-						checkti.Time,
-						Enum.EasingStyle.Quart,
-						Enum.EasingDirection.In
-					)
-			)
-		end
 	end
 
 	return box, render
+end
+
+function colorbyte(value)
+	return math.clamp(
+		math.floor(value * 255 + .5),
+		0,
+		255
+	)
+end
+
+function formatrgba(colorvalue, alphavalue)
+	return string.format(
+		"%d, %d, %d, %d",
+		colorbyte(colorvalue.R),
+		colorbyte(colorvalue.G),
+		colorbyte(colorvalue.B),
+		math.clamp(
+			math.floor((alphavalue or 1) * 255 + .5),
+			0,
+			255
+		)
+	)
+end
+
+function formathexalpha(colorvalue, alphavalue)
+	return string.format(
+		"#%02X%02X%02X%02X",
+		colorbyte(colorvalue.R),
+		colorbyte(colorvalue.G),
+		colorbyte(colorvalue.B),
+		math.clamp(
+			math.floor((alphavalue or 1) * 255 + .5),
+			0,
+			255
+		)
+	)
+end
+
+function parsergba(value)
+	local r, g, b, a =
+		tostring(value or ""):match(
+			"^%s*([%+%-]?%d+)%s*,%s*([%+%-]?%d+)%s*,%s*([%+%-]?%d+)%s*,%s*([%+%-]?%d+)%s*$"
+		)
+
+	if not r then
+		return nil
+	end
+
+	r = math.clamp(tonumber(r) or 0, 0, 255)
+	g = math.clamp(tonumber(g) or 0, 0, 255)
+	b = math.clamp(tonumber(b) or 0, 0, 255)
+	a = math.clamp(tonumber(a) or 0, 0, 255)
+
+	return Color3.fromRGB(r, g, b), a / 255
+end
+
+function parsehexalpha(value)
+	local hex = tostring(value or "")
+		:gsub("%s+", "")
+		:gsub("^#", "")
+
+	if #hex ~= 8
+		or not hex:match("^%x%x%x%x%x%x%x%x$")
+	then
+		return nil
+	end
+
+	local r = tonumber(hex:sub(1, 2), 16)
+	local g = tonumber(hex:sub(3, 4), 16)
+	local b = tonumber(hex:sub(5, 6), 16)
+	local a = tonumber(hex:sub(7, 8), 16)
+
+	if not r or not g or not b or not a then
+		return nil
+	end
+
+	return Color3.fromRGB(r, g, b), a / 255
 end
 
 -- colorpicker state
@@ -7277,6 +7992,44 @@ function createcolorstate(
 		end
 
 		return self.alpha
+	end
+
+	function state:syncinputs(force)
+		local popup = self.popup
+
+		if not popup
+			or not popup.panel
+			or not popup.panel.Parent
+			or popup.inputupdating
+		then
+			return
+		end
+
+		local colorvalue = self:color()
+		local alphavalue = self:currentalpha()
+		popup.inputupdating = true
+
+		if force
+			or not popup.rgba:IsFocused()
+		then
+			popup.rgba.Text =
+				formatrgba(
+					colorvalue,
+					alphavalue
+				)
+		end
+
+		if force
+			or not popup.hex:IsFocused()
+		then
+			popup.hex.Text =
+				formathexalpha(
+					colorvalue,
+					alphavalue
+				)
+		end
+
+		popup.inputupdating = false
 	end
 
 	function state:apply()
@@ -7364,6 +8117,8 @@ function createcolorstate(
 		if popup.alphaglow then
 			popup.alphaglow.Color = colorvalue
 		end
+
+		self:syncinputs(false)
 	end
 
 	function state:refresh()
@@ -7372,6 +8127,7 @@ function createcolorstate(
 		then
 			animatedpickers[self] =
 				true
+			ensurepickeranimationloop()
 		else
 			animatedpickers[self] =
 				nil
@@ -7399,10 +8155,21 @@ function createcolorstate(
 			self.callback = callback
 		else
 			self:apply()
+
+			if self.onpersist then
+				self.onpersist()
+			end
 		end
 	end
 
 	function state:update(dt)
+		if not self.swatch
+			or not self.swatch.Parent
+		then
+			animatedpickers[self] = nil
+			return
+		end
+
 		if self.dragging then
 			return
 		end
@@ -7444,6 +8211,39 @@ function createcolorstate(
 		self:apply()
 	end
 
+	if swatch then
+		swatch.Destroying:Connect(function()
+			animatedpickers[state] = nil
+			state.fading = false
+			state.rainbow = false
+			state.dragging = false
+
+			if pickerdrag
+				and pickerdrag.state == state
+			then
+				local input = pickerdrag.input
+				pickerdrag = nil
+				releaseinteraction(input)
+			end
+
+			if state.popup
+				and activepopup == state.popup
+			then
+				closepopup()
+			end
+
+			state.popup = nil
+			state.swatch = nil
+			state.swatchglow = nil
+			state.callback = nil
+			state.onpersist = nil
+
+			if next(animatedpickers) == nil then
+				stoppickeranimationloop()
+			end
+		end)
+	end
+
 	return state
 end
 
@@ -7458,7 +8258,7 @@ function opencolorpicker(
 		anchor.AbsoluteSize
 
 	local width = 244
-	local height = 229
+	local height = 266
 
 	local x =
 		anchorpos.X
@@ -7937,13 +8737,69 @@ function opencolorpicker(
 			state:color()
 		)
 
+	local inputrow = new("Frame", {
+		Parent = panel,
+		Position = UDim2.fromOffset(10, 198),
+		Size = UDim2.new(1, -20, 0, 27),
+		BackgroundTransparency = 1,
+		BorderSizePixel = 0,
+		ZIndex = 524,
+	})
+
+	local function colorinput(position, size, placeholder)
+		local box = new("TextBox", {
+			Parent = inputrow,
+			Position = position,
+			Size = size,
+			BackgroundColor3 = theme.input,
+			BackgroundTransparency = .04,
+			BorderSizePixel = 0,
+			Text = "",
+			PlaceholderText = placeholder,
+			PlaceholderColor3 = theme.text3,
+			TextColor3 = theme.text2,
+			Font = font,
+			TextSize = 13,
+			TextXAlignment = Enum.TextXAlignment.Left,
+			TextYAlignment = Enum.TextYAlignment.Center,
+			ClearTextOnFocus = false,
+			MultiLine = false,
+			ZIndex = 525,
+		})
+
+		corner(box, 6)
+		stroke(box, .72, theme.border, .55)
+
+		new("UIPadding", {
+			Parent = box,
+			PaddingLeft = UDim.new(0, 8),
+			PaddingRight = UDim.new(0, 8),
+		})
+
+		return box
+	end
+
+	local rgba =
+		colorinput(
+			UDim2.fromOffset(0, 0),
+			UDim2.new(.58, -3, 1, 0),
+			"RGBA"
+		)
+
+	local hex =
+		colorinput(
+			UDim2.new(.58, 3, 0, 0),
+			UDim2.new(.42, -3, 1, 0),
+			"HEX"
+		)
+
 	local options = new("Frame", {
 		Parent = panel,
 
 		Position =
 			UDim2.fromOffset(
 				10,
-				194
+				231
 			),
 
 		Size =
@@ -8033,6 +8889,10 @@ function opencolorpicker(
 			render(value)
 
 			state:refresh()
+
+			if state.onpersist then
+				state.onpersist()
+			end
 		end)
 	end
 
@@ -8085,6 +8945,9 @@ function opencolorpicker(
 
 	state.popup = {
 		panel = panel,
+		rgba = rgba,
+		hex = hex,
+		inputupdating = false,
 
 		sv = sv,
 		svcursor = svcursor,
@@ -8097,6 +8960,80 @@ function opencolorpicker(
 		alphacursor = alphacursor,
 		alphaglow = alphaglow,
 	}
+
+	state:syncinputs(true)
+
+	local function commitcolorinput(box, parser, normalize)
+		if state.popup == nil
+			or state.popup.inputupdating
+		then
+			return false
+		end
+
+		local colorvalue, alphavalue =
+			parser(box.Text)
+
+		if not colorvalue then
+			if normalize then
+				state:syncinputs(true)
+			end
+			return false
+		end
+
+		state:Set(
+			colorvalue,
+			alphavalue,
+			true
+		)
+
+		if normalize then
+			state:syncinputs(true)
+		end
+
+		return true
+	end
+
+	rgba:GetPropertyChangedSignal("Text"):Connect(function()
+		if rgba:IsFocused()
+			and state.popup
+			and not state.popup.inputupdating
+		then
+			commitcolorinput(
+				rgba,
+				parsergba,
+				false
+			)
+		end
+	end)
+
+	hex:GetPropertyChangedSignal("Text"):Connect(function()
+		if hex:IsFocused()
+			and state.popup
+			and not state.popup.inputupdating
+		then
+			commitcolorinput(
+				hex,
+				parsehexalpha,
+				false
+			)
+		end
+	end)
+
+	rgba.FocusLost:Connect(function()
+		commitcolorinput(
+			rgba,
+			parsergba,
+			true
+		)
+	end)
+
+	hex.FocusLost:Connect(function()
+		commitcolorinput(
+			hex,
+			parsehexalpha,
+			true
+		)
+	end)
 
 	local function updatepicker(
 		drag,
@@ -8156,6 +9093,13 @@ function opencolorpicker(
 		holder,
 		cursor
 	)
+		if not acquireinteraction(
+			"colorpicker",
+			input
+		) then
+			return
+		end
+
 		state.dragging = true
 
 		pickerdrag = {
@@ -8229,9 +9173,26 @@ function opencolorpicker(
 	end)
 
 	popup.onclose = function()
+		local draginput =
+			pickerdrag
+			and pickerdrag.state == state
+			and pickerdrag.input
+			or nil
+
 		state.dragging = false
 		state.popup = nil
-		pickerdrag = nil
+
+		if pickerdrag
+			and pickerdrag.state == state
+		then
+			pickerdrag = nil
+		end
+
+		if draginput then
+			releaseinteraction(
+				draginput
+			)
+		end
 	end
 
 	state:refresh()
@@ -8714,6 +9675,12 @@ function finishsectiondrag()
 
 	sectiondrag = nil
 
+	if drag then
+		releaseinteraction(
+			drag.input
+		)
+	end
+
 	if not drag
 		or not drag.started
 	then
@@ -8817,28 +9784,34 @@ function finishsectiondrag()
 
 	section.floating = false
 	section.floatingwidth = nil
+	section.dragging = false
 
 	if section.shadow then
 		section.shadow.Enabled = false
 	end
 
+	if section.frame.Parent
+		~= section.page[section.column]
+	then
+		section.frame.Parent =
+			section.page[section.column]
+	end
+
+	section:SetCollapsed(
+		drag.wascollapsed,
+		false,
+		false
+	)
+
+	section.frame.Visible = true
+	section.page:reflow(
+		section.column,
+		false
+	)
+
 	applyuitransparency(
 		uitransparency * 100
 	)
-
-	section.frame.Size =
-		UDim2.new(
-			1,
-			-7,
-			0,
-			section.targetheight
-		)
-
-	section.frame.Position =
-		UDim2.fromOffset(
-			0,
-			section.targety or 0
-		)
 
 	local target =
 		section.frame.AbsolutePosition
@@ -8877,15 +9850,6 @@ function finishsectiondrag()
 		then
 			drag.ghost:Destroy()
 		end
-
-		section.dragging = false
-		section.frame.Visible = true
-
-		section:SetCollapsed(
-			drag.wascollapsed,
-			true,
-			true
-		)
 
 		if drag.wasfloating then
 			notify(
@@ -9386,14 +10350,6 @@ function createsection(
 		end
 
 		resize(false, false)
-
-		task.defer(function()
-			runservice.PreRender:Wait()
-
-			if frame and frame.Parent then
-				resize(false, false)
-			end
-		end)
 	end
 
 	bodylayout:GetPropertyChangedSignal(
@@ -9453,6 +10409,13 @@ function createsection(
 			and input.UserInputType
 				~= Enum.UserInputType.Touch
 		then
+			return
+		end
+
+		if not acquireinteraction(
+			"sectiondrag",
+			input
+		) then
 			return
 		end
 
@@ -9872,6 +10835,8 @@ function createsection(
 		binding = {
 			name = name,
 			category = section.page.primary or "Misc",
+			categoryicon = section.page.icon,
+			page = section.page,
 			subpage = section.page.secondary,
 			sectionname = section.name,
 			key = nil,
@@ -10170,6 +11135,8 @@ function createsection(
 		binding = {
 			name = name,
 			category = section.page.primary or "Misc",
+			categoryicon = section.page.icon,
+			page = section.page,
 			subpage = section.page.secondary,
 			sectionname = section.name,
 			key = nil,
@@ -10284,7 +11251,11 @@ function createsection(
 		local pickerbutton = control.PickerObject
 		local binding = control.Binding
 
-		binding.key = defaultkey or Enum.KeyCode.F
+		setbindingkey(
+			binding,
+			defaultkey or Enum.KeyCode.F,
+			false
+		)
 		binding.inlinekey = true
 
 		togglebutton.Size = UDim2.new(1, -106, 1, 0)
@@ -10353,19 +11324,36 @@ function createsection(
 				or input.UserInputType == Enum.UserInputType.Touch
 			then
 				binding.suppressclick = true
-				task.delay(.08, function()
-					binding.suppressclick = false
-				end)
 			end
 		end)
 
 		keybutton.Activated:Connect(function()
-			listening = not listening
-			keypickercapturing = listening
+			if listening then
+				listening = false
+				endkeycapture(row, false)
+				binding.suppressclick = false
+				renderkey()
+				return
+			end
+
+			listening = true
+
+			if not beginkeycapture(
+				row,
+				function()
+					listening = false
+					renderkey()
+				end
+			) then
+				listening = false
+			end
+
+			binding.suppressclick = false
 			renderkey()
 		end)
 
-		connect(uis.InputBegan, function(input)
+		local captureconnection =
+			connect(uis.InputBegan, function(input)
 			if not listening then
 				return
 			end
@@ -10380,7 +11368,7 @@ function createsection(
 
 			if keyboard and input.KeyCode == Enum.KeyCode.Escape then
 				listening = false
-				keypickercapturing = false
+				endkeycapture(row, true)
 				renderkey()
 				return
 			end
@@ -10395,17 +11383,37 @@ function createsection(
 				return
 			end
 
-			binding.key = keyboard and input.KeyCode or kind
+			local selectedkey =
+				keyboard
+				and input.KeyCode
+				or kind
+
 			listening = false
-			keypickercapturing = false
-			hotkeysignature = ""
-			requesthotkeyrefresh(binding)
+			endkeycapture(row, true)
+			setbindingkey(
+				binding,
+				selectedkey
+			)
 			renderkey()
 
 			if keycallback then
 				keycallback(binding.key)
 			end
-		end)
+			end)
+
+		connect(
+			row.Destroying,
+			function()
+				if captureconnection.Connected then
+					captureconnection:Disconnect()
+				end
+
+				if listening then
+					listening = false
+					endkeycapture(row, false)
+				end
+			end
+		)
 
 		keybutton.MouseEnter:Connect(function()
 			tween(keytext, {TextColor3 = theme.text}, hoverti)
@@ -10726,6 +11734,13 @@ function createsection(
 				and input.UserInputType
 					~= Enum.UserInputType.Touch
 			then
+				return
+			end
+
+			if not acquireinteraction(
+				"slider",
+				input
+			) then
 				return
 			end
 
@@ -11176,6 +12191,13 @@ function createsection(
 				and lowknob
 				or highknob
 
+			if not acquireinteraction(
+				"slider",
+				input
+			) then
+				return
+			end
+
 			sliderdrag = {
 				input = input,
 				update = update,
@@ -11386,19 +12408,7 @@ function createsection(
 		local selected = default or options[1]
 		local optionbindings = {}
 
-		local previewicon = rawnew("ImageLabel", {
-			Parent = button,
-			AnchorPoint = Vector2.new(0, .5),
-			Position = UDim2.fromOffset(10, 16),
-			Size = UDim2.fromOffset(18, 18),
-			BackgroundTransparency = 1,
-			BorderSizePixel = 0,
-			Image = optionicons[selected] or "",
-			ImageColor3 = theme.text2,
-			Visible = optionicons[selected] ~= nil,
-			ScaleType = Enum.ScaleType.Fit,
-			ZIndex = 18,
-		})
+		local previewicon
 
 		local previewcolor = rawnew("Frame", {
 			Parent = button,
@@ -11426,8 +12436,32 @@ function createsection(
 			local asset = optionicons[selected]
 			local color = optioncolors[selected]
 
-			previewicon.Visible = asset ~= nil
-			previewicon.Image = asset or ""
+			if asset then
+				if not previewicon
+					or not previewicon.Parent
+				then
+					previewicon = image(
+						button,
+						asset,
+						18,
+						theme.text2,
+						18
+					)
+
+					previewicon.AnchorPoint =
+						Vector2.new(0, .5)
+
+					previewicon.ScaleType =
+						Enum.ScaleType.Fit
+				else
+					previewicon.Image =
+						tostring(asset)
+				end
+			elseif previewicon then
+				previewicon:Destroy()
+				previewicon = nil
+			end
+
 			previewcolor.Visible = color ~= nil
 
 			if color then
@@ -11435,7 +12469,7 @@ function createsection(
 			end
 
 			local offset = 10
-			if asset then
+			if previewicon then
 				previewicon.Position = UDim2.fromOffset(offset, 16)
 				offset += 22
 			end
@@ -11486,6 +12520,8 @@ function createsection(
 				kind = "DropdownOption",
 				name = name .. " / " .. tostring(option),
 				category = section.page.primary or "Misc",
+				categoryicon = section.page.icon,
+				page = section.page,
 				subpage = section.page.secondary,
 				sectionname = section.name,
 				key = nil,
@@ -13350,14 +14386,30 @@ function createsection(
 		end)
 
 		button.Activated:Connect(function()
-			listening = not listening
-			keypickercapturing = listening
+			if listening then
+				listening = false
+				endkeycapture(row, false)
+				render()
+				return
+			end
+
+			listening = true
+
+			if not beginkeycapture(
+				row,
+				function()
+					listening = false
+					render()
+				end
+			) then
+				listening = false
+			end
+
 			render()
 		end)
 
-		connect(
-			uis.InputBegan,
-			function(input)
+		local captureconnection =
+			connect(uis.InputBegan, function(input)
 				if not listening then
 					return
 				end
@@ -13375,7 +14427,7 @@ function createsection(
 					and input.KeyCode == Enum.KeyCode.Escape
 				then
 					listening = false
-					keypickercapturing = false
+					endkeycapture(row, true)
 					render()
 					return
 				end
@@ -13393,17 +14445,26 @@ function createsection(
 				end
 
 				listening = false
-				keypickercapturing = false
-				keypickersuppress = true
+				endkeycapture(row, true)
 
 				setkey(
 					keyboard and input.KeyCode or kind,
 					true
 				)
 
-				task.defer(function()
-					keypickersuppress = false
-				end)
+			end)
+
+		connect(
+			row.Destroying,
+			function()
+				if captureconnection.Connected then
+					captureconnection:Disconnect()
+				end
+
+				if listening then
+					listening = false
+					endkeycapture(row, false)
+				end
 			end
 		)
 
@@ -13725,23 +14786,25 @@ function createsection(
 			SortOrder = Enum.SortOrder.LayoutOrder,
 		})
 
+		options = options or {}
+
 		local buttons = {}
 		local selected = default or options[1]
 
 		local function render()
 			for value, data in pairs(buttons) do
 				local active = value == selected
+				data.text.TextColor3 =
+					active and theme.text or theme.text3
+
 				tween(
 					data.dot,
 					{
 						BackgroundTransparency = active and 0 or 1,
-						Size = active and UDim2.fromOffset(10, 10) or UDim2.fromOffset(4, 4),
+						Size = active
+							and UDim2.fromOffset(8, 8)
+							or UDim2.fromOffset(3, 3),
 					},
-					fastti
-				)
-				tween(
-					data.text,
-					{TextColor3 = active and theme.text or theme.text3},
 					fastti
 				)
 			end
@@ -13796,7 +14859,7 @@ function createsection(
 				Parent = circle,
 				AnchorPoint = Vector2.new(.5, .5),
 				Position = UDim2.fromScale(.5, .5),
-				Size = UDim2.fromOffset(4, 4),
+				Size = UDim2.fromOffset(3, 3),
 				BackgroundColor3 = theme.white,
 				BackgroundTransparency = 1,
 				BorderSizePixel = 0,
@@ -14095,13 +15158,20 @@ function createsection(
 		spinner.AnchorPoint = Vector2.new(.5, .5)
 		spinner.Position = UDim2.new(1, -10, .5, 0)
 		local rotation = 0
-		connect(runservice.RenderStepped, function(dt)
-			if not spinner.Parent then return end
-			if animationsenabled then
-				rotation = (rotation + dt * 180) % 360
-				spinner.Rotation = rotation
+		local animationconnection =
+			connect(runservice.RenderStepped, function(dt)
+				if animationsenabled then
+					rotation = (rotation + dt * 180) % 360
+					spinner.Rotation = rotation
+				end
+			end)
+
+		spinner.Destroying:Connect(function()
+			if animationconnection.Connected then
+				animationconnection:Disconnect()
 			end
 		end)
+
 		register(holder, name)
 		return spinner
 	end
@@ -14139,15 +15209,22 @@ function createsection(
 		})
 		corner(bar, 999)
 		local elapsed = 0
-		connect(runservice.RenderStepped, function(dt)
-			if not bar.Parent then return end
-			if animationsenabled then
-				elapsed = (elapsed + dt * .7) % 1
-				bar.Position = UDim2.new(-.28 + elapsed * 1.28, 0, 0, 0)
-			else
-				bar.Position = UDim2.new(.36, 0, 0, 0)
+		local animationconnection =
+			connect(runservice.RenderStepped, function(dt)
+				if animationsenabled then
+					elapsed = (elapsed + dt * .7) % 1
+					bar.Position = UDim2.new(-.28 + elapsed * 1.28, 0, 0, 0)
+				else
+					bar.Position = UDim2.new(.36, 0, 0, 0)
+				end
+			end)
+
+		bar.Destroying:Connect(function()
+			if animationconnection.Connected then
+				animationconnection:Disconnect()
 			end
 		end)
+
 		register(holder, name)
 		return bar
 	end
@@ -14401,16 +15478,29 @@ function createsection(
 			host.ClipsDescendants = animate == true or tabsclosed
 
 			if animate then
-				tween(host, {
-					Size = UDim2.new(1, 0, 0, height),
-				}, tabti)
+				local animation =
+					tween(host, {
+						Size = UDim2.new(1, 0, 0, height),
+					}, tabti)
 
-				if not tabsclosed then
-					task.delay(tabti.Time + .02, function()
-						if host.Parent and not tabsclosed then
+				if not tabsclosed
+					and animation
+				then
+					local completed
+					completed = animation.Completed:Connect(function()
+						if completed then
+							completed:Disconnect()
+							completed = nil
+						end
+
+						if host.Parent
+							and not tabsclosed
+						then
 							host.ClipsDescendants = false
 						end
 					end)
+				elseif not tabsclosed then
+					host.ClipsDescendants = false
 				end
 			else
 				host.Size = UDim2.new(1, 0, 0, height)
@@ -15016,6 +16106,7 @@ function createsection(
 			button.Activated:Connect(function()
 				local data = buttons[tabname]
 				if data and data.suppressactivate then
+					data.suppressactivate = false
 					return
 				end
 
@@ -15154,12 +16245,8 @@ function createsection(
 				local dragged = tabscroll.started
 				tabscroll = nil
 
-				if data and dragged then
-					task.defer(function()
-						if data.button and data.button.Parent then
-							data.suppressactivate = false
-						end
-					end)
+				if data and not dragged then
+					data.suppressactivate = false
 				end
 				return
 			end
@@ -15193,7 +16280,6 @@ function createsection(
 					)
 					if animation then
 						animation.Completed:Connect(finish)
-						task.delay(.24, finish)
 					else
 						finish()
 					end
@@ -15234,28 +16320,23 @@ function createsection(
 			false
 		)
 
-		task.defer(function()
-			runservice.PreRender:Wait()
+		updatelayout()
+		setscroll(
+			0,
+			false
+		)
 
-			updatelayout()
-			setscroll(
-				0,
-				false
-			)
+		select(
+			taborder[1],
+			false,
+			false
+		)
 
-			select(
-				taborder[1],
-				false,
-				false
-			)
-
-			runservice.PreRender:Wait()
-			updatelayout()
-			setscroll(
-				0,
-				false
-			)
-		end)
+		updatelayout()
+		setscroll(
+			0,
+			false
+		)
 
 		return {
 			Get = function(_, name)
@@ -15334,6 +16415,14 @@ components =
 		"Components",
 		nil
 	)
+
+home.icon = icons.home
+combatmain.icon = icons.combat
+combatvisuals.icon = icons.combat
+combatextras.icon = icons.combat
+farming.icon = icons.farming
+settings.icon = icons.settings
+components.icon = icons.sliders
 
 -- library runtime
 
@@ -16091,10 +17180,18 @@ function schedulebackgroundblur(animate)
 	-- Keep the previous blur visible while the new level is rebuilt.
 	applybackgroundblurblend()
 
-	task.delay(.025, function()
+	if backgroundblurtask
+		and coroutine.status(backgroundblurtask) == "suspended"
+	then
+		pcall(task.cancel, backgroundblurtask)
+	end
+
+	backgroundblurtask = task.delay(.025, function()
 		if debounce ~= backgroundblurdebounce or token ~= backgroundblurtoken then
 			return
 		end
+
+		backgroundblurtask = nil
 
 		local success = buildbackgroundblur(asset, blur, token)
 		if debounce ~= backgroundblurdebounce or token ~= backgroundblurtoken then
@@ -16224,7 +17321,6 @@ function clearbackgroundimage(animate)
 		end
 		if animation then
 			animation.Completed:Connect(finish)
-			task.delay(.3, finish)
 		else
 			finish()
 		end
@@ -16715,7 +17811,7 @@ notificationdurationcontrol = nil
 maxnotificationcontrol = nil
 configselector = nil
 configinput = nil
-autoloadconfigcontrol = nil
+autosaveconfigcontrol = nil
 themfileselector = nil
 themefileinput = nil
 settingssection = nil
@@ -16831,9 +17927,9 @@ function currentuipayload()
 
 		selectedConfig = selectedconfig,
 		selectedThemeSave = selectedthemesave,
-		autoLoadConfig = autoloadconfigcontrol
-			and autoloadconfigcontrol:Get()
-			or rawsavedsettings.autoLoadConfig == true,
+		autoSaveConfig = autosaveconfigcontrol
+			and autosaveconfigcontrol:Get()
+			or rawsavedsettings.autoSaveConfig == true,
 
 		menuKey = selectedmenukey
 			and selectedmenukey.Name
@@ -16910,11 +18006,502 @@ function saveuisettings(force)
 		end)
 	end
 
+	local pending = env.__blush_save_task
+	if pending
+		and coroutine.status(pending) == "suspended"
+	then
+		pcall(task.cancel, pending)
+	end
+	env.__blush_save_task = nil
+
 	if force then
 		commit()
 	else
-		task.delay(.18, commit)
+		env.__blush_save_task =
+			task.delay(.18, function()
+				if serial ~= env.__blush_save_serial then
+					return
+				end
+
+				env.__blush_save_task = nil
+				commit()
+			end)
 	end
+end
+
+env.__blush_configcontrols = env.__blush_configcontrols or {}
+env.__blush_pending_controlvalues = env.__blush_pending_controlvalues or {}
+env.__blush_autosave_serial = env.__blush_autosave_serial or 0
+env.__blush_autosave_task = nil
+
+function encodepersistentvalue(value)
+	local kind = typeof(value)
+
+	if kind == "Color3" then
+		return {
+			__blush_type = "Color3",
+			r = value.R,
+			g = value.G,
+			b = value.B,
+		}
+	end
+
+	if kind == "EnumItem" then
+		return {
+			__blush_type = "EnumItem",
+			enum = tostring(value.EnumType),
+			name = value.Name,
+		}
+	end
+
+	if kind == "Instance" then
+		if value:IsA("Player") then
+			return {
+				__blush_type = "Player",
+				userId = value.UserId,
+				name = value.Name,
+			}
+		end
+
+		return tostring(value)
+	end
+
+	if type(value) == "table" then
+		local result = {}
+
+		for key, child in pairs(value) do
+			result[tostring(key)] =
+				encodepersistentvalue(child)
+		end
+
+		return result
+	end
+
+	if kind == "number"
+		or kind == "string"
+		or kind == "boolean"
+		or kind == "nil"
+	then
+		return value
+	end
+
+	return tostring(value)
+end
+
+function decodepersistentvalue(value)
+	if type(value) ~= "table" then
+		return value
+	end
+
+	if value.__blush_type == "Color3" then
+		return Color3.new(
+			math.clamp(tonumber(value.r) or 1, 0, 1),
+			math.clamp(tonumber(value.g) or 1, 0, 1),
+			math.clamp(tonumber(value.b) or 1, 0, 1)
+		)
+	end
+
+	if value.__blush_type == "EnumItem" then
+		local enumname =
+			tostring(value.enum or "")
+				:gsub("^Enum%.", "")
+
+		local enumtype = Enum[enumname]
+		return enumtype
+			and enumtype[value.name]
+			or nil
+	end
+
+	if value.__blush_type == "Player" then
+		local userid = tonumber(value.userId)
+
+		if userid then
+			for _, targetplayer in ipairs(players:GetPlayers()) do
+				if targetplayer.UserId == userid then
+					return targetplayer
+				end
+			end
+		end
+
+		return value.name
+	end
+
+	local result = {}
+
+	for key, child in pairs(value) do
+		result[key] =
+			decodepersistentvalue(child)
+	end
+
+	return result
+end
+
+function persistentcontrolid(
+	section,
+	kind,
+	name,
+	config
+)
+	if type(config) == "table" then
+		local explicit =
+			config.Flag
+			or config.SaveKey
+			or config.Id
+			or config.ID
+
+		if explicit ~= nil
+			and tostring(explicit) ~= ""
+		then
+			return tostring(explicit)
+		end
+	end
+
+	local page = section and section.page
+	return table.concat({
+		page and tostring(page.name or page.primary or "") or "",
+		section and tostring(section.name or "") or "",
+		tostring(kind or "Control"),
+		tostring(name or ""),
+	}, "|")
+end
+
+function requestconfigautosave()
+	if loadingsettings
+		or not autosaveconfigcontrol
+		or not autosaveconfigcontrol:Get()
+		or selectedconfig == ""
+		or selectedconfig == "None"
+	then
+		return
+	end
+
+	local pending = env.__blush_autosave_task
+	if pending
+		and coroutine.status(pending) == "suspended"
+	then
+		pcall(task.cancel, pending)
+	end
+
+	env.__blush_autosave_serial += 1
+	local serial = env.__blush_autosave_serial
+
+	env.__blush_autosave_task =
+		task.delay(.22, function()
+			if serial ~= env.__blush_autosave_serial then
+				return
+			end
+
+			env.__blush_autosave_task = nil
+
+			if loadingsettings
+				or not autosaveconfigcontrol
+				or not autosaveconfigcontrol:Get()
+				or selectedconfig == ""
+				or selectedconfig == "None"
+			then
+				return
+			end
+
+			saveconfigfile(
+				selectedconfig,
+				true
+			)
+		end)
+end
+
+function persistentcallback(callback)
+	return function(...)
+		if callback then
+			callback(...)
+		end
+
+		requestconfigautosave()
+	end
+end
+
+function registerpersistentcontrol(
+	section,
+	kind,
+	name,
+	control,
+	config,
+	inputcallback
+)
+	if not control then
+		return control
+	end
+
+	local id =
+		persistentcontrolid(
+			section,
+			kind,
+			name,
+			config
+		)
+
+	local anchor =
+		typeof(control) == "Instance"
+		and control
+		or (
+			control.Object
+			or control.swatch
+		)
+
+	local entry = {
+		id = id,
+		kind = kind,
+		control = control,
+		anchor = anchor,
+	}
+
+	if kind == "Input"
+		and control:IsA("TextBox")
+	then
+		entry.get = function()
+			return control.Text
+		end
+
+		entry.set = function(value)
+			control.Text =
+				tostring(value or "")
+
+			if inputcallback then
+				inputcallback(control.Text)
+			end
+		end
+
+	elseif kind == "ColorPicker"
+		and type(control.color) == "function"
+	then
+		entry.get = function()
+			return {
+				color = encodepersistentvalue(
+					control:color()
+				),
+				alpha = control.alpha,
+			}
+		end
+
+		entry.set = function(value)
+			if type(value) ~= "table" then
+				return
+			end
+
+			local colorvalue =
+				decodepersistentvalue(
+					value.color
+				)
+
+			if typeof(colorvalue) ~= "Color3" then
+				return
+			end
+
+			control:Set(
+				colorvalue,
+				math.clamp(
+					tonumber(value.alpha) or 1,
+					0,
+					1
+				),
+				true
+			)
+		end
+
+	elseif (
+		kind == "ToggleColor"
+		or kind == "ToggleColorKey"
+	)
+		and type(control.Get) == "function"
+		and type(control.Set) == "function"
+		and control.Color
+		and type(control.Color.color) == "function"
+	then
+		entry.get = function()
+			return {
+				value = control:Get(),
+				color = encodepersistentvalue(
+					control.Color:color()
+				),
+				alpha = control.Color.alpha,
+			}
+		end
+
+		entry.set = function(value)
+			if type(value) ~= "table" then
+				return
+			end
+
+			control:Set(
+				value.value == true,
+				true
+			)
+
+			local colorvalue =
+				decodepersistentvalue(
+					value.color
+				)
+
+			if typeof(colorvalue) == "Color3" then
+				control.Color:Set(
+					colorvalue,
+					math.clamp(
+						tonumber(value.alpha) or 1,
+						0,
+						1
+					),
+					true
+				)
+			end
+		end
+
+		control.Color.onpersist =
+			requestconfigautosave
+
+	elseif kind == "RangeSlider"
+		and type(control.Get) == "function"
+		and type(control.Set) == "function"
+	then
+		entry.get = function()
+			local low, high = control:Get()
+
+			return {
+				low = low,
+				high = high,
+			}
+		end
+
+		entry.set = function(value)
+			if type(value) == "table" then
+				control:Set(
+					value.low,
+					value.high,
+					true
+				)
+			end
+		end
+
+	elseif type(control.Get) == "function"
+		and type(control.Set) == "function"
+	then
+		entry.get = function()
+			return encodepersistentvalue(
+				control:Get()
+			)
+		end
+
+		entry.set = function(value)
+			control:Set(
+				decodepersistentvalue(value),
+				true
+			)
+		end
+	else
+		return control
+	end
+
+	if kind == "ColorPicker" then
+		control.onpersist =
+			requestconfigautosave
+	end
+
+	env.__blush_configcontrols[id] = entry
+
+	if anchor
+		and anchor.Destroying
+	then
+		local destroying
+		destroying =
+			anchor.Destroying:Connect(function()
+				if destroying then
+					destroying:Disconnect()
+					destroying = nil
+				end
+
+				if env.__blush_configcontrols[id]
+					== entry
+				then
+					env.__blush_configcontrols[id] = nil
+				end
+			end)
+	end
+
+	local pending =
+		env.__blush_pending_controlvalues[id]
+
+	if pending ~= nil then
+		local oldloading = loadingsettings
+		loadingsettings = true
+
+		invoke(
+			entry.set,
+			pending
+		)
+
+		loadingsettings = oldloading
+	end
+
+	return control
+end
+
+function currentcontrolpayload()
+	local payload = {}
+
+	for id, entry in pairs(
+		env.__blush_configcontrols
+	) do
+		local alive =
+			entry
+			and entry.control
+			and entry.get
+			and (
+				not entry.anchor
+				or entry.anchor.Parent ~= nil
+			)
+
+		if alive then
+			local ok, value =
+				invoke(entry.get)
+
+			if ok then
+				payload[id] =
+					encodepersistentvalue(value)
+			end
+		else
+			env.__blush_configcontrols[id] = nil
+		end
+	end
+
+	return payload
+end
+
+function applycontrolpayload(payload)
+	env.__blush_pending_controlvalues =
+		type(payload) == "table"
+		and payload
+		or {}
+
+	if type(payload) ~= "table" then
+		return
+	end
+
+	local oldloading = loadingsettings
+	loadingsettings = true
+
+	for id, value in pairs(payload) do
+		local entry =
+			env.__blush_configcontrols[id]
+
+		if entry
+			and entry.set
+		then
+			invoke(
+				entry.set,
+				decodepersistentvalue(value)
+			)
+		end
+	end
+
+	loadingsettings = oldloading
 end
 
 function refreshconfigfiles(preferred)
@@ -16949,7 +18536,7 @@ function refreshthemefiles(preferred)
 	)
 end
 
-function saveconfigfile(name)
+function saveconfigfile(name, autosave)
 	name = sanitizefilename(name)
 	if name == "" then
 		return false
@@ -16960,9 +18547,11 @@ function saveconfigfile(name)
 	local payload =
 		currentuipayload()
 
-	payload.autoLoadConfig = nil
+	payload.autoSaveConfig = nil
 	payload.keybinds =
 		currentkeybindpayload()
+	payload.controls =
+		currentcontrolpayload()
 
 	local ok = writejsonfile(
 		configfolder .. "/" .. name .. ".json",
@@ -16970,10 +18559,14 @@ function saveconfigfile(name)
 	)
 
 	if ok then
-		if configinput then
-			configinput.Text = name
+		if not autosave then
+			if configinput then
+				configinput.Text = name
+			end
+
+			refreshconfigfiles(name)
 		end
-		refreshconfigfiles(name)
+
 		saveuisettings(true)
 	end
 
@@ -16999,14 +18592,16 @@ function loadconfigfile(name, silent)
 		configinput.Text = name
 	end
 	refreshconfigfiles(name)
+
+	local oldloading = loadingsettings
+	loadingsettings = true
+
 	applysaveduisettings(data, silent == true)
 	applykeybindpayload(data.keybinds)
+	applycontrolpayload(data.controls)
+
+	loadingsettings = oldloading
 	syncwindowglowcolor(false)
-
-	task.defer(function()
-		syncwindowglowcolor(false)
-	end)
-
 	saveuisettings(true)
 	return true
 end
@@ -17954,9 +19549,9 @@ savessection =
 		icons.wrench
 	)
 
-autoloadconfigcontrol = savessection:AddToggle(
-	"Auto load",
-	rawsavedsettings.autoLoadConfig == true,
+autosaveconfigcontrol = savessection:AddToggle(
+	"Auto save",
+	rawsavedsettings.autoSaveConfig == true,
 	function()
 		saveuisettings(true)
 	end
@@ -18414,18 +20009,6 @@ end
 
 loadingsettings = false
 
-if rawsavedsettings.autoLoadConfig == true
-	and selectedconfig ~= ""
-	and selectedconfig ~= "None"
-then
-	task.defer(function()
-		loadconfigfile(
-			selectedconfig,
-			true
-		)
-	end)
-end
-
 env.__blush_visibility_busy = false
 env.__blush_visibility_token = 0
 env.__blush_windowvisible = true
@@ -18832,19 +20415,15 @@ function applymobilecolumns()
 
 	mobilecolumnbutton.Visible = false
 
-	task.defer(function()
-		runservice.PreRender:Wait()
-
-		for _, targetpage in pairs(pages) do
-			for _, section in ipairs(targetpage.sections) do
-				if section.RefreshMobileLayout then
-					section:RefreshMobileLayout()
-				end
+	for _, targetpage in pairs(pages) do
+		for _, section in ipairs(targetpage.sections) do
+			if section.RefreshMobileLayout then
+				section:RefreshMobileLayout()
 			end
-
-			targetpage:reflow("left", false)
 		end
-	end)
+
+		targetpage:reflow("left", false)
+	end
 end
 
 function setmobilepanel(open)
@@ -19193,19 +20772,15 @@ function fitmobilewindow()
 	setmobilepanel(mobilepanelopen)
 
 	if currentpage then
-		task.defer(function()
-			runservice.PreRender:Wait()
-
-			for _, section in ipairs(
-				currentpage.sections
-			) do
-				if section.RefreshMobileLayout then
-					section:RefreshMobileLayout()
-				end
+		for _, section in ipairs(
+			currentpage.sections
+		) do
+			if section.RefreshMobileLayout then
+				section:RefreshMobileLayout()
 			end
+		end
 
-			currentpage:reflow("left", false)
-		end)
+		currentpage:reflow("left", false)
 	end
 
 	if topnavigationenabled
@@ -19392,74 +20967,176 @@ function clearreorderanimation(button)
 end
 
 function animatereorder(oldpositions, items, skipbutton)
-	task.defer(function()
-		runservice.PreRender:Wait()
+	local function animatebutton(button)
+		if button == skipbutton
+			or not button
+			or not button.Parent
+			or not oldpositions[button]
+		then
+			return true
+		end
 
-		for _, button in ipairs(items or {}) do
-			if button ~= skipbutton
-				and button
-				and button.Parent
-				and oldpositions[button]
+		local oldposition = oldpositions[button]
+		local newposition = button.AbsolutePosition
+
+		if (newposition - oldposition).Magnitude <= 1 then
+			return false
+		end
+
+		clearreorderanimation(button)
+
+		local ghost =
+			makedragghost(
+				button,
+				465
+			)
+
+		if not ghost then
+			return true
+		end
+
+		ghost.Position =
+			UDim2.fromOffset(
+				oldposition.X
+					- draglayer.AbsolutePosition.X,
+				oldposition.Y
+					- draglayer.AbsolutePosition.Y
+			)
+
+		local hidden =
+			hideforghost(button)
+
+		local animation =
+			tween(
+				ghost,
+				{
+					Position =
+						UDim2.fromOffset(
+							newposition.X
+								- draglayer.AbsolutePosition.X,
+							newposition.Y
+								- draglayer.AbsolutePosition.Y
+						),
+				},
+				TweenInfo.new(
+					.24,
+					Enum.EasingStyle.Quart,
+					Enum.EasingDirection.Out
+				)
+			)
+
+		env.__blush_reorderanimations[button] = {
+			ghost = ghost,
+			hidden = hidden,
+			animation = animation,
+		}
+
+		local function finish()
+			local current =
+				env.__blush_reorderanimations[button]
+
+			if not current
+				or current.ghost ~= ghost
 			then
-				local oldposition = oldpositions[button]
-				local newposition = button.AbsolutePosition
+				return
+			end
 
-				if (newposition - oldposition).Magnitude > 1 then
-					clearreorderanimation(button)
+			clearreorderanimation(button)
+		end
 
-					local ghost = makedragghost(button, 465)
-					if ghost then
-						ghost.Position = UDim2.fromOffset(
-							oldposition.X - draglayer.AbsolutePosition.X,
-							oldposition.Y - draglayer.AbsolutePosition.Y
-						)
+		if animation then
+			animation.Completed:Connect(finish)
+		else
+			finish()
+		end
 
-						local hidden = hideforghost(button)
-						local animation = tween(
-							ghost,
-							{
-								Position = UDim2.fromOffset(
-									newposition.X - draglayer.AbsolutePosition.X,
-									newposition.Y - draglayer.AbsolutePosition.Y
-								),
-							},
-							TweenInfo.new(
-								.24,
-								Enum.EasingStyle.Quart,
-								Enum.EasingDirection.Out
-							)
-						)
+		return true
+	end
 
-						env.__blush_reorderanimations[button] = {
-							ghost = ghost,
-							hidden = hidden,
-							animation = animation,
-						}
+	for _, button in ipairs(items or {}) do
+		if not animatebutton(button)
+			and button
+			and button.Parent
+		then
+			local changed
+			local destroying
 
-						local function finish()
-							local current =
-								env.__blush_reorderanimations[button]
+			local function cleanup()
+				if changed then
+					changed:Disconnect()
+					changed = nil
+				end
 
-							if not current
-								or current.ghost ~= ghost
-							then
-								return
-							end
-
-							clearreorderanimation(button)
-						end
-
-						if animation then
-							animation.Completed:Connect(finish)
-							task.delay(animationsenabled and .29 or .01, finish)
-						else
-							finish()
-						end
-					end
+				if destroying then
+					destroying:Disconnect()
+					destroying = nil
 				end
 			end
+
+			changed =
+				button:GetPropertyChangedSignal(
+					"AbsolutePosition"
+				):Connect(function()
+					if animatebutton(button) then
+						cleanup()
+					end
+				end)
+
+			destroying =
+				button.Destroying:Connect(
+					cleanup
+				)
 		end
-	end)
+	end
+end
+
+function layoutnavcontent(
+	button,
+	textobject,
+	iconobject,
+	sub
+)
+	if iconobject
+		and iconobject.Parent
+	then
+		iconobject.AnchorPoint =
+			Vector2.new(
+				0,
+				.5
+			)
+
+		iconobject.Position =
+			UDim2.new(
+				0,
+				sub and 11 or 14,
+				.5,
+				0
+			)
+	end
+
+	local textx
+
+	if iconobject
+		and iconobject.Parent
+	then
+		textx = sub and 35 or 43
+	else
+		textx = sub and 11 or 14
+	end
+
+	textobject.Position =
+		UDim2.fromOffset(
+			textx,
+			0
+		)
+
+	textobject.Size =
+		UDim2.new(
+			1,
+			-textx - 8,
+			1,
+			0
+		)
 end
 
 function navbutton(
@@ -19522,8 +21199,8 @@ function navbutton(
 
 			Size =
 				UDim2.fromOffset(
-					4,
-					22
+					3,
+					20
 				),
 
 			BackgroundColor3 =
@@ -19545,36 +21222,28 @@ function navbutton(
 				indicator,
 				"NavIndicatorGlow",
 				1,
-				7,
-				2,
+				6,
+				1,
 				-1,
 				theme.white,
 				UDim2.fromOffset(0, 0)
 			)
 	end
 
-	local iconobject =
-		image(
-			button,
-			asset,
-			sub and 15 or 19,
-			theme.text3,
-			14
-		)
+	local iconobject
 
-	iconobject.AnchorPoint =
-		Vector2.new(
-			0,
-			.5
-		)
-
-	iconobject.Position =
-		UDim2.new(
-			0,
-			sub and 11 or 14,
-			.5,
-			0
-		)
+	if asset ~= nil
+		and tostring(asset) ~= ""
+	then
+		iconobject =
+			image(
+				button,
+				asset,
+				sub and 15 or 19,
+				theme.text3,
+				14
+			)
+	end
 
 	local textobject =
 		label(
@@ -19582,7 +21251,7 @@ function navbutton(
 			name,
 			UDim2.new(
 				1,
-				sub and -42 or -46,
+				0,
 				1,
 				0
 			),
@@ -19590,16 +21259,17 @@ function navbutton(
 			theme.text3
 		)
 
-	textobject.Position =
-		UDim2.fromOffset(
-			sub and 35 or 43,
-			0
-		)
-
 	textobject.TextSize =
 		sub and 16 or 17
 
 	textobject.ZIndex = 14
+
+	layoutnavcontent(
+		button,
+		textobject,
+		iconobject,
+		sub
+	)
 
 	return button,
 		textobject,
@@ -19607,6 +21277,54 @@ function navbutton(
 		iconobject,
 		indicatorglow
 end
+
+function setnaventryicon(entry, asset)
+	if not entry
+		or not entry.button
+		or not entry.button.Parent
+	then
+		return nil
+	end
+
+	if entry.icon
+		and entry.icon.Parent
+	then
+		entry.icon:Destroy()
+	end
+
+	entry.icon = nil
+
+	if asset ~= nil
+		and tostring(asset) ~= ""
+	then
+		entry.icon =
+			image(
+				entry.button,
+				asset,
+				entry.sub and 15 or 19,
+				currentnav == entry.button
+					and theme.text
+					or theme.text3,
+				14
+			)
+	end
+
+	layoutnavcontent(
+		entry.button,
+		entry.text,
+		entry.icon,
+		entry.sub
+	)
+
+	setsidebarentrycompact(
+		entry,
+		sidebarcompact,
+		entry.sub
+	)
+
+	return entry.icon
+end
+
 
 homebutton,
 	hometext,
@@ -20165,6 +21883,8 @@ end)
 
 naventries = {
 	[homebutton] = {
+		button = homebutton,
+		sub = false,
 		text = hometext,
 		indicator = homeindicator,
 		icon = homeicon,
@@ -20172,6 +21892,8 @@ naventries = {
 	},
 
 	[combatbutton] = {
+		button = combatbutton,
+		sub = false,
 		text = combattext,
 		indicator = combatindicator,
 		icon = combaticon,
@@ -20179,6 +21901,8 @@ naventries = {
 	},
 
 	[farmingbutton] = {
+		button = farmingbutton,
+		sub = false,
 		text = farmingtext,
 		indicator = farmingindicator,
 		icon = farmingicon,
@@ -20186,6 +21910,8 @@ naventries = {
 	},
 
 	[componentsbutton] = {
+		button = componentsbutton,
+		sub = false,
 		text = componentstext,
 		indicator = componentsindicator,
 		icon = componentsicon,
@@ -20193,6 +21919,8 @@ naventries = {
 	},
 
 	[settingsbutton] = {
+		button = settingsbutton,
+		sub = false,
 		text = settingstext,
 		indicator = settingsindicator,
 		icon = settingsicon,
@@ -20202,16 +21930,22 @@ naventries = {
 
 subentries = {
 	[mainbutton] = {
+		button = mainbutton,
+		sub = true,
 		text = maintext,
 		icon = mainicon,
 	},
 
 	[visualbutton] = {
+		button = visualbutton,
+		sub = true,
 		text = visualtext,
 		icon = visualicon,
 	},
 
 	[extrasbutton] = {
+		button = extrasbutton,
+		sub = true,
 		text = extrastext,
 		icon = extrasicon,
 	},
@@ -20434,6 +22168,14 @@ function applytopnavigation(value, animate)
 end
 
 function opentopmainmenu()
+	if topprimarypopup
+		and activepopup == topprimarypopup
+	then
+		closepopup()
+		topprimarypopup = nil
+		return
+	end
+
 	local position =
 		topprimarybutton.AbsolutePosition
 		+ Vector2.new(
@@ -20461,7 +22203,7 @@ function opentopmainmenu()
 					Icon = entry
 						and entry.icon
 						and entry.icon.Image
-						or icons.sliders,
+						or nil,
 					Callback = function()
 						currenttab:Select()
 					end,
@@ -20541,14 +22283,29 @@ function opentopmainmenu()
 		}
 	end
 
-	opencontextmenu(position, actions)
-end
+	local _, popup =
+		opencontextmenu(
+			position,
+			actions
+		)
 
-topprimarybutton.Activated:Connect(function()
-	if topnavigationenabled then
-		opentopmainmenu()
+	topprimarypopup = popup
+
+	local previousclose =
+		popup and popup.onclose
+
+	if popup then
+		popup.onclose = function()
+			if previousclose then
+				previousclose()
+			end
+
+			if topprimarypopup == popup then
+				topprimarypopup = nil
+			end
+		end
 	end
-end)
+end
 
 -- primary navigation remains in the sidebar; top navigation is subtabs only
 topmainbutton.Activated:Connect(function()
@@ -20569,7 +22326,10 @@ function bindnavhover(button, sub)
 		end
 
 		tween(entry.text, {TextColor3 = theme.text}, hoverti)
-		tween(entry.icon, {ImageColor3 = sub and theme.text2 or theme.text}, hoverti)
+
+		if entry.icon then
+			tween(entry.icon, {ImageColor3 = sub and theme.text2 or theme.text}, hoverti)
+		end
 	end)
 
 	button.MouseLeave:Connect(function()
@@ -20580,9 +22340,12 @@ function bindnavhover(button, sub)
 		end
 
 		tween(entry.text, {TextColor3 = active and theme.text or theme.text3}, hoverti)
-		tween(entry.icon, {
-			ImageColor3 = active and (sub and theme.text2 or theme.text) or theme.text3,
-		}, hoverti)
+
+		if entry.icon then
+			tween(entry.icon, {
+				ImageColor3 = active and (sub and theme.text2 or theme.text) or theme.text3,
+			}, hoverti)
+		end
 	end)
 end
 
@@ -20610,14 +22373,16 @@ function selectmain(button)
 			tabti
 		)
 
-		tween(
-			previous.icon,
-			{
-				ImageColor3 =
-					theme.text3,
-			},
-			tabti
-		)
+		if previous.icon then
+			tween(
+				previous.icon,
+				{
+					ImageColor3 =
+						theme.text3,
+				},
+				tabti
+			)
+		end
 
 		tween(
 			previous.indicator,
@@ -20651,14 +22416,16 @@ function selectmain(button)
 		tabti
 	)
 
-	tween(
-		active.icon,
-		{
-			ImageColor3 =
-				theme.text,
-		},
-		tabti
-	)
+	if active.icon then
+		tween(
+			active.icon,
+			{
+				ImageColor3 =
+					theme.text,
+			},
+			tabti
+		)
+	end
 
 	tween(
 		active.indicator,
@@ -20695,14 +22462,16 @@ function selectsub(button)
 			tabti
 		)
 
-		tween(
-			previous.icon,
-			{
-				ImageColor3 =
-					theme.text3,
-			},
-			tabti
-		)
+		if previous.icon then
+			tween(
+				previous.icon,
+				{
+					ImageColor3 =
+						theme.text3,
+				},
+				tabti
+			)
+		end
 	end
 
 	currentsub =
@@ -20720,14 +22489,16 @@ function selectsub(button)
 		tabti
 	)
 
-	tween(
-		active.icon,
-		{
-			ImageColor3 =
-				theme.text2,
-		},
-		tabti
-	)
+	if active.icon then
+		tween(
+			active.icon,
+			{
+				ImageColor3 =
+					theme.text2,
+			},
+			tabti
+		)
+	end
 
 	if updatetopnavigationstate then
 		updatetopnavigationstate(true)
@@ -20966,7 +22737,6 @@ connect(uis.InputEnded, function(input)
 		)
 		if animation then
 			animation.Completed:Connect(finish)
-			task.delay(.21, finish)
 		else
 			finish()
 		end
@@ -21320,7 +23090,9 @@ function setsidebarentrycompact(entry, compact, sub)
 	end
 
 	if entry.text then
-		entry.text.Visible = not compact
+		entry.text.Visible =
+			not compact
+			or entry.icon == nil
 	end
 
 	if entry.icon then
@@ -21493,8 +23265,15 @@ sidebarresizehandle.InputBegan:Connect(function(input)
 	end
 
 	sidebarresizelasttap = now
+
+	if not acquireinteraction(
+		"sidebarresize",
+		input
+	) then
+		return
+	end
+
 	closepopup()
-	windowdrag = nil
 
 	sidebarresize = {
 		input = input,
@@ -21503,6 +23282,7 @@ sidebarresizehandle.InputBegan:Connect(function(input)
 		current = point(input),
 	}
 
+	ensureinteractionrenderloop()
 	sidebarresizeaccent.BackgroundTransparency = .68
 end)
 
@@ -21514,13 +23294,21 @@ lasttap = 0
 
 function beginwindowdrag(
 	input,
-	allowdouble
+	allowdouble,
+	deferpopup
 )
 	if not windowdragenabled then
 		return
 	end
 
 	if windowdrag then
+		return
+	end
+
+	if not acquireinteraction(
+		"windowdrag",
+		input
+	) then
 		return
 	end
 
@@ -21539,6 +23327,7 @@ function beginwindowdrag(
 				and control.Visible
 				and inside(control, start)
 			then
+				releaseinteraction(input)
 				return
 			end
 		end
@@ -21549,6 +23338,7 @@ function beginwindowdrag(
 		and closebutton.Visible
 		and inside(closebutton, start)
 	then
+		releaseinteraction(input)
 		return
 	end
 
@@ -21564,9 +23354,7 @@ function beginwindowdrag(
 
 		if now - lasttap <= .28 then
 			lasttap = 0
-			shell.AnchorPoint = Vector2.zero
-
-			local targetposition = centeredwindowposition(
+					local targetposition = centeredwindowposition(
 				Vector2.new(shell.Size.X.Offset, shell.Size.Y.Offset),
 				(env.__blush_shellscale and env.__blush_shellscale.Scale) or 1
 			)
@@ -21585,6 +23373,7 @@ function beginwindowdrag(
 				shell.Position = targetposition
 			end
 
+			releaseinteraction(input)
 			return
 		end
 
@@ -21592,7 +23381,9 @@ function beginwindowdrag(
 			now
 	end
 
-	closepopup()
+	if not deferpopup then
+		closepopup()
+	end
 
 	windowdrag = {
 		input = input,
@@ -21610,12 +23401,16 @@ function beginwindowdrag(
 			),
 
 		moved = false,
+		deferpopup = deferpopup == true,
 	}
+
+	ensureinteractionrenderloop()
 end
 
 function bindwindowdrag(
 	object,
-	allowdouble
+	allowdouble,
+	exclude
 )
 	object.InputBegan:Connect(function(input)
 		if input.UserInputType
@@ -21626,16 +23421,26 @@ function bindwindowdrag(
 			return
 		end
 
+		if exclude
+			and exclude.Parent
+			and exclude.Visible
+			and inside(exclude, point(input))
+		then
+			return
+		end
+
 		beginwindowdrag(
 			input,
-			allowdouble
+			allowdouble,
+			false
 		)
 	end)
 end
 
 bindwindowdrag(
 	header,
-	true
+	true,
+	topprimarybutton
 )
 
 bindwindowdrag(
@@ -21658,6 +23463,36 @@ bindwindowdrag(
 	true
 )
 
+topprimarybutton.InputBegan:Connect(function(input)
+	if not topnavigationenabled
+		or (
+			input.UserInputType
+				~= Enum.UserInputType.MouseButton1
+			and input.UserInputType
+				~= Enum.UserInputType.Touch
+		)
+	then
+		return
+	end
+
+	topprimarygesture = {
+		input = input,
+		start = point(input),
+	}
+
+	beginwindowdrag(
+		input,
+		false,
+		true
+	)
+
+	if not windowdrag
+		or windowdrag.input ~= input
+	then
+		topprimarygesture = nil
+	end
+end)
+
 watermarkdragarea.InputBegan:Connect(function(input)
 	if input.UserInputType
 			~= Enum.UserInputType.MouseButton1
@@ -21666,6 +23501,15 @@ watermarkdragarea.InputBegan:Connect(function(input)
 	then
 		return
 	end
+
+	if not acquireinteraction(
+		"watermarkdrag",
+		input
+	) then
+		return
+	end
+
+	closepopup()
 
 	watermarkdrag = {
 		input = input,
@@ -21676,6 +23520,8 @@ watermarkdragarea.InputBegan:Connect(function(input)
 		startposition =
 			watermark.Position,
 	}
+
+	ensureinteractionrenderloop()
 end)
 
 resizehandle.InputBegan:Connect(function(input)
@@ -21688,8 +23534,6 @@ resizehandle.InputBegan:Connect(function(input)
 	then
 		return
 	end
-
-	shell.AnchorPoint = Vector2.zero
 
 	local now = os.clock()
 	if now - lastresizetap <= .3 then
@@ -21714,8 +23558,15 @@ resizehandle.InputBegan:Connect(function(input)
 		end
 
 		if animation then
-			animation.Completed:Connect(finishreset)
-			task.delay(.24, finishreset)
+			local completed
+			completed = animation.Completed:Connect(function()
+				if completed then
+					completed:Disconnect()
+					completed = nil
+				end
+
+				finishreset()
+			end)
 		else
 			finishreset()
 		end
@@ -21724,8 +23575,16 @@ resizehandle.InputBegan:Connect(function(input)
 	end
 
 	lastresizetap = now
+
+	if not acquireinteraction(
+		"windowresize",
+		input
+	) then
+		return
+	end
+
 	closepopup()
-	windowdrag = nil
+
 	local scale =
 		(env.__blush_shellscale and env.__blush_shellscale.Scale)
 		or 1
@@ -21740,10 +23599,13 @@ resizehandle.InputBegan:Connect(function(input)
 			shell.Size.Y.Offset
 		),
 		startabsolute = shell.AbsolutePosition,
+		startposition = shell.Position,
 		scale = math.max(.01, scale),
 		lastwidth = shell.Size.X.Offset,
 		lastheight = shell.Size.Y.Offset,
 	}
+
+	ensureinteractionrenderloop()
 end)
 
 function matches(
@@ -21851,7 +23713,10 @@ end
 
 function applywindowdrag()
 	local drag = windowdrag
-	if not drag or not drag.current then
+	if not drag
+		or not drag.current
+		or not drag.moved
+	then
 		return
 	end
 
@@ -21874,35 +23739,61 @@ function applywatermarkdrag()
 	watermark.Position = offsetposition(drag.startposition, drag.current - drag.start)
 end
 
-connect(runservice.PreRender, function()
-	if windowresize then
-		applywindowresize()
+function stopinteractionrenderloop()
+	local connection = interactionrenderconnection
+	interactionrenderconnection = nil
+
+	if connection and connection.Connected then
+		connection:Disconnect()
+	end
+end
+
+function ensureinteractionrenderloop()
+	if interactionrenderconnection
+		and interactionrenderconnection.Connected
+	then
+		return
 	end
 
-	if sidebarresize and sidebarresize.current then
-		local scale = math.max(
-			.01,
-			(env.__blush_shellscale and env.__blush_shellscale.Scale) or 1
-		)
+	interactionrenderconnection =
+		runservice.PreRender:Connect(function()
+			if windowresize then
+				applywindowresize()
+			end
 
-		local delta =
-			(sidebarresize.current.X - sidebarresize.start.X)
-			/ scale
+			if sidebarresize and sidebarresize.current then
+				local scale = math.max(
+					.01,
+					(env.__blush_shellscale and env.__blush_shellscale.Scale) or 1
+				)
 
-		applysidebarlayout(
-			sidebarresize.width + delta,
-			false
-		)
-	end
+				local delta =
+					(sidebarresize.current.X - sidebarresize.start.X)
+					/ scale
 
-	if windowdrag then
-		applywindowdrag()
-	end
+				applysidebarlayout(
+					sidebarresize.width + delta,
+					false
+				)
+			end
 
-	if watermarkdrag then
-		applywatermarkdrag()
-	end
-end)
+			if windowdrag then
+				applywindowdrag()
+			end
+
+			if watermarkdrag then
+				applywatermarkdrag()
+			end
+
+			if not windowresize
+				and not sidebarresize
+				and not windowdrag
+				and not watermarkdrag
+			then
+				stopinteractionrenderloop()
+			end
+		end)
+end
 
 connect(
 	uis.InputChanged,
@@ -21939,8 +23830,14 @@ connect(
 				- windowdrag.start
 
 			if delta.Magnitude > 3 then
-				windowdrag.moved =
-					true
+				if not windowdrag.moved then
+					windowdrag.moved = true
+
+					if windowdrag.deferpopup then
+						windowdrag.deferpopup = false
+						closepopup()
+					end
+				end
 
 				if windowdrag.search then
 					search:ReleaseFocus()
@@ -22078,8 +23975,14 @@ connect(
 					or input == windowresize.input
 			)
 		then
+			local resizeinput =
+				windowresize.input
+
 			applywindowresize()
 			windowresize = nil
+			releaseinteraction(
+				resizeinput
+			)
 
 			if currentpage then
 				currentpage:reflowall(false)
@@ -22092,7 +23995,13 @@ connect(
 					or input == sidebarresize.input
 			)
 		then
+			local sidebarinput =
+				sidebarresize.input
+
 			sidebarresize = nil
+			releaseinteraction(
+				sidebarinput
+			)
 
 			tween(sidebarresizeaccent, {
 				BackgroundTransparency = 1,
@@ -22105,8 +24014,37 @@ connect(
 				or input == windowdrag.input
 			)
 		then
-			windowdrag =
-				nil
+			local drag = windowdrag
+			windowdrag = nil
+
+			local titleclick =
+				topprimarygesture
+				and (
+					mouseended
+					or input
+						== topprimarygesture.input
+				)
+				and not drag.moved
+
+			if topprimarygesture
+				and (
+					mouseended
+					or input
+						== topprimarygesture.input
+				)
+			then
+				topprimarygesture = nil
+			end
+
+			releaseinteraction(
+				drag.input
+			)
+
+			if titleclick
+				and topnavigationenabled
+			then
+				opentopmainmenu()
+			end
 		end
 
 		if watermarkdrag
@@ -22115,8 +24053,9 @@ connect(
 				or input == watermarkdrag.input
 			)
 		then
-			watermarkdrag =
-				nil
+			local watermarkinput = watermarkdrag.input
+			watermarkdrag = nil
+			releaseinteraction(watermarkinput)
 		end
 
 		if sliderdrag
@@ -22125,6 +24064,9 @@ connect(
 				or input == sliderdrag.input
 			)
 		then
+			local sliderinput =
+				sliderdrag.input
+
 			for _, knob in ipairs(
 				sliderdrag.knobs
 				or {}
@@ -22144,6 +24086,10 @@ connect(
 
 			sliderdrag =
 				nil
+
+			releaseinteraction(
+				sliderinput
+			)
 		end
 
 		if pickerdrag
@@ -22152,6 +24098,9 @@ connect(
 				or input == pickerdrag.input
 			)
 		then
+			local pickerinput =
+				pickerdrag.input
+
 			local state =
 				pickerdrag.state
 
@@ -22174,6 +24123,14 @@ connect(
 				nil
 
 			state:refresh()
+
+			if state.onpersist then
+				state.onpersist()
+			end
+
+			releaseinteraction(
+				pickerinput
+			)
 		end
 
 		if notificationdrag
@@ -22224,26 +24181,19 @@ connect(
 		then
 			finishsectiondrag()
 		end
-	end
-)
 
-connect(
-	runservice.RenderStepped,
-	function(dt)
-		if next(
-			animatedpickers
-		) == nil
+		if topprimarygesture
+			and (
+				mouseended
+				or input == topprimarygesture.input
+			)
+			and not windowdrag
 		then
-			return
-		end
-
-		for state in pairs(
-			animatedpickers
-		) do
-			state:update(dt)
+			topprimarygesture = nil
 		end
 	end
 )
+
 
 -- public library api
 
@@ -22259,7 +24209,7 @@ librarytabserial = 0
 
 function librarynormalizeicon(value)
 	if value == nil then
-		return icons.sliders
+		return nil
 	end
 
 	if icons[value] then
@@ -22269,7 +24219,7 @@ function librarynormalizeicon(value)
 	return tostring(value)
 end
 
-function libraryenhancerow(row)
+function libraryenhancerow(row, section)
 	if not row or row.__blush_config_api then
 		return row
 	end
@@ -22278,6 +24228,14 @@ function libraryenhancerow(row)
 
 	local addbutton = row.AddButton
 	local addtoggle = row.AddToggle
+
+	local function rowdefault(config)
+		if config.Default ~= nil then
+			return config.Default
+		end
+
+		return config.Value
+	end
 
 	row.AddButton = function(self, config, callback)
 		if type(config) == "table" then
@@ -22292,25 +24250,55 @@ function libraryenhancerow(row)
 	end
 
 	row.AddToggle = function(self, config, default, callback, keybindable, badge)
-		if type(config) == "table" then
-			return addtoggle(
+		local sourceconfig =
+			type(config) == "table"
+			and config
+			or nil
+
+		local name =
+			sourceconfig
+			and tostring(sourceconfig.Name or sourceconfig.Text or "Toggle")
+			or tostring(config or "Toggle")
+
+		local control
+
+		if sourceconfig then
+			local copied = table.clone(sourceconfig)
+			copied.Callback =
+				persistentcallback(
+					sourceconfig.Callback
+				)
+
+			control = addtoggle(
 				self,
-				tostring(config.Name or config.Text or "Toggle"),
-				configdefault(config),
-				config.Callback,
-				config.Keybindable == true or config.Keybind == true,
-				config.Badge
+				name,
+				rowdefault(copied),
+				copied.Callback,
+				copied.Keybindable == true or copied.Keybind == true,
+				copied.Badge
+			)
+		else
+			control = addtoggle(
+				self,
+				config,
+				default,
+				persistentcallback(callback),
+				keybindable,
+				badge
 			)
 		end
 
-		return addtoggle(
-			self,
-			config,
-			default,
-			callback,
-			keybindable,
-			badge
-		)
+		if section then
+			registerpersistentcontrol(
+				section,
+				"Toggle",
+				name,
+				control,
+				sourceconfig
+			)
+		end
+
+		return control
 	end
 
 	return row
@@ -22402,7 +24390,7 @@ function libraryenhancesection(section)
 			row = addrow(self, config, height, target)
 		end
 
-		return libraryenhancerow(row)
+		return libraryenhancerow(row, self)
 	end
 
 	section.AddToggle = function(self, config, default, callback, target, keybindable, badge)
@@ -23016,6 +25004,241 @@ function libraryenhancesection(section)
 		return addsubtabs(self, config)
 	end
 
+	local function wrappersistentmethod(
+		methodname,
+		kind,
+		positioncallbacks,
+		configcallbacks,
+		special
+	)
+		local original =
+			section[methodname]
+
+		section[methodname] = function(self, ...)
+			local args =
+				table.pack(...)
+
+			local sourceconfig =
+				type(args[1]) == "table"
+				and args[1]
+				or nil
+
+			local name =
+				sourceconfig
+				and tostring(
+					sourceconfig.Name
+					or sourceconfig.Text
+					or kind
+				)
+				or tostring(
+					args[1]
+					or kind
+				)
+
+			local inputcallback
+
+			if sourceconfig then
+				local copied =
+					table.clone(
+						sourceconfig
+					)
+
+				for _, field in ipairs(
+					configcallbacks or {}
+				) do
+					if field == "ToggleCallback" then
+						local callback =
+							sourceconfig.Callback
+							or sourceconfig.ToggleCallback
+
+						copied.Callback =
+							persistentcallback(
+								callback
+							)
+
+						copied.ToggleCallback = nil
+					else
+						local colorcallback =
+							special == "color"
+							and (
+								field == "ColorCallback"
+								or (
+									kind == "ColorPicker"
+									and field == "Callback"
+								)
+							)
+
+						if not colorcallback then
+							copied[field] =
+								persistentcallback(
+									sourceconfig[field]
+								)
+						end
+					end
+				end
+
+				if kind == "Input" then
+					inputcallback =
+						copied.Callback
+				end
+
+				args[1] = copied
+			else
+				for _, index in ipairs(
+					positioncallbacks or {}
+				) do
+					local colorcallback =
+						special == "color"
+						and (
+							(kind == "ColorPicker" and index == 3)
+							or (
+								kind == "ToggleColor"
+								and index == 5
+							)
+							or (
+								kind == "ToggleColorKey"
+								and index == 6
+							)
+						)
+
+					if not colorcallback then
+						args[index] =
+							persistentcallback(
+								args[index]
+							)
+					end
+				end
+
+				if kind == "Input" then
+					inputcallback =
+						args[4]
+				end
+			end
+
+			local control =
+				original(
+					self,
+					table.unpack(
+						args,
+						1,
+						args.n
+					)
+				)
+
+			registerpersistentcontrol(
+				self,
+				kind,
+				name,
+				control,
+				sourceconfig,
+				inputcallback
+			)
+
+			return control
+		end
+	end
+
+	wrappersistentmethod(
+		"AddToggle",
+		"Toggle",
+		{3},
+		{"Callback"}
+	)
+
+	wrappersistentmethod(
+		"AddToggleKey",
+		"ToggleKey",
+		{4, 5},
+		{"Callback", "KeyCallback"}
+	)
+
+	wrappersistentmethod(
+		"AddToggleColor",
+		"ToggleColor",
+		{4, 5},
+		{"ToggleCallback", "ColorCallback"},
+		"color"
+	)
+
+	wrappersistentmethod(
+		"AddToggleColorKey",
+		"ToggleColorKey",
+		{5, 6, 7},
+		{"ToggleCallback", "ColorCallback", "KeyCallback"},
+		"color"
+	)
+
+	wrappersistentmethod(
+		"AddSlider",
+		"Slider",
+		{6},
+		{"Callback"}
+	)
+
+	wrappersistentmethod(
+		"AddRangeSlider",
+		"RangeSlider",
+		{7},
+		{"Callback"}
+	)
+
+	wrappersistentmethod(
+		"AddDropdown",
+		"Dropdown",
+		{4},
+		{"Callback"}
+	)
+
+	wrappersistentmethod(
+		"AddPlayerDropdown",
+		"PlayerDropdown",
+		{4},
+		{"Callback"}
+	)
+
+	wrappersistentmethod(
+		"AddMultiPlayerDropdown",
+		"MultiPlayerDropdown",
+		{3},
+		{"Callback"}
+	)
+
+	wrappersistentmethod(
+		"AddMultiDropdown",
+		"MultiDropdown",
+		{4},
+		{"Callback"}
+	)
+
+	wrappersistentmethod(
+		"AddInput",
+		"Input",
+		{4},
+		{"Callback"}
+	)
+
+	wrappersistentmethod(
+		"AddKeyPicker",
+		"KeyPicker",
+		{3},
+		{"Callback"}
+	)
+
+	wrappersistentmethod(
+		"AddColorPicker",
+		"ColorPicker",
+		{3},
+		{"Callback"},
+		"color"
+	)
+
+	wrappersistentmethod(
+		"AddRadio",
+		"Radio",
+		{4},
+		{"Callback"}
+	)
+
 	function section:SetGradient(value)
 		return settextgradient(self.TextObject, value)
 	end
@@ -23291,6 +25514,7 @@ function librarycreatetab(windowapi, options, icon, group)
 
 	local pageid = "__blush_library_tab_" .. tostring(librarytabserial)
 	local page = createpage(pageid, name, nil)
+	page.icon = asset
 
 	local button
 	local textobject
@@ -23311,6 +25535,8 @@ function librarycreatetab(windowapi, options, icon, group)
 		)
 
 	naventries[button] = {
+		button = button,
+		sub = false,
 		text = textobject,
 		indicator = indicator,
 		icon = iconobject,
@@ -23424,7 +25650,19 @@ function librarycreatetab(windowapi, options, icon, group)
 	end
 
 	function tab:SetIcon(value)
-		iconobject.Image = librarynormalizeicon(value)
+		local assetvalue =
+			value ~= nil
+			and librarynormalizeicon(value)
+			or nil
+
+		page.icon = assetvalue
+		iconobject =
+			setnaventryicon(
+				naventries[button],
+				assetvalue
+			)
+
+		refreshhotkeylist()
 	end
 
 	function tab:SetGradient(value)
