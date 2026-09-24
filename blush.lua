@@ -1796,7 +1796,7 @@ function applywindowshadow()
 		base
 	)
 
-	windowshadow.Transparency = base
+	windowshadow.Transparency = env.__blush_windowvisible == false and 1 or base
 end
 
 function applywindowglow()
@@ -1838,9 +1838,9 @@ function applywindowglow()
 	windowglow.Color = windowglowcolor
 
 	windowglow.Transparency =
-		windowglowenabled
-		and transparency
-		or 1
+		env.__blush_windowvisible == false
+		and 1
+		or (windowglowenabled and transparency or 1)
 
 	windowglow.BlurRadius =
 		UDim.new(0, size)
@@ -2958,9 +2958,11 @@ function updatebrandlayout()
 
 	local width = math.max(1, sidebar.AbsoluteSize.X)
 	local hasicon = avat.Visible and avat.Image ~= ""
+	local left = 16
 	local iconwidth = hasicon and 22 or 0
-	local reservediconspace = hasicon and 32 or 0
-	local available = math.max(40, width - 28 - reservediconspace)
+	local icongap = hasicon and 10 or 0
+	local textleft = left + iconwidth + icongap
+	local available = math.max(1, width - textleft - 12)
 
 	local brandwidth = brand.Visible and math.min(
 		math.ceil(measuretext(brand.Text, brand.TextSize, brand.Font, Vector2.new(100000, 23)).X),
@@ -2974,29 +2976,18 @@ function updatebrandlayout()
 		or 0
 	local hasversion = versionwidth > 0
 	local hasusername = usernamewidth > 0
-	local separatorwidth = hasversion and hasusername and 17 or 0
-	local bottomwidth = versionwidth + separatorwidth + usernamewidth
-	local rightwidth = math.min(math.max(brandwidth, bottomwidth), available)
-	local icongap = hasicon and rightwidth > 0 and 10 or 0
-	local totalwidth = rightwidth + iconwidth + icongap
-	local left = math.round((width - totalwidth) * .5)
-	local textleft = left + iconwidth + icongap
 
 	if hasicon then
 		avat.Position = UDim2.fromOffset(left + 11, 45)
 	end
 
 	brand.Position = UDim2.fromOffset(textleft, 23)
-	brand.Size = UDim2.fromOffset(math.max(1, math.min(brandwidth, rightwidth)), 23)
+	brand.Size = UDim2.fromOffset(math.max(1, brandwidth), 23)
 
 	version.Position = UDim2.fromOffset(textleft, 48)
-	version.Size = UDim2.fromOffset(math.min(versionwidth, rightwidth), 18)
+	version.Size = UDim2.fromOffset(math.min(versionwidth, available), 18)
 
-	local usernamex = textleft
-	if hasversion then
-		usernamex += math.min(versionwidth, rightwidth)
-	end
-
+	local usernamex = textleft + math.min(versionwidth, available)
 	versiondivider.Visible = hasversion and hasusername
 	if versiondivider.Visible then
 		versiondivider.Position = UDim2.fromOffset(usernamex + 8, 51)
@@ -3005,7 +2996,7 @@ function updatebrandlayout()
 
 	username.Position = UDim2.fromOffset(usernamex, 48)
 	username.Size = UDim2.fromOffset(
-		math.max(0, rightwidth - (usernamex - textleft)),
+		math.max(0, math.min(usernamewidth, width - usernamex - 12)),
 		18
 	)
 end
@@ -3977,10 +3968,10 @@ function notify(
 	local contentheight = math.max(18, bodysize.Y)
 
 	local height = math.max(
-		hasaction and 96 or 68,
-		43
+		hasaction and 90 or 62,
+		36
 			+ contentheight
-			+ (hasaction and 38 or 11)
+			+ (hasaction and 36 or 8)
 	)
 
 	local wrapper = new("Frame", {
@@ -4002,7 +3993,7 @@ function notify(
 		Position = UDim2.fromOffset(0, 0),
 		Size = UDim2.fromOffset(cardwidth, height),
 
-		BackgroundColor3 = theme.notification,
+		BackgroundColor3 = theme.sidebar,
 		BackgroundTransparency = 0,
 		BorderSizePixel = 0,
 
@@ -4078,7 +4069,7 @@ function notify(
 		theme.text3
 	)
 
-	bodytextobject.Position = UDim2.fromOffset(leftpadding, 34)
+	bodytextobject.Position = UDim2.fromOffset(leftpadding, 31)
 	bodytextobject.TextSize = 15
 	bodytextobject.TextWrapped = true
 	bodytextobject.TextYAlignment = Enum.TextYAlignment.Top
@@ -4940,7 +4931,7 @@ stroke(hotkeylist, .62, theme.border, .55)
 adddepthshadow(hotkeylist, "floating")
 addshadow(
 	hotkeylist,
-	"HotkeyPanelGlow",
+	"KeybindPanelGlow",
 	.965,
 	12,
 	0,
@@ -5376,14 +5367,22 @@ function createhotkeyrow(binding)
 	})
 	corner(row, 6)
 
+	local initial = false
+	local ok, current = invoke(binding.get)
+	if ok then initial = current == true end
+
+	local checkbox, rendercheckbox = makecheckbox(row, 15, initial)
+	checkbox.AnchorPoint = Vector2.new(0, .5)
+	checkbox.Position = UDim2.fromOffset(5, 13)
+
 	local nametext = label(
 		row,
 		tostring(binding.name or "Toggle"),
-		UDim2.new(1, -62, 1, 0),
+		UDim2.new(1, -82, 1, 0),
 		font,
 		theme.text3
 	)
-	nametext.Position = UDim2.fromOffset(10, 0)
+	nametext.Position = UDim2.fromOffset(27, 0)
 	nametext.TextSize = 13
 	nametext.TextXAlignment = Enum.TextXAlignment.Left
 	nametext.TextTruncate = Enum.TextTruncate.AtEnd
@@ -5402,13 +5401,7 @@ function createhotkeyrow(binding)
 	corner(keyholder, 6)
 	stroke(keyholder, .7, theme.border, .6)
 
-	local keytext = label(
-		keyholder,
-		"",
-		UDim2.fromScale(1, 1),
-		medium,
-		theme.text3
-	)
+	local keytext = label(keyholder, "", UDim2.fromScale(1, 1), medium, theme.text3)
 	keytext.TextSize = 13
 	keytext.TextXAlignment = Enum.TextXAlignment.Center
 	keytext.ZIndex = 324
@@ -5416,6 +5409,8 @@ function createhotkeyrow(binding)
 	local data = {
 		binding = binding,
 		row = row,
+		checkbox = checkbox,
+		rendercheckbox = rendercheckbox,
 		nametext = nametext,
 		keyholder = keyholder,
 		keytext = keytext,
@@ -5440,9 +5435,9 @@ function createhotkeyrow(binding)
 	end)
 
 	row.Activated:Connect(function()
-		local ok, current = invoke(binding.get)
-		if ok and binding.set then
-			binding.set(not (current == true), true)
+		local success, value = invoke(binding.get)
+		if success and binding.set then
+			binding.set(not (value == true), true)
 		end
 	end)
 
@@ -5465,6 +5460,10 @@ function updatehotkeyrow(data, binding, active, layoutorder, animate)
 		data.keytext.Text = keyname
 	end
 
+	if data.rendercheckbox then
+		data.rendercheckbox(active)
+	end
+
 	local keybounds = measuretext(keyname, 13, medium, Vector2.new(200, 22))
 	local singlecharacter = #plaintext(keyname) == 1
 	local keywidth = math.clamp(
@@ -5474,7 +5473,7 @@ function updatehotkeyrow(data, binding, active, layoutorder, animate)
 	)
 
 	data.keyholder.Size = UDim2.fromOffset(keywidth, 22)
-	data.nametext.Size = UDim2.new(1, -keywidth - 20, 1, 0)
+	data.nametext.Size = UDim2.new(1, -keywidth - 38, 1, 0)
 
 	local changed = data.active ~= active
 	data.active = active
@@ -5695,6 +5694,26 @@ function togglekeyname(key)
 		MouseButton1 = "M1",
 		MouseButton2 = "M2",
 		MouseButton3 = "M3",
+		Zero = "0",
+		One = "1",
+		Two = "2",
+		Three = "3",
+		Four = "4",
+		Five = "5",
+		Six = "6",
+		Seven = "7",
+		Eight = "8",
+		Nine = "9",
+		Minus = "-",
+		Equals = "=",
+		LeftBracket = "[",
+		RightBracket = "]",
+		BackSlash = "\\",
+		Semicolon = ";",
+		Quote = "'",
+		Comma = ",",
+		Period = ".",
+		Slash = "/",
 	}
 
 	return aliases[key.Name]
@@ -5752,47 +5771,48 @@ keybindblacklistdefaults = {
 }
 
 keybindblacklist = {}
-keybindblacklistoptions = {"M1", "M2", "M3"}
-keybindblacklistnames = {}
+keybindblacklistentries = {
+	{"M1", "MouseButton1"}, {"M2", "MouseButton2"}, {"M3", "MouseButton3"},
+	{"A", "A"}, {"B", "B"}, {"C", "C"}, {"D", "D"}, {"E", "E"}, {"F", "F"},
+	{"G", "G"}, {"H", "H"}, {"I", "I"}, {"J", "J"}, {"K", "K"}, {"L", "L"},
+	{"M", "M"}, {"N", "N"}, {"O", "O"}, {"P", "P"}, {"Q", "Q"}, {"R", "R"},
+	{"S", "S"}, {"T", "T"}, {"U", "U"}, {"V", "V"}, {"W", "W"}, {"X", "X"},
+	{"Y", "Y"}, {"Z", "Z"},
+	{"0", "Zero"}, {"1", "One"}, {"2", "Two"}, {"3", "Three"}, {"4", "Four"},
+	{"5", "Five"}, {"6", "Six"}, {"7", "Seven"}, {"8", "Eight"}, {"9", "Nine"},
+	{"`", "Backquote"}, {"-", "Minus"}, {"=", "Equals"}, {"[", "LeftBracket"},
+	{"]", "RightBracket"}, {"\\", "BackSlash"}, {";", "Semicolon"}, {"'", "Quote"},
+	{",", "Comma"}, {".", "Period"}, {"/", "Slash"},
+	{"Space", "Space"}, {"Tab", "Tab"}, {"Enter", "Return"}, {"Esc", "Escape"},
+	{"Backspace", "Backspace"}, {"Delete", "Delete"}, {"Insert", "Insert"},
+	{"Home", "Home"}, {"End", "End"}, {"PgUp", "PageUp"}, {"PgDn", "PageDown"},
+	{"←", "Left"}, {"→", "Right"}, {"↑", "Up"}, {"↓", "Down"},
+	{"LShift", "LeftShift"}, {"RShift", "RightShift"}, {"LCtrl", "LeftControl"},
+	{"RCtrl", "RightControl"}, {"LAlt", "LeftAlt"}, {"RAlt", "RightAlt"},
+	{"Caps", "CapsLock"},
+	{"F1", "F1"}, {"F2", "F2"}, {"F3", "F3"}, {"F4", "F4"}, {"F5", "F5"}, {"F6", "F6"},
+	{"F7", "F7"}, {"F8", "F8"}, {"F9", "F9"}, {"F10", "F10"}, {"F11", "F11"}, {"F12", "F12"},
+}
 
-for _, key in ipairs(Enum.KeyCode:GetEnumItems()) do
-	if key ~= Enum.KeyCode.Unknown then
-		keybindblacklistnames[#keybindblacklistnames + 1] = key.Name
-	end
-end
+keybindblacklistoptions = {}
+keybindblacklistcanonicalmap = {}
+keybindblacklistlabelmap = {}
 
-table.sort(keybindblacklistnames)
-
-for _, name in ipairs(keybindblacklistnames) do
-	keybindblacklistoptions[#keybindblacklistoptions + 1] = name
+for _, entry in ipairs(keybindblacklistentries) do
+	local labelvalue, name = entry[1], entry[2]
+	keybindblacklistoptions[#keybindblacklistoptions + 1] = labelvalue
+	keybindblacklistcanonicalmap[labelvalue] = name
+	keybindblacklistlabelmap[name] = labelvalue
 end
 
 function keybindblacklistcanonical(value)
 	value = tostring(value or "")
-
-	if value == "M1" then
-		return "MouseButton1"
-	elseif value == "M2" then
-		return "MouseButton2"
-	elseif value == "M3" then
-		return "MouseButton3"
-	end
-
-	return value
+	return keybindblacklistcanonicalmap[value] or value
 end
 
 function keybindblacklistlabel(value)
 	value = tostring(value or "")
-
-	if value == "MouseButton1" then
-		return "M1"
-	elseif value == "MouseButton2" then
-		return "M2"
-	elseif value == "MouseButton3" then
-		return "M3"
-	end
-
-	return value
+	return keybindblacklistlabelmap[value] or value
 end
 
 function setkeybindblacklist(values)
@@ -5803,7 +5823,10 @@ function setkeybindblacklist(values)
 			and values
 			or keybindblacklistdefaults
 	) do
-		keybindblacklist[keybindblacklistcanonical(value)] = true
+		local name = keybindblacklistcanonical(value)
+		if keybindblacklistlabelmap[name] then
+			keybindblacklist[name] = true
+		end
 	end
 end
 
@@ -6719,6 +6742,14 @@ function attachtoggleconfig(anchor, binding)
 		unregistertogglebinding(binding)
 	end)
 
+	anchor.InputBegan:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton2 then
+			binding.suppressclick = true
+			opentoggleconfig(anchor, binding, point(input), false)
+			binding.suppressclick = false
+		end
+	end)
+
 	anchor.TouchLongPress:Connect(function(touchpositions, state)
 		if state == Enum.UserInputState.Begin then
 			binding.suppressclick = true
@@ -6862,22 +6893,6 @@ connect(
 
 		if bindingmatchesinput(keypickersuppress, input) or iskeyeditclick(input) then
 			return
-		end
-
-		if input.UserInputType == Enum.UserInputType.MouseButton2 then
-			local inputpoint = point(input)
-
-			for index = #env.__blush_togglebindings, 1, -1 do
-				local binding = env.__blush_togglebindings[index]
-				local anchor = binding.anchor
-
-				if anchor and anchor.Parent and guivisible(anchor) and inside(anchor, inputpoint) then
-					binding.suppressclick = true
-					opentoggleconfig(anchor, binding, inputpoint, false)
-					binding.suppressclick = false
-					return
-				end
-			end
 		end
 
 		local physical = capturephysicalkey(input)
@@ -7113,6 +7128,7 @@ function createscrollbar(
 			.86,
 
 		BorderSizePixel = 0,
+		Visible = false,
 
 		ZIndex = 40,
 	})
@@ -7150,25 +7166,22 @@ function createscrollbar(
 	corner(thumb, 999)
 
 	local function update()
-		local viewport =
-			scroll.AbsoluteSize.Y
+		local viewport = scroll.AbsoluteSize.Y
+		local total = scroll.AbsoluteCanvasSize.Y
+		local trackheight = track.AbsoluteSize.Y
+		local needs = viewport > 0 and trackheight > 0 and total > viewport + 2
 
-		local total =
-			scroll.CanvasSize.Y.Offset
+		track.Visible = needs
+		thumb.Visible = needs
 
-		local trackheight =
-			track.AbsoluteSize.Y
-
-		if viewport <= 0
-			or total <= viewport + 1
-			or trackheight <= 0
-		then
-			thumb.Visible = false
+		if not needs then
 			track.BackgroundTransparency = 1
+			if scroll.CanvasPosition.Y ~= 0 then
+				scroll.CanvasPosition = Vector2.new(0, 0)
+			end
 			return
 		end
 
-		thumb.Visible = true
 		track.BackgroundTransparency = .86
 
 		local height =
@@ -7220,6 +7233,10 @@ function createscrollbar(
 
 	scroll:GetPropertyChangedSignal(
 		"CanvasSize"
+	):Connect(update)
+
+	scroll:GetPropertyChangedSignal(
+		"AbsoluteCanvasSize"
 	):Connect(update)
 
 	track:GetPropertyChangedSignal(
@@ -7634,14 +7651,16 @@ function makecheckbox(
 	default
 )
 	local checked = default == true
-	local indicatortween
+	local filltween
+	local checktween
+	local basez = math.max(16, (parentobject.ZIndex or 15) + 1)
 
 	local box = new("Frame", {
 		Parent = parentobject,
 		Size = UDim2.fromOffset(size, size),
 		BackgroundColor3 = theme.input,
 		BorderSizePixel = 0,
-		ZIndex = 16,
+		ZIndex = basez,
 	})
 	corner(box, 5)
 
@@ -7658,7 +7677,7 @@ function makecheckbox(
 		BackgroundColor3 = theme.white,
 		BackgroundTransparency = checked and 0 or 1,
 		BorderSizePixel = 0,
-		ZIndex = 17,
+		ZIndex = basez + 1,
 	})
 	corner(fill, 5)
 
@@ -7675,17 +7694,14 @@ function makecheckbox(
 		Parent = box,
 		AnchorPoint = Vector2.new(.5, .5),
 		Position = UDim2.new(.5, -.5, .5, .333),
-		Size = UDim2.fromOffset(
-			math.max(size - 4, 12),
-			math.max(size - 4, 12)
-		),
+		Size = UDim2.fromOffset(math.max(size - 4, 12), math.max(size - 4, 12)),
 		BackgroundTransparency = 1,
 		BorderSizePixel = 0,
 		Image = icons.check,
 		ImageColor3 = theme.black,
 		ImageTransparency = checked and .02 or 1,
 		ScaleType = Enum.ScaleType.Fit,
-		ZIndex = 18,
+		ZIndex = basez + 2,
 	})
 
 	local checkboxstate = {
@@ -7695,53 +7711,37 @@ function makecheckbox(
 		glow = checkedglow,
 		check = check,
 	}
-
 	env.__blush_checkboxstates[box] = checkboxstate
 
 	local function render(value)
 		checked = value == true
 		checkboxstate.checked = checked
 
-		if indicatortween then
-			invoke(function()
-				indicatortween:Cancel()
-			end)
-			indicatortween = nil
-		end
+		if filltween then invoke(function() filltween:Cancel() end) filltween = nil end
+		if checktween then invoke(function() checktween:Cancel() end) checktween = nil end
 
 		local strokecolor = checked and theme.white or theme.border
-		if boxstroke then
-			syncbinding(boxstroke, "Color", strokecolor)
-			boxstroke.Color = strokecolor
-			boxstroke.Transparency = checked and .26 or .4
-		end
-
-		fill.BackgroundTransparency = checked and 0 or 1
+		syncbinding(boxstroke, "Color", strokecolor)
+		boxstroke.Color = strokecolor
+		boxstroke.Transparency = checked and .26 or .4
 
 		if checkedglow then
+			syncbinding(checkedglow, "Color", theme.white)
+			checkedglow.Color = theme.white
 			checkedglow.Transparency = checked and .64 or 1
 		end
 
-		local target = checked and .02 or 1
+		local filltarget = checked and 0 or 1
+		local checktarget = checked and .02 or 1
+
 		if not animationsenabled then
-			check.ImageTransparency = target
+			fill.BackgroundTransparency = filltarget
+			check.ImageTransparency = checktarget
 			return
 		end
 
-		indicatortween = tween(
-			check,
-			{ImageTransparency = target},
-			checkti
-		)
-
-		local current = indicatortween
-		if current then
-			current.Completed:Connect(function()
-				if indicatortween == current then
-					indicatortween = nil
-				end
-			end)
-		end
+		filltween = tween(fill, {BackgroundTransparency = filltarget}, checkti)
+		checktween = tween(check, {ImageTransparency = checktarget}, checkti)
 	end
 
 	return box, render
@@ -9608,8 +9608,10 @@ function attachsectiontransition(drag)
 		local clonedclip = clone:FindFirstChild("SectionClip")
 		local visibleheight = drag.wascollapsed and 0 or math.max(0, targetheight - 43)
 
+		clone.ClipsDescendants = false
 		tween(clone, {Size = targetsize}, sectionti)
 		if clonedclip then
+			clonedclip.ClipsDescendants = drag.wascollapsed
 			tween(clonedclip, {Size = UDim2.new(1, 0, 0, visibleheight)}, sectionti)
 		end
 		if clonedcollapse then
@@ -12140,6 +12142,11 @@ function createsection(
 		button,
 		count
 	)
+		if activepopup and activepopup.dropdownanchor == button then
+			closepopup()
+			return nil, nil
+		end
+
 		local position =
 			overlayposition(button)
 
@@ -12169,7 +12176,7 @@ function createsection(
 				)
 			)
 
-		return createpopup(
+		local panel, popup = createpopup(
 			Vector2.new(
 				position.X,
 				popupy
@@ -12179,6 +12186,8 @@ function createsection(
 			510,
 			"dropdown"
 		)
+		popup.dropdownanchor = button
+		return panel, popup
 	end
 
 
@@ -12472,6 +12481,7 @@ function createsection(
 				button,
 				#options + dividercount * .7 + (usesearch and 1.08 or 0)
 			)
+			if not panel then return end
 
 			tween(arrow, { Rotation = 180 }, tabti)
 			popup.onclose = function()
@@ -13056,6 +13066,11 @@ function createsection(
 		end)
 
 		button.Activated:Connect(function()
+			if activepopup and activepopup.dropdownanchor == button then
+				closepopup()
+				return
+			end
+
 			local currentplayers = {}
 			for _, targetplayer in ipairs(players:GetPlayers()) do
 				if targetplayer ~= player then
@@ -13088,6 +13103,7 @@ function createsection(
 				510,
 				"dropdown"
 			)
+			popup.dropdownanchor = button
 			tween(arrow, {Rotation = 180}, tabti)
 			popup.onclose = function()
 				tween(arrow, {Rotation = 0}, tabti)
@@ -13637,7 +13653,7 @@ function createsection(
 					button,
 					#options
 				)
-
+			if not panel then return end
 
 			tween(
 				arrow,
@@ -19837,24 +19853,33 @@ function playvisibilityfade(show, token)
 
 	cancelvisibilityanimations()
 
-	local info = TweenInfo.new(
-		.18,
-		Enum.EasingStyle.Quart,
-		Enum.EasingDirection.Out
-	)
-
+	local info = TweenInfo.new(.18, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
 	local roots = {
 		{window, show and uitransparency or 1},
 		{popuplayer, show and uitransparency or 1},
 		{draglayer, show and 0 or 1},
 	}
 
+	local extras = {}
+	if windowstroke and windowstroke.Parent then
+		extras[#extras + 1] = {windowstroke, show and .76 or 1}
+	end
+	if windowshadow and windowshadow.Parent then
+		local base = windowshadowenabled and (windowshadow:GetAttribute("BlushBaseTransparency") or .40) or 1
+		extras[#extras + 1] = {windowshadow, show and base or 1}
+	end
+	if windowglow and windowglow.Parent then
+		local base = windowglowenabled and (windowglow:GetAttribute("BlushBaseTransparency") or windowglow.Transparency) or 1
+		extras[#extras + 1] = {windowglow, show and base or 1}
+	end
+
 	if not animationsenabled then
 		for _, entry in ipairs(roots) do
 			local object = entry[1]
-			if object and object.Parent then
-				object.GroupTransparency = entry[2]
-			end
+			if object and object.Parent then object.GroupTransparency = entry[2] end
+		end
+		for _, entry in ipairs(extras) do
+			if entry[1] and entry[1].Parent then entry[1].Transparency = entry[2] end
 		end
 
 		if show then
@@ -19869,38 +19894,35 @@ function playvisibilityfade(show, token)
 		return
 	end
 
-	local primary = nil
+	local primary
 	for _, entry in ipairs(roots) do
-		local object = entry[1]
-		local target = entry[2]
-
+		local object, target = entry[1], entry[2]
 		if object and object.Parent then
-			local animation = tweenservice:Create(
-				object,
-				info,
-				{GroupTransparency = target}
-			)
-
-			table.insert(
-				env.__blush_fadeanimations,
-				animation
-			)
-
+			local animation = tweenservice:Create(object, info, {GroupTransparency = target})
+			env.__blush_fadeanimations[#env.__blush_fadeanimations + 1] = animation
 			primary = primary or animation
 			animation:Play()
 		end
 	end
 
-	local function finish()
-		if env.__blush_visibility_token ~= token then
-			return
+	for _, entry in ipairs(extras) do
+		local object, target = entry[1], entry[2]
+		if object and object.Parent then
+			local animation = tweenservice:Create(object, info, {Transparency = target})
+			env.__blush_fadeanimations[#env.__blush_fadeanimations + 1] = animation
+			animation:Play()
 		end
+	end
+
+	local function finish()
+		if env.__blush_visibility_token ~= token then return end
 
 		for _, entry in ipairs(roots) do
 			local object = entry[1]
-			if object and object.Parent then
-				object.GroupTransparency = entry[2]
-			end
+			if object and object.Parent then object.GroupTransparency = entry[2] end
+		end
+		for _, entry in ipairs(extras) do
+			if entry[1] and entry[1].Parent then entry[1].Transparency = entry[2] end
 		end
 
 		if show then
@@ -19915,11 +19937,7 @@ function playvisibilityfade(show, token)
 		env.__blush_fadeanimations = {}
 	end
 
-	if primary then
-		primary.Completed:Connect(finish)
-	else
-		finish()
-	end
+	if primary then primary.Completed:Connect(finish) else finish() end
 end
 
 function requestvisibilitytoggle(target)
@@ -21484,26 +21502,6 @@ function createlibrarytabsection(name)
 	name = tostring(name or "Section")
 	local key = string.lower(name)
 
-	if key == "main" then
-		return {
-			Name = categorytext.Text,
-			Content = maincontent,
-			Group = maingroup,
-			Header = category,
-			Builtin = true,
-		}
-	end
-
-	if key == "other" then
-		return {
-			Name = othertext.Text,
-			Content = othercontent,
-			Group = othergroup,
-			Header = otherheader,
-			Builtin = true,
-		}
-	end
-
 	local existing = librarytabsectionlookup[key]
 	if existing then
 		return existing
@@ -22711,9 +22709,7 @@ function setsidebarentrycompact(entry, compact, sub)
 	end
 
 	if entry.text then
-		entry.text.Visible =
-			not compact
-			or entry.icon == nil
+		entry.text.Visible = not compact
 	end
 
 	if entry.icon then
@@ -25100,19 +25096,14 @@ function librarycreatetab(windowapi, options, icon, group)
 	local requestedgroup = options.Group
 		or options.Section
 		or (libraryactivetabsection and libraryactivetabsection.Name)
-		or "main"
-	local destination = string.lower(tostring(requestedgroup))
+	local destination = requestedgroup and string.lower(tostring(requestedgroup)) or "__root"
 	local sectiontab = librarytabsectionlookup[destination]
 	local parentobject
 
-	if destination == "other" then
-		parentobject = othercontent
-	elseif destination == "main" then
-		parentobject = maincontent
-	elseif sectiontab then
+	if sectiontab then
 		parentobject = sectiontab.Content
 	else
-		destination = "main"
+		destination = "__root"
 		parentobject = maincontent
 	end
 
@@ -25155,7 +25146,7 @@ function librarycreatetab(windowapi, options, icon, group)
 
 	bindnavhover(button, false)
 
-	if destination == "main" then
+	if destination == "__root" then
 		table.insert(mainnavorder, button)
 		bindnavdrag(button, mainnavorder)
 		applynavorder()
@@ -25621,8 +25612,8 @@ function library:CreateWindow(options)
 		updatewatermarklayout()
 	end
 
-	if options.HotkeyList ~= nil then
-		local visible = options.HotkeyList == true
+	if options.Keybinds ~= nil then
+		local visible = options.Keybinds == true
 		sethotkeylistvisible(visible)
 
 		if hotkeylisttoggle then
@@ -26061,7 +26052,7 @@ function library:CreateWindow(options)
 		return true
 	end
 
-	function librarywindow:SetHotkeyList(value)
+	function librarywindow:SetKeybinds(value)
 		local visible = value == true
 		sethotkeylistvisible(visible)
 
