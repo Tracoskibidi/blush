@@ -66,13 +66,6 @@ end
 env.__blush_cleanup = function()
 	runservice:UnbindFromRenderStep("__blush_force_cursor")
 	contextactionservice:UnbindAction("__blush_menu_key")
-	contextactionservice:UnbindAction("__blush_keycapture")
-
-	for actionname in pairs(env.__blush_keyactions or {}) do
-		contextactionservice:UnbindAction(actionname)
-	end
-	env.__blush_keyactions = {}
-
 	if interactionrenderconnection
 		and interactionrenderconnection.Connected
 	then
@@ -444,8 +437,6 @@ function syncbinding(object, property, value)
 		return
 	end
 
-	local alphafield = alphaproperty(object, property)
-
 	for i = #themebindings, 1, -1 do
 		local binding = themebindings[i]
 
@@ -456,26 +447,25 @@ function syncbinding(object, property, value)
 		then
 			binding.role = role
 
-			if alphafield then
-				local accententries = env.__blush_accent_alpha[object]
-				if role == "white" or role == "black" then
-					registeraccentalpha(object, property, role)
-				elseif accententries then
-					accententries[alphafield] = nil
-					if next(accententries) == nil then
-						env.__blush_accent_alpha[object] = nil
-					end
-				end
+			if role == "white"
+				or role == "black"
+			then
+				registeraccentalpha(
+					object,
+					property,
+					role
+				)
+			end
 
-				local fontentries = env.__blush_font_alpha[object]
-				if role == "text" or role == "text2" or role == "text3" then
-					registerfontalpha(object, property, role)
-				elseif fontentries then
-					fontentries[alphafield] = nil
-					if next(fontentries) == nil then
-						env.__blush_font_alpha[object] = nil
-					end
-				end
+			if role == "text"
+				or role == "text2"
+				or role == "text3"
+			then
+				registerfontalpha(
+					object,
+					property,
+					role
+				)
 			end
 
 			return
@@ -1776,7 +1766,6 @@ window = new("CanvasGroup", {
 
 windowcorner = corner(window, 12)
 windowstroke = stroke(window, .76, theme.border, 1)
-windowstroke:SetAttribute("BlushBaseTransparency", .76)
 windowshadow = adddepthshadow(window, "window")
 windowglow = addshadow(
 	window,
@@ -2999,7 +2988,7 @@ function updatebrandlayout()
 	local rightwidth = math.min(math.max(brandwidth, bottomwidth), available)
 	local icongap = hasicon and rightwidth > 0 and 10 or 0
 	local totalwidth = rightwidth + iconwidth + icongap
-	local left = math.round((width - totalwidth) * .5) - 6
+	local left = math.round((width - totalwidth) * .5)
 	local textleft = left + iconwidth + icongap
 
 	if hasicon then
@@ -3438,7 +3427,7 @@ function updatebreadcrumblayout()
 	local contentwidth = primarywidth + (hassubtitle and (secondarywidth + 24) or 0)
 	contentwidth = math.min(contentwidth, available)
 	breadcrumb.AnchorPoint = Vector2.new(.5, .5)
-	breadcrumb.Position = UDim2.fromOffset(math.round((left + right) * .5) - (uis.TouchEnabled and 0 or 5), 31)
+	breadcrumb.Position = UDim2.fromOffset(math.round((left + right) * .5), 31)
 	breadcrumb.Size = UDim2.fromOffset(math.max(1, contentwidth), 28)
 end
 
@@ -4928,15 +4917,15 @@ end
 env.__blush_togglebindings = {}
 env.__blush_pending_keybinds = {}
 
-keybindfontsize = 14
-keybindlistwidth = 268
-keybindminimized = false
+hotkeyfontsize = 14
+hotkeylistwidth = 268
+hotkeyminimized = false
 
-keybindlist = new("CanvasGroup", {
+hotkeylist = new("CanvasGroup", {
 	Parent = gui,
 	AnchorPoint = Vector2.new(1, 0),
 	Position = UDim2.new(1, -18, .5, -27),
-	Size = UDim2.fromOffset(keybindlistwidth, 54),
+	Size = UDim2.fromOffset(hotkeylistwidth, 54),
 	BackgroundColor3 = theme.sidebar,
 	BackgroundTransparency = 0,
 	BorderSizePixel = 0,
@@ -4944,12 +4933,12 @@ keybindlist = new("CanvasGroup", {
 	GroupTransparency = 0,
 	ZIndex = 320,
 })
-corner(keybindlist, 9)
-stroke(keybindlist, .62, theme.border, .55)
-adddepthshadow(keybindlist, "floating")
+corner(hotkeylist, 9)
+stroke(hotkeylist, .62, theme.border, .55)
+adddepthshadow(hotkeylist, "floating")
 addshadow(
-	keybindlist,
-	"KeybindPanelGlow",
+	hotkeylist,
+	"HotkeyPanelGlow",
 	.965,
 	12,
 	0,
@@ -4959,25 +4948,25 @@ addshadow(
 	true
 )
 
-keybindheadericon = image(
-	keybindlist,
+hotkeyheadericon = image(
+	hotkeylist,
 	icons.keyboard,
 	15,
 	theme.text3,
 	323
 )
-keybindheadericon.AnchorPoint = Vector2.new(0, .5)
-keybindheadericon.Position = UDim2.fromOffset(12, 16)
-keybindheadericon.ImageTransparency = .08
+hotkeyheadericon.AnchorPoint = Vector2.new(0, .5)
+hotkeyheadericon.Position = UDim2.fromOffset(12, 16)
+hotkeyheadericon.ImageTransparency = .08
 
-keybindtitle = label(keybindlist, "Keybinds", UDim2.new(1, -72, 0, 30), medium, theme.text)
-keybindtitle.Position = UDim2.fromOffset(34, 0)
-keybindtitle.TextXAlignment = Enum.TextXAlignment.Left
-keybindtitle.TextSize = 16
-keybindtitle.ZIndex = 321
+hotkeytitle = label(hotkeylist, "Keybinds", UDim2.new(1, -72, 0, 30), medium, theme.text)
+hotkeytitle.Position = UDim2.fromOffset(34, 1)
+hotkeytitle.TextXAlignment = Enum.TextXAlignment.Left
+hotkeytitle.TextSize = 16
+hotkeytitle.ZIndex = 321
 
-keybindcollapse = new("ImageButton", {
-	Parent = keybindlist,
+hotkeycollapse = new("ImageButton", {
+	Parent = hotkeylist,
 	AnchorPoint = Vector2.new(1, .5),
 	Position = UDim2.new(1, -8, 0, 16),
 	Size = UDim2.fromOffset(20, 20),
@@ -4990,10 +4979,10 @@ keybindcollapse = new("ImageButton", {
 	AutoButtonColor = false,
 	ZIndex = 325,
 })
-corner(keybindcollapse, 6)
+corner(hotkeycollapse, 6)
 
-keybinddragarea = rawnew("TextButton", {
-	Parent = keybindlist,
+hotkeydragarea = rawnew("TextButton", {
+	Parent = hotkeylist,
 	Position = UDim2.fromOffset(0, 0),
 	Size = UDim2.new(1, -36, 0, 31),
 	BackgroundTransparency = 1,
@@ -5004,8 +4993,8 @@ keybinddragarea = rawnew("TextButton", {
 	ZIndex = 324,
 })
 
-keybindcontent = new("CanvasGroup", {
-	Parent = keybindlist,
+hotkeycontent = new("CanvasGroup", {
+	Parent = hotkeylist,
 	Position = UDim2.fromOffset(8, 32),
 	Size = UDim2.new(1, -16, 1, -39),
 	BackgroundTransparency = 1,
@@ -5015,8 +5004,8 @@ keybindcontent = new("CanvasGroup", {
 	ZIndex = 321,
 })
 
-keybindscroll = new("ScrollingFrame", {
-	Parent = keybindcontent,
+hotkeyscroll = new("ScrollingFrame", {
+	Parent = hotkeycontent,
 	Size = UDim2.fromScale(1, 1),
 	BackgroundTransparency = 1,
 	BorderSizePixel = 0,
@@ -5026,32 +5015,32 @@ keybindscroll = new("ScrollingFrame", {
 	ElasticBehavior = Enum.ElasticBehavior.Never,
 	ZIndex = 322,
 })
-list(keybindscroll, 2)
-keybindshown = false
-keybindtargetposition = keybindlist.Position
-keybinddrag = nil
-keybindmoveanimation = nil
-keybindcontentanimation = nil
-keybindcollapseanimation = nil
-keybindsizeanimation = nil
-keybindvisibilitytoken = 0
-keybindminimizetoken = 0
-keybindminimizeanimating = false
-keybindanimti = TweenInfo.new(.18, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
-keybindfullheight = 54
-keybindrows = setmetatable({}, { __mode = "k" })
-keybindgroups = {}
-keybindempty = nil
-keybinddirty = false
+list(hotkeyscroll, 2)
+hotkeyshown = false
+hotkeytargetposition = hotkeylist.Position
+hotkeydrag = nil
+hotkeymoveanimation = nil
+hotkeycontentanimation = nil
+hotkeycollapseanimation = nil
+hotkeysizeanimation = nil
+hotkeyvisibilitytoken = 0
+hotkeyminimizetoken = 0
+hotkeyminimizeanimating = false
+hotkeyanimti = TweenInfo.new(.18, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
+hotkeyfullheight = 54
+hotkeyrows = setmetatable({}, { __mode = "k" })
+hotkeygroups = {}
+hotkeyempty = nil
+hotkeydirty = false
 
-function requestkeybindrefresh(binding)
-	if not keybindlist.Visible then
-		keybinddirty = true
+function requesthotkeyrefresh(binding)
+	if not hotkeylist.Visible then
+		hotkeydirty = true
 		return
 	end
 
 	if binding then
-		local data = keybindrows[binding]
+		local data = hotkeyrows[binding]
 		if data and data.row and data.row.Parent then
 			local active = false
 			local ok, value = invoke(binding.get)
@@ -5059,250 +5048,259 @@ function requestkeybindrefresh(binding)
 				active = value == true
 			end
 
-			updatekeybindrow(
+			updatehotkeyrow(
 				data,
 				binding,
 				active,
 				data.row.LayoutOrder,
 				true
 			)
-			keybinddirty = false
+			hotkeydirty = false
 			return
 		end
 	end
 
-	refreshkeybindlist()
+	refreshhotkeylist()
 end
 
-function setkeybindheight(targetheight)
+function sethotkeyheight(targetheight)
 	targetheight = math.max(32, math.round(targetheight))
-	keybindlist.Size = UDim2.fromOffset(keybindlistwidth, targetheight)
+	hotkeylist.Size = UDim2.fromOffset(hotkeylistwidth, targetheight)
 end
 
-function synckeybindminimizedstate()
-	if keybindminimizeanimating then
+function synchotkeyminimizedstate()
+	if hotkeyminimizeanimating then
 		return
 	end
 
-	if keybindcontentanimation then
+	if hotkeycontentanimation then
 		invoke(function()
-			keybindcontentanimation:Cancel()
+			hotkeycontentanimation:Cancel()
 		end)
-		keybindcontentanimation = nil
+		hotkeycontentanimation = nil
 	end
 
-	if keybindminimized then
-		setkeybindheight(32)
-		keybindcontent.GroupTransparency = 1
-		keybindcontent.Visible = false
-		keybindcollapse.Rotation = -90
+	if hotkeyminimized then
+		sethotkeyheight(32)
+		hotkeycontent.GroupTransparency = 1
+		hotkeycontent.Visible = false
+		hotkeycollapse.Rotation = -90
 	else
-		setkeybindheight(keybindfullheight)
-		keybindcontent.Visible = true
-		keybindcontent.GroupTransparency = 0
-		keybindcollapse.Rotation = 0
+		sethotkeyheight(hotkeyfullheight)
+		hotkeycontent.Visible = true
+		hotkeycontent.GroupTransparency = 0
+		hotkeycollapse.Rotation = 0
 	end
 end
 
-function setkeybindminimized(value, animate)
+function sethotkeyminimized(value, animate)
 	value = value == true
-	local changed = keybindminimized ~= value
-	keybindminimized = value
-	keybindminimizetoken += 1
-	local token = keybindminimizetoken
+	local changed = hotkeyminimized ~= value
+	hotkeyminimized = value
+	hotkeyminimizetoken += 1
+	local token = hotkeyminimizetoken
 
-	if keybindcontentanimation then
+	if hotkeycontentanimation then
 		invoke(function()
-			keybindcontentanimation:Cancel()
+			hotkeycontentanimation:Cancel()
 		end)
-		keybindcontentanimation = nil
+		hotkeycontentanimation = nil
 	end
 
-	if keybindcollapseanimation then
+	if hotkeycollapseanimation then
 		invoke(function()
-			keybindcollapseanimation:Cancel()
+			hotkeycollapseanimation:Cancel()
 		end)
-		keybindcollapseanimation = nil
+		hotkeycollapseanimation = nil
 	end
 
-	if keybindsizeanimation then
+	if hotkeysizeanimation then
 		invoke(function()
-			keybindsizeanimation:Cancel()
+			hotkeysizeanimation:Cancel()
 		end)
-		keybindsizeanimation = nil
+		hotkeysizeanimation = nil
 	end
 
-	local targetheight = value and 32 or keybindfullheight
+	local targetheight = value and 32 or hotkeyfullheight
 	local rotation = value and -90 or 0
 
 	if not animate or not changed then
-		keybindminimizeanimating = false
-		setkeybindheight(targetheight)
-		keybindcontent.Visible = not value
-		keybindcontent.GroupTransparency = value and 1 or 0
-		keybindcollapse.Rotation = rotation
+		hotkeyminimizeanimating = false
+		sethotkeyheight(targetheight)
+		hotkeycontent.Visible = not value
+		hotkeycontent.GroupTransparency = value and 1 or 0
+		hotkeycollapse.Rotation = rotation
 		return
 	end
 
 	-- Keep the top-left position completely fixed. Only height/transparency/rotation animate.
-	keybindminimizeanimating = true
-	keybindcontent.Visible = true
+	hotkeyminimizeanimating = true
+	hotkeycontent.Visible = true
 
-	keybindsizeanimation = tween(
-		keybindlist,
-		{Size = UDim2.fromOffset(keybindlistwidth, targetheight)},
+	hotkeysizeanimation = tween(
+		hotkeylist,
+		{Size = UDim2.fromOffset(hotkeylistwidth, targetheight)},
 		TweenInfo.new(.18, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
 	)
 
-	keybindcollapseanimation = tween(
-		keybindcollapse,
+	hotkeycollapseanimation = tween(
+		hotkeycollapse,
 		{Rotation = rotation},
 		TweenInfo.new(.18, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
 	)
 
-	keybindcontentanimation = tween(
-		keybindcontent,
+	hotkeycontentanimation = tween(
+		hotkeycontent,
 		{GroupTransparency = value and 1 or 0},
 		TweenInfo.new(.18, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
 	)
 
-	if keybindsizeanimation then
-		keybindsizeanimation.Completed:Connect(function()
-			if token ~= keybindminimizetoken then
+	if hotkeysizeanimation then
+		hotkeysizeanimation.Completed:Connect(function()
+			if token ~= hotkeyminimizetoken then
 				return
 			end
 
-			keybindminimizeanimating = false
+			hotkeyminimizeanimating = false
 
 			if value then
-				keybindcontent.Visible = false
-				keybindcontent.GroupTransparency = 1
+				hotkeycontent.Visible = false
+				hotkeycontent.GroupTransparency = 1
 			else
-				keybindcontent.Visible = true
-				keybindcontent.GroupTransparency = 0
+				hotkeycontent.Visible = true
+				hotkeycontent.GroupTransparency = 0
 			end
 		end)
 	end
 end
 
-keybindcollapse.MouseEnter:Connect(function()
-	tween(keybindcollapse, {
+hotkeycollapse.MouseEnter:Connect(function()
+	tween(hotkeycollapse, {
 		ImageColor3 = theme.text2,
 		ImageTransparency = 0,
 	}, hoverti)
 end)
-keybindcollapse.MouseLeave:Connect(function()
-	tween(keybindcollapse, {
+hotkeycollapse.MouseLeave:Connect(function()
+	tween(hotkeycollapse, {
 		ImageColor3 = theme.text3,
 		ImageTransparency = .12,
 	}, hoverti)
 end)
-keybindcollapse.Activated:Connect(function()
-	setkeybindminimized(not keybindminimized, true)
+hotkeycollapse.Activated:Connect(function()
+	sethotkeyminimized(not hotkeyminimized, true)
 end)
 
-keybinddragarea.InputBegan:Connect(function(input)
+hotkeydragarea.InputBegan:Connect(function(input)
 	if input.UserInputType ~= Enum.UserInputType.MouseButton1
 		and input.UserInputType ~= Enum.UserInputType.Touch
 	then
 		return
 	end
 
-	keybinddrag = {
+	hotkeydrag = {
 		input = input,
 		start = point(input),
-		position = keybindtargetposition,
+		position = hotkeytargetposition,
 	}
 end)
 
 connect(uis.InputChanged, function(input)
-	if not keybinddrag then return end
+	if not hotkeydrag then return end
 	local ismouse = input.UserInputType == Enum.UserInputType.MouseMovement
-	local istouch = input.UserInputType == Enum.UserInputType.Touch and input == keybinddrag.input
+	local istouch = input.UserInputType == Enum.UserInputType.Touch and input == hotkeydrag.input
 	if not ismouse and not istouch then return end
 
-	local delta = point(input) - keybinddrag.start
-	local target = offsetposition(keybinddrag.position, delta)
-	local size = keybindlist.AbsoluteSize
+	local delta = point(input) - hotkeydrag.start
+	local target = offsetposition(hotkeydrag.position, delta)
+	local size = hotkeylist.AbsoluteSize
 	local root = popuplayer.AbsoluteSize
 	local x = math.clamp(target.X.Offset, -root.X + size.X + 8, -8)
 	local y = math.clamp(target.Y.Offset, -root.Y * .5 + 8, root.Y * .5 - size.Y - 8)
-	keybindtargetposition = UDim2.new(1, x, .5, y)
-	keybindlist.Position = keybindtargetposition
+	hotkeytargetposition = UDim2.new(1, x, .5, y)
+	hotkeylist.Position = hotkeytargetposition
 end)
 
 connect(uis.InputEnded, function(input)
-	if not keybinddrag then return end
-	if input.UserInputType ~= Enum.UserInputType.MouseButton1 and input ~= keybinddrag.input then return end
-	keybinddrag = nil
+	if not hotkeydrag then return end
+	if input.UserInputType ~= Enum.UserInputType.MouseButton1 and input ~= hotkeydrag.input then return end
+	hotkeydrag = nil
 end)
 
-function setkeybindlistvisible(value)
+function sethotkeylistvisible(value)
 	value = value == true
-	if value == keybindshown and keybindlist.Visible == value then
+	if value == hotkeyshown and hotkeylist.Visible == value then
 		if value then
-			refreshkeybindlist()
+			refreshhotkeylist()
 		end
 		return
 	end
 
-	keybindshown = value
-	keybindvisibilitytoken += 1
-	local token = keybindvisibilitytoken
+	hotkeyshown = value
+	hotkeyvisibilitytoken += 1
+	local token = hotkeyvisibilitytoken
 
-	if keybindmoveanimation then
+	if hotkeymoveanimation then
 		invoke(function()
-			keybindmoveanimation:Cancel()
+			hotkeymoveanimation:Cancel()
 		end)
-		keybindmoveanimation = nil
+		hotkeymoveanimation = nil
 	end
 
 	if value then
-		keybindlist.Visible = true
-		keybindlist.GroupTransparency = 1
-		refreshkeybindlist()
-		synckeybindminimizedstate()
-		keybindmoveanimation = tween(
-			keybindlist,
+		hotkeylist.Visible = true
+		hotkeylist.GroupTransparency = 1
+		refreshhotkeylist()
+		synchotkeyminimizedstate()
+		hotkeymoveanimation = tween(
+			hotkeylist,
 			{GroupTransparency = 0},
-			keybindanimti
+			hotkeyanimti
 		)
 	else
-		if not keybindlist.Visible then
+		if not hotkeylist.Visible then
 			return
 		end
 
-		keybindmoveanimation = tween(
-			keybindlist,
+		hotkeymoveanimation = tween(
+			hotkeylist,
 			{GroupTransparency = 1},
-			keybindanimti
+			hotkeyanimti
 		)
 
 		local function finish()
-			if token ~= keybindvisibilitytoken or keybindshown then
+			if token ~= hotkeyvisibilitytoken or hotkeyshown then
 				return
 			end
 
-			keybindlist.Visible = false
-			keybindlist.GroupTransparency = 0
+			hotkeylist.Visible = false
+			hotkeylist.GroupTransparency = 0
 		end
 
-		if keybindmoveanimation then
-			keybindmoveanimation.Completed:Connect(finish)
+		if hotkeymoveanimation then
+			hotkeymoveanimation.Completed:Connect(finish)
 		else
 			finish()
 		end
 	end
 end
 
-function keybindcategoryicon(binding)
-	local group = binding and binding.page and binding.page.keybindgroup
-	return group and group.Icon or nil
+function hotkeycategoryicon(binding)
+	if not binding then
+		return nil
+	end
+
+	if binding.page
+		and binding.page.icon ~= nil
+	then
+		return binding.page.icon
+	end
+
+	return binding.categoryicon
 end
 
 
-function updatekeybindgroup(data, category, binding)
-	local asset = keybindcategoryicon(binding)
+function updatehotkeygroup(data, category, binding)
+	local asset = hotkeycategoryicon(binding)
 	data.category = category
 
 	if data.asset ~= asset then
@@ -5317,21 +5315,21 @@ function updatekeybindgroup(data, category, binding)
 		if asset ~= nil and tostring(asset) ~= "" then
 			data.icon = image(data.holder, asset, 13, theme.text3, 323)
 			data.icon.AnchorPoint = Vector2.new(0, .5)
-			data.icon.Position = UDim2.fromOffset(4, 23)
+			data.icon.Position = UDim2.fromOffset(4, 20)
 			data.icon.ImageTransparency = .08
 		end
 	end
 
 	local textx = data.icon and 23 or 4
-	data.text.Text = tostring(category)
-	data.text.Position = UDim2.fromOffset(textx, 11)
+	data.text.Text = tostring(category == "Misc" and "Other" or category)
+	data.text.Position = UDim2.fromOffset(textx, 8)
 	data.text.Size = UDim2.new(1, -textx - 4, 0, 24)
 end
 
-function createkeybindgroup(key, category, binding)
+function createhotkeygroup(key, category, binding)
 	local holder = new("Frame", {
-		Parent = keybindscroll,
-		Size = UDim2.new(1, 0, 0, 38),
+		Parent = hotkeyscroll,
+		Size = UDim2.new(1, 0, 0, 32),
 		BackgroundTransparency = 1,
 		BorderSizePixel = 0,
 		ZIndex = 322,
@@ -5344,7 +5342,7 @@ function createkeybindgroup(key, category, binding)
 		medium,
 		theme.text2
 	)
-	textobject.Position = UDim2.fromOffset(4, 11)
+	textobject.Position = UDim2.fromOffset(4, 8)
 	textobject.TextSize = 13
 	textobject.TextXAlignment = Enum.TextXAlignment.Left
 	textobject.ZIndex = 323
@@ -5358,14 +5356,14 @@ function createkeybindgroup(key, category, binding)
 		key = key,
 	}
 
-	updatekeybindgroup(data, category, binding)
-	keybindgroups[key] = data
+	updatehotkeygroup(data, category, binding)
+	hotkeygroups[key] = data
 	return data
 end
 
-function createkeybindrow(binding)
+function createhotkeyrow(binding)
 	local row = new("TextButton", {
-		Parent = keybindscroll,
+		Parent = hotkeyscroll,
 		Size = UDim2.new(1, 0, 0, 26),
 		BackgroundColor3 = theme.hover,
 		BackgroundTransparency = 1,
@@ -5446,11 +5444,11 @@ function createkeybindrow(binding)
 		end
 	end)
 
-	keybindrows[binding] = data
+	hotkeyrows[binding] = data
 	return data
 end
 
-function updatekeybindrow(data, binding, active, layoutorder, animate)
+function updatehotkeyrow(data, binding, active, layoutorder, animate)
 	local name = tostring(binding.name or "Toggle")
 	local keyname = togglekeyname(binding.key)
 	data.row.LayoutOrder = layoutorder
@@ -5481,9 +5479,9 @@ function updatekeybindrow(data, binding, active, layoutorder, animate)
 	local color = active and theme.text2 or theme.text3
 
 	if changed and animate then
-		tween(data.nametext, {TextColor3 = color}, keybindanimti)
-		tween(data.keytext, {TextColor3 = color}, keybindanimti)
-		tween(data.keyholder, {BackgroundTransparency = active and .18 or .34}, keybindanimti)
+		tween(data.nametext, {TextColor3 = color}, hotkeyanimti)
+		tween(data.keytext, {TextColor3 = color}, hotkeyanimti)
+		tween(data.keyholder, {BackgroundTransparency = active and .18 or .34}, hotkeyanimti)
 	else
 		data.nametext.TextColor3 = color
 		data.keytext.TextColor3 = color
@@ -5491,13 +5489,13 @@ function updatekeybindrow(data, binding, active, layoutorder, animate)
 	end
 end
 
-function refreshkeybindlist()
-	if not keybindlist.Visible then
-		keybinddirty = true
+function refreshhotkeylist()
+	if not hotkeylist.Visible then
+		hotkeydirty = true
 		return
 	end
 
-	keybinddirty = false
+	hotkeydirty = false
 
 	local seen = {}
 	local seengroups = {}
@@ -5506,19 +5504,34 @@ function refreshkeybindlist()
 	local count = 0
 
 	for _, binding in ipairs(env.__blush_togglebindings or {}) do
-		if binding.key ~= nil and (not binding.anchor or binding.anchor.Parent) then
-			local manualgroup = binding.page and binding.page.keybindgroup
-			local groupkey = manualgroup or "__ungrouped"
+		if binding.key ~= nil
+			and (
+				not binding.anchor
+				or binding.anchor.Parent
+			)
+		then
+			local category = tostring(
+				binding.subpage
+					or binding.category
+					or "Misc"
+			)
+
+			if category == "Extras" then
+				category = "Other"
+			end
+			local groupkey =
+				binding.page
+				or category
 			local group = groupmap[groupkey]
 
 			if not group then
 				group = {
 					key = groupkey,
-					name = manualgroup and manualgroup.Name or nil,
-					manual = manualgroup ~= nil,
+					name = category,
 					bindings = {},
 					first = binding,
 				}
+
 				groupmap[groupkey] = group
 				groups[#groups + 1] = group
 			end
@@ -5533,20 +5546,31 @@ function refreshkeybindlist()
 	local itemcount = 0
 
 	for _, group in ipairs(groups) do
-		if group.manual then
-			local groupdata = keybindgroups[group.key]
-			if not groupdata or not groupdata.holder or not groupdata.holder.Parent then
-				groupdata = createkeybindgroup(group.key, group.name, group.first)
-			else
-				updatekeybindgroup(groupdata, group.name, group.first)
-			end
+		local groupdata = hotkeygroups[group.key]
 
-			seengroups[group.key] = true
-			layoutorder += 1
-			groupdata.holder.LayoutOrder = layoutorder
-			contentheight += 38
-			itemcount += 1
+		if not groupdata
+			or not groupdata.holder
+			or not groupdata.holder.Parent
+		then
+			groupdata =
+				createhotkeygroup(
+					group.key,
+					group.name,
+					group.first
+				)
+		else
+			updatehotkeygroup(
+				groupdata,
+				group.name,
+				group.first
+			)
 		end
+
+		seengroups[group.key] = true
+		layoutorder += 1
+		groupdata.holder.LayoutOrder = layoutorder
+		contentheight += 32
+		itemcount += 1
 
 		for _, binding in ipairs(group.bindings) do
 			seen[binding] = true
@@ -5557,19 +5581,19 @@ function refreshkeybindlist()
 				active = value == true
 			end
 
-			local data = keybindrows[binding]
+			local data = hotkeyrows[binding]
 			local created = false
 
 			if not data
 				or not data.row
 				or not data.row.Parent
 			then
-				data = createkeybindrow(binding)
+				data = createhotkeyrow(binding)
 				created = true
 			end
 
 			layoutorder += 1
-			updatekeybindrow(
+			updatehotkeyrow(
 				data,
 				binding,
 				active,
@@ -5581,58 +5605,58 @@ function refreshkeybindlist()
 		end
 	end
 
-	for binding, data in pairs(keybindrows) do
+	for binding, data in pairs(hotkeyrows) do
 		if not seen[binding] then
 			if data.row and data.row.Parent then
 				data.row:Destroy()
 			end
 
-			keybindrows[binding] = nil
+			hotkeyrows[binding] = nil
 		end
 	end
 
-	for groupkey, data in pairs(keybindgroups) do
+	for groupkey, data in pairs(hotkeygroups) do
 		if not seengroups[groupkey] then
 			if data.holder and data.holder.Parent then
 				data.holder:Destroy()
 			end
 
-			keybindgroups[groupkey] = nil
+			hotkeygroups[groupkey] = nil
 		end
 	end
 
 	if count == 0 then
-		if not keybindempty
-			or not keybindempty.Parent
+		if not hotkeyempty
+			or not hotkeyempty.Parent
 		then
-			keybindempty = label(
-				keybindscroll,
+			hotkeyempty = label(
+				hotkeyscroll,
 				"No keybinds",
 				UDim2.new(1, 0, 0, 26),
 				font,
 				theme.text3
 			)
-			keybindempty.TextSize = keybindfontsize
-			keybindempty.ZIndex = 322
+			hotkeyempty.TextSize = hotkeyfontsize
+			hotkeyempty.ZIndex = 322
 		end
 
 		contentheight = 26
 		itemcount = 1
 	else
-		if keybindempty
-			and keybindempty.Parent
+		if hotkeyempty
+			and hotkeyempty.Parent
 		then
-			keybindempty:Destroy()
+			hotkeyempty:Destroy()
 		end
 
-		keybindempty = nil
+		hotkeyempty = nil
 	end
 
 	if itemcount > 1 then
 		contentheight += (itemcount - 1) * 2
 	end
 
-	keybindscroll.CanvasSize =
+	hotkeyscroll.CanvasSize =
 		UDim2.fromOffset(
 			0,
 			math.max(26, contentheight)
@@ -5643,14 +5667,14 @@ function refreshkeybindlist()
 		and 220
 		or 340
 
-	keybindfullheight =
+	hotkeyfullheight =
 		39
 		+ math.min(
 			math.max(26, contentheight),
 			maxcontent
 		)
 
-	synckeybindminimizedstate()
+	synchotkeyminimizedstate()
 end
 
 
@@ -5684,6 +5708,23 @@ function validmousebind(inputtype)
 		or inputtype == Enum.UserInputType.MouseButton3
 end
 
+keyeditbuttons = setmetatable({}, { __mode = "k" })
+
+function iskeyeditclick(input)
+	if input.UserInputType ~= Enum.UserInputType.MouseButton1 then
+		return false
+	end
+
+	local position = point(input)
+	for button in pairs(keyeditbuttons) do
+		if button.Parent and button.Visible and guivisible(button) and inside(button, position) then
+			return true
+		end
+	end
+
+	return false
+end
+
 function bindingmatchesinput(key, input)
 	if not key then
 		return false
@@ -5700,25 +5741,6 @@ function bindingmatchesinput(key, input)
 	end
 
 	return false
-end
-
-function bindingeditorhit(binding, position)
-	if not binding then
-		return false
-	end
-
-	local control = binding.keybutton
-	if control and control.Parent and guivisible(control) and inside(control, position) then
-		return true
-	end
-
-	control = binding.capturebutton
-	if control and control.Parent and guivisible(control) and inside(control, position) then
-		return true
-	end
-
-	control = binding.configbutton
-	return control and control.Parent and guivisible(control) and inside(control, position) or false
 end
 
 keycaptureowner = nil
@@ -5739,7 +5761,6 @@ function beginkeycapture(owner, cancelcallback, selectcallback, ignorecallback)
 	if keycaptureowner and keycaptureowner.owner ~= owner then
 		local previous = keycaptureowner
 		keycaptureowner = nil
-		contextactionservice:UnbindAction("__blush_keycapture")
 
 		if previous.cancel then
 			previous.cancel()
@@ -5759,61 +5780,6 @@ function beginkeycapture(owner, cancelcallback, selectcallback, ignorecallback)
 		ignore = ignorecallback,
 	}
 	keypickercapturing = true
-
-	contextactionservice:UnbindAction("__blush_keycapture")
-	contextactionservice:BindActionAtPriority(
-		"__blush_keycapture",
-		function(_, inputstate, input)
-			local capture = keycaptureowner
-			if not capture or capture.owner ~= owner then
-				return Enum.ContextActionResult.Pass
-			end
-
-			if inputstate ~= Enum.UserInputState.Begin then
-				return Enum.ContextActionResult.Pass
-			end
-
-			if capture.ignore and capture.ignore(input) then
-				return Enum.ContextActionResult.Pass
-			end
-
-			local physical = capturephysicalkey(input)
-			if not physical or physical == Enum.KeyCode.Unknown then
-				return Enum.ContextActionResult.Pass
-			end
-
-			if physical == Enum.KeyCode.Escape then
-				local cancel = capture.cancel
-				endkeycapture(owner, physical)
-				if cancel then
-					cancel()
-				end
-				return Enum.ContextActionResult.Sink
-			end
-
-			local selected = physical
-			if physical == Enum.KeyCode.Backspace
-				or physical == Enum.KeyCode.Delete
-			then
-				selected = nil
-			end
-
-			local selectcallback = capture.select
-			endkeycapture(owner, physical)
-			if selectcallback then
-				selectcallback(selected, input)
-			end
-
-			return Enum.ContextActionResult.Sink
-		end,
-		false,
-		Enum.ContextActionPriority.High.Value + 20000,
-		Enum.UserInputType.Keyboard,
-		Enum.UserInputType.MouseButton1,
-		Enum.UserInputType.MouseButton2,
-		Enum.UserInputType.MouseButton3
-	)
-
 	return true
 end
 
@@ -5824,7 +5790,6 @@ function endkeycapture(owner, suppresskey)
 
 	keycaptureowner = nil
 	keypickercapturing = false
-	contextactionservice:UnbindAction("__blush_keycapture")
 	releaseinteraction(owner)
 
 	if suppresskey then
@@ -5833,8 +5798,6 @@ function endkeycapture(owner, suppresskey)
 
 	return true
 end
-
-env.__blush_keyactions = env.__blush_keyactions or {}
 
 function dispatchtogglebinding(key, began)
 	if keypickercapturing
@@ -5881,53 +5844,6 @@ function dispatchtogglebinding(key, began)
 	end
 end
 
-function keyactionname(key)
-	return "__blush_keybind_"
-		.. tostring(key.EnumType.Name)
-		.. "_"
-		.. tostring(key.Name)
-end
-
-function refreshkeyaction(key)
-	if not key or key.EnumType ~= Enum.KeyCode or key == Enum.KeyCode.Unknown then
-		return
-	end
-
-	local actionname = keyactionname(key)
-	contextactionservice:UnbindAction(actionname)
-	env.__blush_keyactions[actionname] = nil
-
-	local required = false
-	for _, binding in ipairs(env.__blush_togglebindings or {}) do
-		if binding.key == key and (not binding.anchor or binding.anchor.Parent) then
-			required = true
-			break
-		end
-	end
-
-	if not required then
-		return
-	end
-
-	contextactionservice:BindActionAtPriority(
-		actionname,
-		function(_, inputstate)
-			if inputstate == Enum.UserInputState.Begin then
-				dispatchtogglebinding(key, true)
-			elseif inputstate == Enum.UserInputState.End or inputstate == Enum.UserInputState.Cancel then
-				dispatchtogglebinding(key, false)
-			end
-
-			return Enum.ContextActionResult.Sink
-		end,
-		false,
-		Enum.ContextActionPriority.High.Value + 10000,
-		key
-	)
-
-	env.__blush_keyactions[actionname] = key
-end
-
 function setbindingkey(binding, key, persist)
 	if not binding then
 		return
@@ -5942,20 +5858,18 @@ function setbindingkey(binding, key, persist)
 			binding.refreshkey()
 		end
 
-		requestkeybindrefresh(binding)
+		requesthotkeyrefresh(binding)
 		return
 	end
 
 	binding.key = key
 	binding.held = false
 
-	refreshkeyaction(previous)
-	refreshkeyaction(key)
 
 	if binding.refreshkey then
 		binding.refreshkey()
 	end
-	requestkeybindrefresh(binding)
+	requesthotkeyrefresh(binding)
 
 	if persist ~= false then
 		requestconfigautosave()
@@ -5976,14 +5890,13 @@ function unregistertogglebinding(binding)
 		end
 	end
 
-	refreshkeyaction(previous)
 
-	local row = keybindrows[binding]
+	local row = hotkeyrows[binding]
 	if row and row.row and row.row.Parent then
 		row.row:Destroy()
 	end
-	keybindrows[binding] = nil
-	requestkeybindrefresh()
+	hotkeyrows[binding] = nil
+	requesthotkeyrefresh()
 end
 
 function opentoggleconfig(anchor, binding, clickposition, togglesame)
@@ -6173,7 +6086,7 @@ function opentoggleconfig(anchor, binding, clickposition, togglesame)
 	})
 
 	corner(keybutton, 6)
-	binding.capturebutton = not hasinlinekey and keybutton or nil
+	keyeditbuttons[keybutton] = true
 
 	local keybuttonstroke =
 		stroke(
@@ -6469,7 +6382,7 @@ function opentoggleconfig(anchor, binding, clickposition, togglesame)
 		option.Activated:Connect(function()
 			binding.mode = mode
 			rendermode()
-			requestkeybindrefresh(binding)
+			requesthotkeyrefresh(binding)
 			requestconfigautosave()
 
 			if mode == "Always On" then
@@ -6540,9 +6453,6 @@ function opentoggleconfig(anchor, binding, clickposition, togglesame)
 
 	popup.onclose = function()
 		listening = false
-		if binding.capturebutton == keybutton then
-			binding.capturebutton = nil
-		end
 		endkeycapture(popup, false)
 	end
 
@@ -6550,7 +6460,7 @@ function opentoggleconfig(anchor, binding, clickposition, togglesame)
 	renderkey()
 end
 
-function keybindingid(binding)
+function hotkeybindingid(binding)
 	return table.concat({
 		tostring(binding.kind or "Toggle"),
 		tostring(binding.category or ""),
@@ -6600,7 +6510,7 @@ function applysavedkeybind(binding, data)
 	then
 		binding.set(true, false)
 	end
-	requestkeybindrefresh(binding)
+	requesthotkeyrefresh(binding)
 end
 
 function currentkeybindpayload()
@@ -6611,7 +6521,7 @@ function currentkeybindpayload()
 	) do
 		local id =
 			binding.id
-			or keybindingid(binding)
+			or hotkeybindingid(binding)
 
 		binding.id = id
 
@@ -6639,7 +6549,7 @@ function applykeybindpayload(payload)
 	) do
 		local id =
 			binding.id
-			or keybindingid(binding)
+			or hotkeybindingid(binding)
 
 		binding.id = id
 
@@ -6654,7 +6564,7 @@ function applykeybindpayload(payload)
 		end
 	end
 
-	refreshkeybindlist()
+	refreshhotkeylist()
 end
 
 function registertogglebinding(binding)
@@ -6670,10 +6580,9 @@ function registertogglebinding(binding)
 
 	binding.id =
 		binding.id
-		or keybindingid(binding)
+		or hotkeybindingid(binding)
 
 	table.insert(env.__blush_togglebindings, binding)
-	refreshkeyaction(binding.key)
 
 	local pending =
 		env.__blush_pending_keybinds
@@ -6687,7 +6596,7 @@ function registertogglebinding(binding)
 			pending
 		)
 	end
-	requestkeybindrefresh(binding)
+	requesthotkeyrefresh(binding)
 end
 
 function attachtoggleconfig(anchor, binding)
@@ -6813,27 +6722,54 @@ end
 connect(
 	uis.InputBegan,
 	function(input)
-		if uis.TouchEnabled or keypickercapturing or bindingmatchesinput(keypickersuppress, input) then
+		if uis.TouchEnabled then
 			return
 		end
 
-		local inputpoint = point(input)
-		if input.UserInputType == Enum.UserInputType.MouseButton1 then
-			if activepopup and activepopup.toggleconfig and activepopup.panel
-				and activepopup.panel.Parent and inside(activepopup.panel, inputpoint)
-			then
+		local capture = keycaptureowner
+		if capture then
+			if capture.ignore and capture.ignore(input) then
 				return
 			end
 
-			for index = #env.__blush_togglebindings, 1, -1 do
-				if bindingeditorhit(env.__blush_togglebindings[index], inputpoint) then
-					return
-				end
+			local physical = capturephysicalkey(input)
+			if not physical or physical == Enum.KeyCode.Unknown then
+				return
 			end
-		elseif input.UserInputType == Enum.UserInputType.MouseButton2 then
+
+			if physical == Enum.KeyCode.Escape then
+				local cancel = capture.cancel
+				endkeycapture(capture.owner, physical)
+				if cancel then
+					cancel()
+				end
+				return
+			end
+
+			local selected = physical
+			if physical == Enum.KeyCode.Backspace or physical == Enum.KeyCode.Delete then
+				selected = nil
+			end
+
+			local selectcallback = capture.select
+			endkeycapture(capture.owner, physical)
+			if selectcallback then
+				selectcallback(selected, input)
+			end
+			return
+		end
+
+		if bindingmatchesinput(keypickersuppress, input) or iskeyeditclick(input) then
+			return
+		end
+
+		if input.UserInputType == Enum.UserInputType.MouseButton2 then
+			local inputpoint = point(input)
+
 			for index = #env.__blush_togglebindings, 1, -1 do
 				local binding = env.__blush_togglebindings[index]
 				local anchor = binding.anchor
+
 				if anchor and anchor.Parent and guivisible(anchor) and inside(anchor, inputpoint) then
 					binding.suppressclick = true
 					opentoggleconfig(anchor, binding, inputpoint, false)
@@ -6843,8 +6779,9 @@ connect(
 			end
 		end
 
-		if validmousebind(input.UserInputType) then
-			dispatchtogglebinding(input.UserInputType, true)
+		local physical = capturephysicalkey(input)
+		if physical and physical ~= Enum.KeyCode.Unknown then
+			dispatchtogglebinding(physical, true)
 		end
 	end
 )
@@ -6854,10 +6791,16 @@ connect(
 	function(input)
 		if bindingmatchesinput(keypickersuppress, input) then
 			keypickersuppress = nil
+			return
 		end
 
-		if not uis.TouchEnabled and validmousebind(input.UserInputType) then
-			dispatchtogglebinding(input.UserInputType, false)
+		if uis.TouchEnabled then
+			return
+		end
+
+		local physical = capturephysicalkey(input)
+		if physical and physical ~= Enum.KeyCode.Unknown then
+			dispatchtogglebinding(physical, false)
 		end
 	end
 )
@@ -6912,6 +6855,7 @@ function attachinlinekeypicker(
 		ZIndex = 19,
 	})
 	corner(keybutton, 6)
+	keyeditbuttons[keybutton] = true
 	stroke(keybutton, .72, theme.border, .6)
 
 	local keytext = label(
@@ -6931,8 +6875,6 @@ function attachinlinekeypicker(
 		listening = false,
 		callback = keycallback,
 	}
-
-	binding.keybutton = keybutton
 
 	local function renderkey()
 		local value = state.listening and "..." or togglekeyname(binding.key)
@@ -7019,7 +6961,7 @@ function attachinlinekeypicker(
 	end)
 
 	renderkey()
-	refreshkeybindlist()
+	refreshhotkeylist()
 
 	return keybutton, configbutton
 end
@@ -7611,41 +7553,37 @@ function makecheckbox(
 		checked = value == true
 
 		if indicatortween then
-			invoke(function() indicatortween:Cancel() end)
+			invoke(function()
+				indicatortween:Cancel()
+			end)
 			indicatortween = nil
 		end
 
 		local strokecolor = checked and theme.white or theme.border
-		local strokealpha = checked and .26 or .4
 		if boxstroke then
 			syncbinding(boxstroke, "Color", strokecolor)
 			boxstroke.Color = strokecolor
-			if checked then
-				setaccentalphabase(boxstroke, "Transparency", strokealpha)
-				boxstroke.Transparency = effectiveaccentalpha(strokealpha)
-			else
-				boxstroke.Transparency = strokealpha
-			end
+			boxstroke.Transparency = checked and .26 or .4
 		end
 
-		local fillalpha = checked and 0 or 1
-		setaccentalphabase(fill, "BackgroundTransparency", fillalpha)
-		fill.BackgroundTransparency = effectiveaccentalpha(fillalpha)
+		fill.BackgroundTransparency = checked and 0 or 1
 
 		if checkedglow then
-			local glowalpha = checked and .64 or 1
-			checkedglow:SetAttribute("BlushBaseTransparency", glowalpha)
-			checkedglow.Transparency = glowalpha
+			checkedglow.Transparency = checked and .64 or 1
 		end
 
 		local target = checked and .02 or 1
 		if not animationsenabled then
-			setaccentalphabase(check, "ImageTransparency", target)
-			check.ImageTransparency = effectiveaccentalpha(target)
+			check.ImageTransparency = target
 			return
 		end
 
-		indicatortween = tween(check, {ImageTransparency = target}, checkti)
+		indicatortween = tween(
+			check,
+			{ImageTransparency = target},
+			checkti
+		)
+
 		local current = indicatortween
 		if current then
 			current.Completed:Connect(function()
@@ -7850,8 +7788,8 @@ function createcolorstate(
 			)
 		end
 
-		if self.keybinding then
-			requestkeybindrefresh(self.keybinding)
+		if self.hotkeybinding then
+			requesthotkeyrefresh(self.hotkeybinding)
 		end
 
 		local popup =
@@ -10610,7 +10548,7 @@ function createsection(
 		local function setenabled(value, fire)
 			enabled = value == true
 			render(enabled)
-			requestkeybindrefresh(binding)
+			requesthotkeyrefresh(binding)
 
 			if fire ~= false
 				and callback
@@ -10621,7 +10559,7 @@ function createsection(
 
 		binding = {
 			name = name,
-			category = section.page.primary or "",
+			category = section.page.primary or "Misc",
 			categoryicon = section.page.icon,
 			page = section.page,
 			subpage = section.page.secondary,
@@ -10656,11 +10594,6 @@ function createsection(
 		end
 
 		row.Activated:Connect(function()
-			if bindingeditorhit(binding, uis:GetMouseLocation()) then
-				binding.suppressclick = false
-				return
-			end
-
 			if binding.suppressclick then
 				binding.suppressclick = false
 				return
@@ -10914,7 +10847,7 @@ function createsection(
 		local function setenabled(value, fire)
 			enabled = value == true
 			render(enabled)
-			requestkeybindrefresh(binding)
+			requesthotkeyrefresh(binding)
 
 			if fire ~= false
 				and togglecallback
@@ -10925,7 +10858,7 @@ function createsection(
 
 		binding = {
 			name = name,
-			category = section.page.primary or "",
+			category = section.page.primary or "Misc",
 			categoryicon = section.page.icon,
 			page = section.page,
 			subpage = section.page.secondary,
@@ -10938,11 +10871,11 @@ function createsection(
 				return enabled
 			end,
 			set = setenabled,
-			keybindcolor = function()
+			hotkeycolor = function()
 				return colorstate:color()
 			end,
 		}
-		colorstate.keybinding = binding
+		colorstate.hotkeybinding = binding
 		registertogglebinding(binding)
 
 		if not uis.TouchEnabled then
@@ -10965,11 +10898,6 @@ function createsection(
 		end
 
 		togglebutton.Activated:Connect(function()
-			if bindingeditorhit(binding, uis:GetMouseLocation()) then
-				binding.suppressclick = false
-				return
-			end
-
 			if binding.suppressclick then
 				binding.suppressclick = false
 				return
@@ -11070,8 +10998,8 @@ function createsection(
 			ZIndex = 18,
 		})
 		corner(keybutton, 6)
+	keyeditbuttons[keybutton] = true
 		stroke(keybutton, .72, theme.border, .6)
-		binding.keybutton = keybutton
 
 		local keytext = label(
 			keybutton,
@@ -11181,7 +11109,7 @@ function createsection(
 		end)
 
 		renderkey()
-		refreshkeybindlist()
+		refreshhotkeylist()
 
 		control.KeyObject = keybutton
 		return control
@@ -12256,7 +12184,7 @@ function createsection(
 			end
 
 			for _, binding in pairs(optionbindings) do
-				requestkeybindrefresh(binding)
+				requesthotkeyrefresh(binding)
 			end
 
 			return true
@@ -12275,7 +12203,7 @@ function createsection(
 			binding = {
 				kind = "DropdownOption",
 				name = name .. " / " .. tostring(option),
-				category = section.page.primary or "",
+				category = section.page.primary or "Misc",
 				categoryicon = section.page.icon,
 				page = section.page,
 				subpage = section.page.secondary,
@@ -12630,11 +12558,6 @@ function createsection(
 				end)
 
 				optionbutton.Activated:Connect(function()
-					if bindingeditorhit(binding, uis:GetMouseLocation()) then
-						binding.suppressclick = false
-						return
-					end
-
 					if binding.suppressclick then
 						binding.suppressclick = false
 						return
@@ -12710,7 +12633,7 @@ function createsection(
 				updatepreview()
 
 				for _, binding in pairs(optionbindings) do
-					requestkeybindrefresh(binding)
+					requesthotkeyrefresh(binding)
 				end
 			end,
 			Object = holder,
@@ -17431,7 +17354,7 @@ fontpicker = nil
 animationtoggle = nil
 searchtoggle = nil
 menukeypicker = nil
-keybindlisttoggle = nil
+hotkeylisttoggle = nil
 minimizebuttoncontrol = nil
 uitransparencycontrol = nil
 notificationtoggle = nil
@@ -17501,9 +17424,9 @@ function currentuipayload()
 			and notificationtoggle:Get()
 			or notificationsenabled,
 
-		keybindsVisible = keybindlisttoggle
-			and keybindlisttoggle:Get()
-			or keybindlist.Visible,
+		hotkeyList = hotkeylisttoggle
+			and hotkeylisttoggle:Get()
+			or hotkeylist.Visible,
 
 		minimizeButton = minimizebuttoncontrol
 			and minimizebuttoncontrol:Get()
@@ -17795,16 +17718,9 @@ function requestconfigautosave()
 	if loadingsettings
 		or not autosaveconfigcontrol
 		or not autosaveconfigcontrol:Get()
+		or selectedconfig == ""
+		or selectedconfig == "None"
 	then
-		return
-	end
-
-	local target = selectedconfig
-	if target == "" or target == "None" then
-		target = configinput and sanitizefilename(configinput.Text) or ""
-	end
-
-	if target == "" or target == "None" then
 		return
 	end
 
@@ -17820,25 +17736,25 @@ function requestconfigautosave()
 
 	env.__blush_autosave_task =
 		task.delay(.22, function()
-			if serial ~= env.__blush_autosave_serial
-				or loadingsettings
-				or not autosaveconfigcontrol
-				or not autosaveconfigcontrol:Get()
-			then
+			if serial ~= env.__blush_autosave_serial then
 				return
 			end
 
 			env.__blush_autosave_task = nil
 
-			local name = selectedconfig
-			local creating = name == "" or name == "None"
-			if creating then
-				name = configinput and sanitizefilename(configinput.Text) or ""
+			if loadingsettings
+				or not autosaveconfigcontrol
+				or not autosaveconfigcontrol:Get()
+				or selectedconfig == ""
+				or selectedconfig == "None"
+			then
+				return
 			end
 
-			if name ~= "" and name ~= "None" then
-				saveconfigfile(name, not creating)
-			end
+			saveconfigfile(
+				selectedconfig,
+				true
+			)
 		end)
 end
 
@@ -18548,8 +18464,8 @@ animationtoggle = interfaceflags:AddToggle(
 			if updatetopnavigationstate then
 				updatetopnavigationstate(false)
 			end
-			if refreshkeybindlist then
-				refreshkeybindlist()
+			if refreshhotkeylist then
+				refreshhotkeylist()
 			end
 		end
 
@@ -18586,20 +18502,18 @@ notificationtoggle = interfaceflags2:AddToggle(
 
 interfaceflags3 = settingssection:AddRow(10, 24)
 
-keybindlisttoggle = interfaceflags3:AddToggle(
+hotkeylisttoggle = interfaceflags3:AddToggle(
 	"Keybinds",
-	savedsettings.keybindsVisible == true
-		or typeof(savedsettings.keybinds) == "boolean" and savedsettings.keybinds == true
+	savedsettings.hotkeyList == true
 		or savedsettings.checkboxList == true,
 	function(value)
-		setkeybindlistvisible(value)
+		sethotkeylistvisible(value)
 		saveuisettings()
 	end
 )
 
-setkeybindlistvisible(
-	savedsettings.keybindsVisible == true
-		or typeof(savedsettings.keybinds) == "boolean" and savedsettings.keybinds == true
+sethotkeylistvisible(
+	savedsettings.hotkeyList == true
 		or savedsettings.checkboxList == true
 )
 
@@ -19149,6 +19063,14 @@ savessection =
 		icons.wrench
 	)
 
+autosaveconfigcontrol = savessection:AddToggle(
+	"Auto save",
+	rawsavedsettings.autoSaveConfig == true,
+	function()
+		saveuisettings(true)
+	end
+)
+
 configinput = savessection:AddInput(
 	"Config name",
 	selectedconfig,
@@ -19215,17 +19137,6 @@ savessection:AddButton(
 			2.4,
 			nil, nil, icons.wrench
 		)
-	end
-)
-
-autosaveconfigcontrol = savessection:AddToggle(
-	"Auto Save",
-	rawsavedsettings.autoSaveConfig == true,
-	function(value)
-		saveuisettings(true)
-		if value == true then
-			requestconfigautosave()
-		end
 	end
 )
 
@@ -19321,12 +19232,12 @@ function applysaveduisettings(data, silent)
 		notificationtoggle:Set(data.notifications ~= false, true)
 	end
 
-	if keybindlisttoggle then
-		local visible = data.keybindsVisible == true
-			or typeof(data.keybinds) == "boolean" and data.keybinds == true
+	if hotkeylisttoggle then
+		local visible = data.hotkeyList == true
 			or data.checkboxList == true
 
-		keybindlisttoggle:Set(visible, true)
+		hotkeylisttoggle:Set(visible, true)
+		sethotkeylistvisible(visible)
 	end
 
 	if data.minimizeButton ~= nil then
@@ -19766,27 +19677,16 @@ function playvisibilityfade(show, token)
 	)
 
 	local roots = {
-		{window, "GroupTransparency", show and uitransparency or 1},
-		{popuplayer, "GroupTransparency", show and uitransparency or 1},
-		{draglayer, "GroupTransparency", show and 0 or 1},
+		{window, show and uitransparency or 1},
+		{popuplayer, show and uitransparency or 1},
+		{draglayer, show and 0 or 1},
 	}
-
-	for _, object in ipairs({windowstroke, windowshadow, windowglow}) do
-		if object and object.Parent then
-			local base = object:GetAttribute("BlushBaseTransparency")
-			if type(base) ~= "number" then
-				base = object.Transparency
-				object:SetAttribute("BlushBaseTransparency", base)
-			end
-			roots[#roots + 1] = {object, "Transparency", show and base or 1}
-		end
-	end
 
 	if not animationsenabled then
 		for _, entry in ipairs(roots) do
-			local object, property, target = entry[1], entry[2], entry[3]
+			local object = entry[1]
 			if object and object.Parent then
-				object[property] = target
+				object.GroupTransparency = entry[2]
 			end
 		end
 
@@ -19804,10 +19704,21 @@ function playvisibilityfade(show, token)
 
 	local primary = nil
 	for _, entry in ipairs(roots) do
-		local object, property, target = entry[1], entry[2], entry[3]
+		local object = entry[1]
+		local target = entry[2]
+
 		if object and object.Parent then
-			local animation = tweenservice:Create(object, info, {[property] = target})
-			table.insert(env.__blush_fadeanimations, animation)
+			local animation = tweenservice:Create(
+				object,
+				info,
+				{GroupTransparency = target}
+			)
+
+			table.insert(
+				env.__blush_fadeanimations,
+				animation
+			)
+
 			primary = primary or animation
 			animation:Play()
 		end
@@ -19819,9 +19730,9 @@ function playvisibilityfade(show, token)
 		end
 
 		for _, entry in ipairs(roots) do
-			local object, property, target = entry[1], entry[2], entry[3]
+			local object = entry[1]
 			if object and object.Parent then
-				object[property] = target
+				object.GroupTransparency = entry[2]
 			end
 		end
 
@@ -20351,7 +20262,7 @@ function fitmobilewindow()
 		)
 	)
 
-	keybindlistwidth = math.min(
+	hotkeylistwidth = math.min(
 		235,
 		math.max(
 			190,
@@ -20359,9 +20270,9 @@ function fitmobilewindow()
 		)
 	)
 
-	keybindlist.Size = UDim2.fromOffset(
-		keybindlistwidth,
-		keybindlist.Size.Y.Offset
+	hotkeylist.Size = UDim2.fromOffset(
+		hotkeylistwidth,
+		hotkeylist.Size.Y.Offset
 	)
 
 	if watermark then
@@ -21389,22 +21300,41 @@ otherheader.Activated:Connect(function()
 end)
 
 function refreshlibrarytabsectionorders()
+	maingroup.LayoutOrder = 1
+
 	for index, sectiontab in ipairs(librarycustomtabsections) do
-		sectiontab.Header.LayoutOrder = 1000 + index * 2
-		sectiontab.Group.LayoutOrder = 1001 + index * 2
+		sectiontab.Header.LayoutOrder = index * 2
+		sectiontab.Group.LayoutOrder = index * 2 + 1
 	end
-	settingsbutton.LayoutOrder = 100000
+
+	local offset = #librarycustomtabsections * 2
+	otherheader.LayoutOrder = offset + 2
+	othergroup.LayoutOrder = offset + 3
 end
 
-function createlibrarytabsection(name, sectionicon)
-	if type(name) == "table" then
-		local config = name
-		sectionicon = config.Icon or config.Asset
-		name = config.Name or config.Title
-	end
-
+function createlibrarytabsection(name)
 	name = tostring(name or "Section")
 	local key = string.lower(name)
+
+	if key == "main" then
+		return {
+			Name = categorytext.Text,
+			Content = maincontent,
+			Group = maingroup,
+			Header = category,
+			Builtin = true,
+		}
+	end
+
+	if key == "other" then
+		return {
+			Name = othertext.Text,
+			Content = othercontent,
+			Group = othergroup,
+			Header = otherheader,
+			Builtin = true,
+		}
+	end
 
 	local existing = librarytabsectionlookup[key]
 	if existing then
@@ -21415,7 +21345,6 @@ function createlibrarytabsection(name, sectionicon)
 		createsidebartabsectionobjects(name)
 	local sectiontab = {
 		Name = name,
-		Icon = sectionicon and librarynormalizeicon(sectionicon) or nil,
 		Header = header,
 		TextObject = textobject,
 		Arrow = arrow,
@@ -21453,11 +21382,6 @@ function createlibrarytabsection(name, sectionicon)
 		self.Header.Visible = visible and not sidebarcompact
 		self.Group.Visible = visible
 		refreshsidegroups(false)
-	end
-
-	function sectiontab:SetIcon(value)
-		self.Icon = value ~= nil and librarynormalizeicon(value) or nil
-		refreshkeybindlist()
 	end
 
 	function sectiontab:SetGradient(value)
@@ -24796,12 +24720,23 @@ function librarysetbrand(title, versiontext)
 end
 
 function libraryrefreshothergroupvisibility()
-	otherheader.Visible = false
-	othergroup.Visible = false
-	if settingsbutton.Parent ~= nav then
-		settingsbutton.Parent = nav
+	local visible = settingsbutton.Visible
+
+	if not visible then
+		for _, tab in ipairs(librarytaborder) do
+			if tab.Group == "other"
+				and tab.Button
+				and tab.Button.Parent
+				and tab.Button.Visible
+			then
+				visible = true
+				break
+			end
+		end
 	end
-	settingsbutton.LayoutOrder = 100000
+
+	otherheader.Visible = visible and not sidebarcompact
+	othergroup.Visible = visible
 	refreshsidegroups(false)
 end
 
@@ -24817,11 +24752,13 @@ function librarysetsettingstab(config)
 	local enabled = config.Enabled ~= false
 	local name = tostring(config.Name or config.Title or "Settings")
 	local icon = librarynormalizeicon(config.Icon or "settings")
+	local groupname = tostring(config.GroupName or config.CategoryName or "Other")
 	local sections = config.Sections
 
 	settingsbutton.Visible = enabled
 	settingstext.Text = name
 	settingsicon.Image = icon
+	othertext.Text = groupname
 
 	if type(sections) == "table" then
 		settingssection.frame.Visible = sections.Interface ~= false
@@ -24924,6 +24861,7 @@ function librarygetsettingstab()
 			Enabled = value == true,
 			Name = settingstext.Text,
 			Icon = settingsicon.Image,
+			GroupName = othertext.Text,
 		})
 	end
 
@@ -24962,13 +24900,6 @@ function libraryresetnavigation()
 	currentsub = nil
 	currentpage = nil
 
-	category.Visible = false
-	maingroup.Visible = false
-	otherheader.Visible = false
-	othergroup.Visible = false
-	settingsbutton.Parent = nav
-	settingsbutton.LayoutOrder = 100000
-
 	topnavigation.Visible = false
 	breadcrumb.Visible = true
 
@@ -24995,18 +24926,25 @@ function librarycreatetab(windowapi, options, icon, group)
 	local requestedgroup = options.Group
 		or options.Section
 		or (libraryactivetabsection and libraryactivetabsection.Name)
-	local destination = requestedgroup and string.lower(tostring(requestedgroup)) or ""
-	local sectiontab = destination ~= "" and librarytabsectionlookup[destination] or nil
-	local parentobject = sectiontab and sectiontab.Content or nav
+		or "main"
+	local destination = string.lower(tostring(requestedgroup))
+	local sectiontab = librarytabsectionlookup[destination]
+	local parentobject
 
-	if not sectiontab then
-		destination = ""
+	if destination == "other" then
+		parentobject = othercontent
+	elseif destination == "main" then
+		parentobject = maincontent
+	elseif sectiontab then
+		parentobject = sectiontab.Content
+	else
+		destination = "main"
+		parentobject = maincontent
 	end
 
 	local pageid = "__blush_library_tab_" .. tostring(librarytabserial)
 	local page = createpage(pageid, name, nil)
 	page.icon = asset
-	page.keybindgroup = sectiontab
 
 	local button
 	local textobject
@@ -25043,11 +24981,15 @@ function librarycreatetab(windowapi, options, icon, group)
 
 	bindnavhover(button, false)
 
-	if sectiontab then
+	if destination == "main" then
+		table.insert(mainnavorder, button)
+		bindnavdrag(button, mainnavorder)
+		applynavorder()
+	elseif sectiontab then
 		table.insert(sectiontab.Order, button)
 		button.LayoutOrder = #sectiontab.Order * 10
 	else
-		button.LayoutOrder = 100 + #librarytaborder
+		button.LayoutOrder = #librarytaborder + 1
 	end
 
 	local tab = {
@@ -25150,7 +25092,7 @@ function librarycreatetab(windowapi, options, icon, group)
 				assetvalue
 			)
 
-		refreshkeybindlist()
+		refreshhotkeylist()
 	end
 
 	function tab:SetGradient(value)
@@ -25163,6 +25105,11 @@ function librarycreatetab(windowapi, options, icon, group)
 
 	function tab:SetVisible(value)
 		button.Visible = value ~= false
+
+		if self.Group == "other" then
+			libraryrefreshothergroupvisibility()
+		end
+
 		refreshsidegroups(false)
 	end
 
@@ -25180,6 +25127,10 @@ function librarycreatetab(windowapi, options, icon, group)
 
 	librarytabs[name] = tab
 	table.insert(librarytaborder, tab)
+
+	if destination == "other" then
+		libraryrefreshothergroupvisibility()
+	end
 
 	if not windowapi._firsttab then
 		windowapi._firsttab = tab
@@ -25488,12 +25439,12 @@ function library:CreateWindow(options)
 		updatewatermarklayout()
 	end
 
-	if options.Keybinds ~= nil then
-		local visible = options.Keybinds == true
-		setkeybindlistvisible(visible)
+	if options.HotkeyList ~= nil then
+		local visible = options.HotkeyList == true
+		sethotkeylistvisible(visible)
 
-		if keybindlisttoggle then
-			keybindlisttoggle:Set(visible, false)
+		if hotkeylisttoggle then
+			hotkeylisttoggle:Set(visible, false)
 		end
 	end
 
@@ -25518,8 +25469,8 @@ function library:CreateWindow(options)
 
 	librarywindow.Settings = librarygetsettingstab()
 
-	function librarywindow:AddSectionTab(name, icon)
-		local sectiontab = createlibrarytabsection(name, icon)
+	function librarywindow:AddSectionTab(name)
+		local sectiontab = createlibrarytabsection(name)
 		libraryactivetabsection = sectiontab
 		return sectiontab
 	end
@@ -25928,12 +25879,12 @@ function library:CreateWindow(options)
 		return true
 	end
 
-	function librarywindow:SetKeybinds(value)
+	function librarywindow:SetHotkeyList(value)
 		local visible = value == true
-		setkeybindlistvisible(visible)
+		sethotkeylistvisible(visible)
 
-		if keybindlisttoggle then
-			keybindlisttoggle:Set(visible, false)
+		if hotkeylisttoggle then
+			hotkeylisttoggle:Set(visible, false)
 		end
 	end
 
