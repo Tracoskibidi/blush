@@ -8778,7 +8778,7 @@ function opencolorpicker(
 	end
 
 	optiontoggle(
-		"Alpha Fading",
+		"Fading",
 		UDim2.fromOffset(
 			0,
 			0
