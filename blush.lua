@@ -219,28 +219,29 @@ end
 watermarkgui.Parent = parent
 
 theme = {
-	window = Color3.fromRGB(15, 15, 16),
-	sidebar = Color3.fromRGB(12, 12, 13),
+	-- exact Default preset from first render; all theme bindings start in the correct role
+	window = Color3.fromRGB(13, 13, 15),
+	sidebar = Color3.fromRGB(10, 10, 11),
 
-	section = Color3.fromRGB(30, 30, 31),
-	input = Color3.fromRGB(19, 19, 20),
-	hover = Color3.fromRGB(36, 36, 38),
+	section = Color3.fromRGB(26, 26, 28),
+	input = Color3.fromRGB(19, 19, 21),
+	hover = Color3.fromRGB(31, 31, 34),
 
-	track = Color3.fromRGB(51, 51, 53),
-	border = Color3.fromRGB(47, 47, 49),
+	track = Color3.fromRGB(44, 44, 47),
+	border = Color3.fromRGB(41, 41, 44),
 
-	scroll = Color3.fromRGB(47, 47, 50),
-	scrollTrack = Color3.fromRGB(28, 28, 30),
-	popup = Color3.fromRGB(16, 16, 17),
-	notification = Color3.fromRGB(22, 22, 23),
+	scroll = Color3.fromRGB(42, 42, 45),
+	scrollTrack = Color3.fromRGB(24, 24, 26),
+	popup = Color3.fromRGB(16, 16, 18),
+	notification = Color3.fromRGB(22, 22, 24),
 
-	text = Color3.fromRGB(240, 240, 242),
-	text2 = Color3.fromRGB(186, 186, 190),
-	text3 = Color3.fromRGB(118, 118, 124),
+	text = Color3.fromRGB(235, 235, 239),
+	text2 = Color3.fromRGB(173, 173, 176),
+	text3 = Color3.fromRGB(113, 113, 116),
 
-	white = Color3.fromRGB(245, 245, 247),
+	white = Color3.fromRGB(246, 246, 248),
 	black = Color3.fromRGB(14, 14, 15),
-	font = Color3.fromRGB(240, 240, 242),
+	font = Color3.fromRGB(235, 235, 239),
 
 	accentAlpha = 1,
 	backgroundAlpha = 1,
@@ -978,20 +979,6 @@ function applytheme(
 
 		if not binding.object.Parent then
 			table.remove(themebindings, i)
-		else
-			local ok, current = invoke(function()
-				return binding.object[binding.property]
-			end)
-
-			if ok
-				and current ~= theme[binding.role]
-			then
-				local role = themerole(current)
-
-				if role then
-					binding.role = role
-				end
-			end
 		end
 	end
 
@@ -1074,6 +1061,10 @@ function applytheme(
 	applyfontalpha(
 		theme.fontAlpha
 	)
+
+	if refreshcheckboxcolors then
+		refreshcheckboxcolors()
+	end
 
 	if updatebackgroundtone then
 		updatebackgroundtone()
@@ -3064,6 +3055,7 @@ category = new("TextButton", {
 	BorderSizePixel = 0,
 	Text = "",
 	AutoButtonColor = false,
+	Visible = false,
 	ZIndex = 13,
 })
 
@@ -3091,8 +3083,8 @@ categoryarrow.ImageTransparency = .18
 
 nav = new("ScrollingFrame", {
 	Parent = sidebar,
-	Position = UDim2.fromOffset(14, 126),
-	Size = UDim2.new(1, -28, 1, -198),
+	Position = UDim2.fromOffset(14, 92),
+	Size = UDim2.new(1, -28, 1, -164),
 	BackgroundTransparency = 1,
 	BorderSizePixel = 0,
 	CanvasSize = UDim2.fromOffset(0, 0),
@@ -4573,6 +4565,16 @@ connect(uis.InputBegan, function(input)
 		return
 	end
 
+	if kind == Enum.UserInputType.MouseButton1
+		and activepopup.toggleconfig
+		and activepopup.binding
+		and activepopup.binding.configbutton
+		and activepopup.binding.configbutton.Parent
+		and inside(activepopup.binding.configbutton, inputpoint)
+	then
+		return
+	end
+
 	local content = activepopup.content
 	if content
 		and content.Parent
@@ -5321,7 +5323,7 @@ function updatehotkeygroup(data, category, binding)
 	end
 
 	local textx = data.icon and 23 or 4
-	data.text.Text = tostring(category == "Misc" and "Other" or category)
+	data.text.Text = tostring(category)
 	data.text.Position = UDim2.fromOffset(textx, 8)
 	data.text.Size = UDim2.new(1, -textx - 4, 0, 24)
 end
@@ -5516,9 +5518,6 @@ function refreshhotkeylist()
 					or "Misc"
 			)
 
-			if category == "Extras" then
-				category = "Other"
-			end
 			local groupkey =
 				binding.page
 				or category
@@ -5742,6 +5741,104 @@ function bindingmatchesinput(key, input)
 
 	return false
 end
+
+keybindblacklistdefaults = {
+	"MouseButton1",
+	"W",
+	"A",
+	"S",
+	"D",
+	"Space",
+}
+
+keybindblacklist = {}
+keybindblacklistoptions = {"M1", "M2", "M3"}
+keybindblacklistnames = {}
+
+for _, key in ipairs(Enum.KeyCode:GetEnumItems()) do
+	if key ~= Enum.KeyCode.Unknown then
+		keybindblacklistnames[#keybindblacklistnames + 1] = key.Name
+	end
+end
+
+table.sort(keybindblacklistnames)
+
+for _, name in ipairs(keybindblacklistnames) do
+	keybindblacklistoptions[#keybindblacklistoptions + 1] = name
+end
+
+function keybindblacklistcanonical(value)
+	value = tostring(value or "")
+
+	if value == "M1" then
+		return "MouseButton1"
+	elseif value == "M2" then
+		return "MouseButton2"
+	elseif value == "M3" then
+		return "MouseButton3"
+	end
+
+	return value
+end
+
+function keybindblacklistlabel(value)
+	value = tostring(value or "")
+
+	if value == "MouseButton1" then
+		return "M1"
+	elseif value == "MouseButton2" then
+		return "M2"
+	elseif value == "MouseButton3" then
+		return "M3"
+	end
+
+	return value
+end
+
+function setkeybindblacklist(values)
+	table.clear(keybindblacklist)
+
+	for _, value in ipairs(
+		type(values) == "table"
+			and values
+			or keybindblacklistdefaults
+	) do
+		keybindblacklist[keybindblacklistcanonical(value)] = true
+	end
+end
+
+function getkeybindblacklistlabels()
+	local result = {}
+
+	for _, labelvalue in ipairs(keybindblacklistoptions) do
+		if keybindblacklist[keybindblacklistcanonical(labelvalue)] then
+			result[#result + 1] = labelvalue
+		end
+	end
+
+	return result
+end
+
+function getkeybindblacklistnames()
+	local result = {}
+
+	for _, labelvalue in ipairs(keybindblacklistoptions) do
+		local name = keybindblacklistcanonical(labelvalue)
+
+		if keybindblacklist[name] then
+			result[#result + 1] = name
+		end
+	end
+
+	return result
+end
+
+function iskeybindblacklisted(key)
+	return key ~= nil
+		and keybindblacklist[key.Name] == true
+end
+
+setkeybindblacklist(keybindblacklistdefaults)
 
 keycaptureowner = nil
 
@@ -6665,6 +6762,8 @@ function addtoggleconfigicon(
 		ZIndex = 20,
 	})
 
+	keyeditbuttons[button] = true
+
 	local iconobject = image(
 		button,
 		icons.keyboard,
@@ -6749,6 +6848,8 @@ connect(
 			local selected = physical
 			if physical == Enum.KeyCode.Backspace or physical == Enum.KeyCode.Delete then
 				selected = nil
+			elseif iskeybindblacklisted(physical) then
+				return
 			end
 
 			local selectcallback = capture.select
@@ -7489,6 +7590,44 @@ end
 
 -- checkbox
 
+env.__blush_checkboxstates =
+	env.__blush_checkboxstates
+	or setmetatable({}, { __mode = "k" })
+
+function refreshcheckboxcolors()
+	for box, data in pairs(env.__blush_checkboxstates) do
+		if not box.Parent then
+			env.__blush_checkboxstates[box] = nil
+		else
+			local checked = data.checked == true
+			local strokecolor = checked and theme.white or theme.border
+
+			if data.stroke and data.stroke.Parent then
+				syncbinding(data.stroke, "Color", strokecolor)
+				data.stroke.Color = strokecolor
+				data.stroke.Transparency = checked and .26 or .4
+			end
+
+			if data.fill and data.fill.Parent then
+				syncbinding(data.fill, "BackgroundColor3", theme.white)
+				data.fill.BackgroundColor3 = theme.white
+				data.fill.BackgroundTransparency = checked and 0 or 1
+			end
+
+			if data.glow and data.glow.Parent then
+				syncbinding(data.glow, "Color", theme.white)
+				data.glow.Color = theme.white
+				data.glow.Transparency = checked and .64 or 1
+			end
+
+			if data.check and data.check.Parent then
+				syncbinding(data.check, "ImageColor3", theme.black)
+				data.check.ImageColor3 = theme.black
+			end
+		end
+	end
+end
+
 function makecheckbox(
 	parentobject,
 	size,
@@ -7549,8 +7688,19 @@ function makecheckbox(
 		ZIndex = 18,
 	})
 
+	local checkboxstate = {
+		checked = checked,
+		stroke = boxstroke,
+		fill = fill,
+		glow = checkedglow,
+		check = check,
+	}
+
+	env.__blush_checkboxstates[box] = checkboxstate
+
 	local function render(value)
 		checked = value == true
+		checkboxstate.checked = checked
 
 		if indicatortween then
 			invoke(function()
@@ -9124,6 +9274,11 @@ function beginsectiondrag(drag)
 		section.frame.AbsoluteSize
 
 	drag.width = originalsize.X
+	drag.expandedheight = math.max(
+		43,
+		section.targetheight or originalsize.Y,
+		originalsize.Y
+	)
 
 	drag.grab =
 		drag.current
@@ -9422,11 +9577,28 @@ function attachsectiontransition(drag)
 	end
 
 	section:SetCollapsed(drag.wascollapsed, false, false)
+
+	local preservedheight = drag.wascollapsed
+		and 43
+		or math.max(
+			43,
+			drag.expandedheight or 43
+		)
+
+	section.targetheight = preservedheight
+	section.frame.Size = UDim2.new(1, -7, 0, preservedheight)
+	section.clip.Size = UDim2.new(
+		1,
+		0,
+		0,
+		drag.wascollapsed and 0 or math.max(0, preservedheight - 43)
+	)
+	section.clip.ClipsDescendants = drag.wascollapsed
 	section.page:reflow(section.column, false)
 	applyuitransparency(uitransparency * 100)
 
 	local target = section.frame.AbsolutePosition - draglayer.AbsolutePosition
-	local targetheight = section.targetheight or section.frame.AbsoluteSize.Y
+	local targetheight = preservedheight
 	local targetsize = UDim2.fromOffset(section.frame.AbsoluteSize.X, targetheight)
 	local clone = drag.clone
 
@@ -9457,6 +9629,12 @@ function attachsectiontransition(drag)
 		finished = true
 		section.dragging = false
 		section.frame.Visible = true
+
+		if section.RefreshLayout then
+			section:RefreshLayout(false, false)
+		end
+
+		section.clip.ClipsDescendants = section.collapsed
 		section.page:reflow(section.column, false)
 		applyuitransparency(uitransparency * 100)
 
@@ -9911,7 +10089,7 @@ function createsection(
 			for property, value in pairs(properties) do
 				object[property] = value
 			end
-			return
+			return nil
 		end
 
 		local animation = tween(object, properties, tabti)
@@ -9924,6 +10102,8 @@ function createsection(
 				end
 			end)
 		end
+
+		return animation
 	end
 
 	table.insert(
@@ -10032,12 +10212,32 @@ function createsection(
 			)
 
 		sectiontransition("frame", frame, {Size = framesize}, animate)
-		sectiontransition("clip", clip, {Size = clipsize}, animate)
+
+		local clipanimation
+		if animate and animationsenabled then
+			clip.ClipsDescendants = true
+			clipanimation = sectiontransition("clip", clip, {Size = clipsize}, true)
+		else
+			clip.ClipsDescendants = section.collapsed
+			sectiontransition("clip", clip, {Size = clipsize}, false)
+		end
+
+		if clipanimation and not section.collapsed then
+			clipanimation.Completed:Connect(function()
+				if not section.collapsed and clip.Parent then
+					clip.ClipsDescendants = false
+				end
+			end)
+		end
 
 		page:reflow(
 			section.column,
 			layoutanimate == true
 		)
+	end
+
+	function section:RefreshLayout(animate, layoutanimate)
+		resize(animate == true, layoutanimate == true)
 	end
 
 	function section:SetCollapsed(
@@ -10056,7 +10256,6 @@ function createsection(
 		-- The body clip handles the collapse. Keep the outer section unclipped so
 		-- shadows/glows do not change appearance during the animation.
 		frame.ClipsDescendants = false
-		clip.ClipsDescendants = true
 
 		sectiontransition(
 			"collapse",
@@ -12418,7 +12617,7 @@ function createsection(
 				local color = optioncolors[option]
 
 				if asset then
-					local optionicon = rawnew("ImageLabel", {
+					local optionicon = new("ImageLabel", {
 						Parent = optionbutton,
 						AnchorPoint = Vector2.new(0, .5),
 						Position = UDim2.fromOffset(x, 16),
@@ -14740,7 +14939,7 @@ function createsection(
 			local titleobject = label(holder, tostring(name), UDim2.new(1, 0, 0, 18), font, theme.text2)
 			titleobject.TextSize = 16
 		end
-		local imageobject = rawnew("ImageLabel", {
+		local imageobject = new("ImageLabel", {
 			Parent = holder,
 			Position = UDim2.fromOffset(0, hasname and 24 or 0),
 			Size = UDim2.new(1, 0, 0, imageheight),
@@ -17290,6 +17489,12 @@ menukey =
 	keyfromname(savedsettings.menuKey)
 	or Enum.KeyCode.RightShift
 
+setkeybindblacklist(
+	type(savedsettings.keybindBlacklist) == "table"
+		and savedsettings.keybindBlacklist
+		or keybindblacklistdefaults
+)
+
 initialtransparency = math.clamp(
 	tonumber(savedsettings.uiTransparency) or 0,
 	0,
@@ -17354,6 +17559,7 @@ fontpicker = nil
 animationtoggle = nil
 searchtoggle = nil
 menukeypicker = nil
+keybindblacklistcontrol = nil
 hotkeylisttoggle = nil
 minimizebuttoncontrol = nil
 uitransparencycontrol = nil
@@ -17483,6 +17689,8 @@ function currentuipayload()
 		menuKey = selectedmenukey
 			and selectedmenukey.Name
 			or Enum.KeyCode.RightShift.Name,
+
+		keybindBlacklist = getkeybindblacklistnames(),
 
 		theme = themeselector
 			and themeselector:Get()
@@ -18550,6 +18758,16 @@ menukeypicker = settingssection:AddKeyPicker(
 	end
 )
 
+keybindblacklistcontrol = settingssection:AddMultiDropdown(
+	"Blacklisted keys",
+	keybindblacklistoptions,
+	getkeybindblacklistlabels(),
+	function(values)
+		setkeybindblacklist(values)
+		saveuisettings()
+	end
+)
+
 windowglowtoggle = settingssection:AddToggleColor(
 	"Window glow",
 	windowglowenabled,
@@ -19331,6 +19549,19 @@ function applysaveduisettings(data, silent)
 		backgroundimageblurcontrol:Set(loadedimageblur, false)
 	end
 
+	setkeybindblacklist(
+		type(data.keybindBlacklist) == "table"
+			and data.keybindBlacklist
+			or keybindblacklistdefaults
+	)
+
+	if keybindblacklistcontrol then
+		keybindblacklistcontrol:Set(
+			getkeybindblacklistlabels(),
+			false
+		)
+	end
+
 	if menukeypicker then
 		menukeypicker:Set(
 			keyfromname(data.menuKey)
@@ -19418,90 +19649,26 @@ function applysaveduisettings(data, silent)
 	end
 end
 
-savedtheme =
-	type(savedsettings.theme) == "string"
-	and savedsettings.theme
-	or "Default"
+savedtheme = "Default"
 
-if savedtheme == "Monochrome" then
-	savedtheme = "Default"
-elseif savedtheme == "OLED"
-	or savedtheme == "Black"
-then
-	savedtheme = "Default"
-elseif savedtheme == "Graphite" then
-	savedtheme = "Dark"
-end
+themeselector:Set("Default", false)
 
-if themepresets[savedtheme] then
-	themeselector:Set(savedtheme, true)
-else
-	themeselector:Set("Default", true)
-end
-
-if savedsettings.accent
-	or savedsettings.background
-	or savedsettings.font
-	or savedsettings.accentAlpha ~= nil
-	or savedsettings.backgroundAlpha ~= nil
-	or savedsettings.fontAlpha ~= nil
-then
-	local savedbackground =
-		decodecolor(savedsettings.background)
-		or theme.window
-
-	local savedaccent =
-		decodecolor(savedsettings.accent)
-		or theme.white
-
-	local savedfont =
-		decodecolor(savedsettings.font)
-		or theme.font
-
-	local savedaccentalpha =
-		math.clamp(
-			tonumber(savedsettings.accentAlpha) or 1,
-			0,
-			1
-		)
-
-	local savedbackgroundalpha =
-		math.clamp(
-			tonumber(savedsettings.backgroundAlpha) or 1,
-			0,
-			1
-		)
-
-	local savedfontalpha =
-		math.clamp(
-			tonumber(savedsettings.fontAlpha) or 1,
-			0,
-			1
-		)
+do
+	local preset = themepresets.Default
 
 	applytheme(
-		savedbackground,
-		savedaccent,
-		savedbackgroundalpha,
-		savedaccentalpha,
-		savedfont,
-		savedfontalpha
-	)
-	accentpicker:Set(
-		savedaccent,
-		savedaccentalpha,
+		preset.background,
+		preset.accent,
+		1,
+		1,
+		preset.font,
+		1,
 		false
 	)
-	backgroundpicker:Set(
-		savedbackground,
-		savedbackgroundalpha,
-		false
-	)
-	fontpicker:Set(
-		savedfont,
-		savedfontalpha,
-		false
-	)
+
+	accentpicker:Set(preset.accent, 1, false)
+	backgroundpicker:Set(preset.background, 1, false)
+	fontpicker:Set(preset.font, 1, false)
 end
 
 if backgroundimagesource ~= "" then
@@ -21197,6 +21364,7 @@ otherheader,
 	createsidebartabsectionobjects("Other")
 
 othercategorycollapsed = false
+otherheader.Visible = false
 
 librarycustomtabsections = {}
 librarytabsectionlookup = {}
@@ -22036,7 +22204,7 @@ function applynavorder()
 	settingsbutton.LayoutOrder = 1
 end
 
-function bindnavdrag(button, ordertable)
+function bindnavdrag(button, ordertable, applyorder)
 	button.InputBegan:Connect(function(input)
 		if uis.TouchEnabled then
 			return
@@ -22051,6 +22219,7 @@ function bindnavdrag(button, ordertable)
 		navtabdrag = {
 			button = button,
 			order = ordertable,
+			apply = applyorder,
 			input = input,
 			start = point(input),
 			started = false,
@@ -22135,7 +22304,12 @@ connect(uis.InputChanged, function(input)
 		table.remove(navtabdrag.order, oldindex)
 		targetindex = math.clamp(targetindex, 1, #navtabdrag.order + 1)
 		table.insert(navtabdrag.order, targetindex, navtabdrag.button)
-		applynavorder()
+
+		if navtabdrag.apply then
+			navtabdrag.apply()
+		else
+			applynavorder()
+		end
 
 		animatereorder(
 			oldpositions,
@@ -22605,7 +22779,7 @@ function applysidebarlayout(width, animate)
 	versiondivider.Visible = not sidebarcompact
 	username.Visible = not sidebarcompact
 
-	category.Visible = not sidebarcompact
+	category.Visible = false
 
 	footername.Visible = not sidebarcompact
 	footerusername.Visible = not sidebarcompact
@@ -22632,11 +22806,11 @@ function applysidebarlayout(width, animate)
 
 	nav.Position = sidebarcompact
 		and UDim2.fromOffset(10, 82)
-		or UDim2.fromOffset(14, 126)
+		or UDim2.fromOffset(14, 92)
 
 	nav.Size = sidebarcompact
 		and UDim2.new(1, -20, 1, -154)
-		or UDim2.new(1, -28, 1, -198)
+		or UDim2.new(1, -28, 1, -164)
 
 	sublist.Position = sidebarcompact
 		and UDim2.fromOffset(0, 3)
@@ -22668,7 +22842,7 @@ function applysidebarlayout(width, animate)
 		end
 	end
 
-	otherheader.Visible = not sidebarcompact and otheravailable
+	otherheader.Visible = false
 
 	for _, sectiontab in ipairs(librarycustomtabsections or {}) do
 		sectiontab.Header.Visible = not sidebarcompact
@@ -24735,7 +24909,7 @@ function libraryrefreshothergroupvisibility()
 		end
 	end
 
-	otherheader.Visible = visible and not sidebarcompact
+	otherheader.Visible = false
 	othergroup.Visible = visible
 	refreshsidegroups(false)
 end
@@ -24987,7 +25161,15 @@ function librarycreatetab(windowapi, options, icon, group)
 		applynavorder()
 	elseif sectiontab then
 		table.insert(sectiontab.Order, button)
-		button.LayoutOrder = #sectiontab.Order * 10
+
+		local function applysectionorder()
+			for index, item in ipairs(sectiontab.Order) do
+				item.LayoutOrder = index * 10
+			end
+		end
+
+		applysectionorder()
+		bindnavdrag(button, sectiontab.Order, applysectionorder)
 	else
 		button.LayoutOrder = #librarytaborder + 1
 	end
