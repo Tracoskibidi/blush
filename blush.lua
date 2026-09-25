@@ -246,8 +246,8 @@ theme = {
 	text2 = Color3.fromRGB(173, 173, 176),
 	text3 = Color3.fromRGB(113, 113, 116),
 
-	-- Main is reserved for selection/highlight indicators only.
-	main = Color3.fromRGB(245, 245, 247),
+	-- Main drives interactive/control surfaces; lighter roles are derived from it.
+	main = Color3.fromRGB(19, 19, 21),
 	white = Color3.fromRGB(246, 246, 248),
 	black = Color3.fromRGB(14, 14, 15),
 	font = Color3.fromRGB(235, 235, 239),
@@ -929,7 +929,7 @@ function tween(object, properties, info, raw)
 	return animation
 end
 
-function buildtheme(background, accent, fontcolor)
+function buildtheme(background, accent, fontcolor, maincolor)
 	local h, s, v = background:ToHSV()
 	local direction = v > .56 and -1 or 1
 
@@ -938,6 +938,18 @@ function buildtheme(background, accent, fontcolor)
 			h,
 			math.clamp(s * (saturation or .72), 0, 1),
 			math.clamp(v + direction * offset, 0, 1)
+		)
+	end
+
+	local baseinput = maincolor or surface(.024, .70)
+	local mh, ms, mv = baseinput:ToHSV()
+	local maindirection = mv > .56 and -1 or 1
+
+	local function mainsurface(offset, saturation)
+		return Color3.fromHSV(
+			mh,
+			math.clamp(ms * (saturation or .9), 0, 1),
+			math.clamp(mv + maindirection * offset, 0, 1)
 		)
 	end
 
@@ -964,15 +976,19 @@ function buildtheme(background, accent, fontcolor)
 	return {
 		window = background,
 		sidebar = surface(-.016, .72),
-		section = surface(.052, .66),
-		input = surface(.024, .70),
-		hover = surface(.074, .62),
-		track = surface(.126, .56),
-		border = surface(.112, .50),
-		scroll = surface(.118, .44),
-		scrollTrack = surface(.045, .56),
-		popup = surface(.012, .70),
-		notification = surface(.036, .66),
+
+		-- Main color is the base for the actual interactive/UI surfaces.
+		main = baseinput,
+		section = mainsurface(.020, .92),
+		input = baseinput,
+		hover = mainsurface(.050, .86),
+		track = mainsurface(.105, .72),
+		border = mainsurface(.082, .68),
+		scroll = mainsurface(.090, .64),
+		scrollTrack = mainsurface(.030, .82),
+		popup = mainsurface(-.010, .96),
+		notification = mainsurface(.024, .90),
+
 		text = primarytext,
 		text2 = background:Lerp(primarytext, .72),
 		text3 = background:Lerp(primarytext, .45),
@@ -1003,7 +1019,8 @@ function applytheme(
 	local nexttheme = buildtheme(
 		background,
 		accent,
-		fontcolor or theme.font
+		fontcolor or theme.font,
+		theme.main
 	)
 
 	local changedroles = {}
@@ -1137,35 +1154,76 @@ function applytheme(
 end
 
 function applymaincolor(color, animate)
-	if typeof(color) ~= "Color3" or theme.main == color then
+	if typeof(color) ~= "Color3" then
 		return
 	end
 
-	theme.main = color
+	local nexttheme = buildtheme(
+		theme.window,
+		theme.white,
+		theme.font,
+		color
+	)
+
+	local roles = {
+		main = true,
+		section = true,
+		input = true,
+		hover = true,
+		track = true,
+		border = true,
+		scroll = true,
+		scrollTrack = true,
+		popup = true,
+		notification = true,
+	}
+
+	local changedroles = {}
+	for role in pairs(roles) do
+		local value = nexttheme[role]
+		if value and theme[role] ~= value then
+			theme[role] = value
+			changedroles[role] = true
+		end
+	end
+
+	if next(changedroles) == nil then
+		return
+	end
+
 	env.__blush_theme_tweens = env.__blush_theme_tweens or setmetatable({}, { __mode = "k" })
 
 	for index = #themebindings, 1, -1 do
 		local binding = themebindings[index]
 		if not binding.object.Parent then
 			table.remove(themebindings, index)
-		elseif binding.role == "main" then
+		elseif changedroles[binding.role] then
 			local object = binding.object
+			local target = theme[binding.role]
+
 			if animate == true and animationsenabled then
 				local objecttweens = env.__blush_theme_tweens[object] or {}
 				env.__blush_theme_tweens[object] = objecttweens
 				local previous = objecttweens[binding.property]
-				if previous then invoke(function() previous:Cancel() end) end
+				if previous then
+					invoke(function() previous:Cancel() end)
+				end
+
 				local animation = tweenservice:Create(
 					object,
 					TweenInfo.new(.16, Enum.EasingStyle.Quint, Enum.EasingDirection.Out),
-					{ [binding.property] = color }
+					{ [binding.property] = target }
 				)
 				objecttweens[binding.property] = animation
 				animation:Play()
 			else
-				object[binding.property] = color
+				object[binding.property] = target
 			end
 		end
+	end
+
+	if refreshcheckboxcolors then
+		refreshcheckboxcolors(animate == true)
 	end
 
 	if maincolorpicker and not maincolorpicker.dragging then
@@ -2956,8 +3014,8 @@ avat = new("ImageLabel", {
 
 	Size =
 		UDim2.fromOffset(
-			22,
-			22
+			30,
+			30
 		),
 
 	BackgroundTransparency = 1,
@@ -3065,7 +3123,7 @@ function updatebrandlayout()
 
 	local width = math.max(1, sidebar.AbsoluteSize.X)
 	local hasicon = avat.Visible and avat.Image ~= ""
-	local iconwidth = hasicon and 22 or 0
+	local iconwidth = hasicon and math.max(28, avat.Size.X.Offset) or 0
 	local icongap = hasicon and 10 or 0
 	local maxtextwidth = math.max(40, width - iconwidth - icongap - 20)
 
@@ -3093,11 +3151,12 @@ function updatebrandlayout()
 		avat.Position = UDim2.fromOffset(startx + math.floor(iconwidth * .5), 45)
 	end
 
-	local brandx = textleft + math.max(0, math.floor((textblockwidth - brandwidth) * .5 + .5))
+	-- Left-align title and subtitle block to the widest rendered line.
+	local brandx = textleft
 	brand.Position = UDim2.fromOffset(brandx, 23)
 	brand.Size = UDim2.fromOffset(math.max(1, brandwidth), 23)
 
-	local metadatax = textleft + math.max(0, math.floor((textblockwidth - metadatawidth) * .5 + .5))
+	local metadatax = textleft
 	version.Position = UDim2.fromOffset(metadatax, 48)
 	version.Size = UDim2.fromOffset(math.min(versionwidth, maxtextwidth), 18)
 
@@ -4864,9 +4923,11 @@ function createmodalblur()
 
 	local oldblur = lighting:FindFirstChild("BlushModalBlur")
 	if oldblur then oldblur:Destroy() end
+
 	local playergui = player:WaitForChild("PlayerGui")
 	local oldsurface = playergui:FindFirstChild("BlushModalBlurGui")
 	if oldsurface then oldsurface:Destroy() end
+
 	local oldpart = camera:FindFirstChild("BlushModalBlurSurface")
 	if oldpart then oldpart:Destroy() end
 
@@ -4881,7 +4942,7 @@ function createmodalblur()
 	part.Transparency = 1
 	part.CanCollide = false
 	part.CanTouch = false
-	part.CanQuery = false
+	part.CanQuery = true
 	part.CastShadow = false
 	part.Size = Vector3.new(1, 1, .01)
 	part.Parent = camera
@@ -4912,70 +4973,10 @@ function createmodalblur()
 			return
 		end
 
-		-- Freeze the rendered geometry before putting the copy on a SurfaceGui.
-		-- Layout objects otherwise recompute against a different parent and shift UI.
+		-- Keep the existing hierarchy/layout intact. The previous implementation
+		-- flattened descendants into absolute coordinates, which broke UICorner,
+		-- layouts and positions while the dialog was open.
 		local clone = object:Clone()
-		local geometry = {}
-
-		local function collectgeometry(original, copy)
-			if original:IsA("GuiObject") and copy:IsA("GuiObject") then
-				local parentobject = original.Parent
-				local parentposition = parentobject and parentobject:IsA("GuiObject")
-					and parentobject.AbsolutePosition
-					or Vector2.zero
-				geometry[#geometry + 1] = {
-					object = copy,
-					position = original.AbsolutePosition - parentposition,
-					size = original.AbsoluteSize,
-				}
-			end
-
-			local originalchildren = original:GetChildren()
-			local copychildren = copy:GetChildren()
-			for index = 1, math.min(#originalchildren, #copychildren) do
-				collectgeometry(originalchildren[index], copychildren[index])
-			end
-		end
-
-		collectgeometry(object, clone)
-
-		for _, descendant in ipairs(clone:GetDescendants()) do
-			if descendant:IsA("UIListLayout")
-				or descendant:IsA("UIGridLayout")
-				or descendant:IsA("UIPageLayout")
-				or descendant:IsA("UITableLayout")
-				or descendant:IsA("UIPadding")
-				or descendant:IsA("UIScale")
-				or descendant:IsA("UISizeConstraint")
-				or descendant:IsA("UIAspectRatioConstraint")
-			then
-				descendant:Destroy()
-			end
-		end
-
-		for index, data in ipairs(geometry) do
-			local copy = data.object
-			if copy and (index == 1 or copy.Parent) then
-				copy.AnchorPoint = Vector2.zero
-				if index == 1 then
-					copy.Position = UDim2.fromOffset(
-						math.round(object.AbsolutePosition.X),
-						math.round(object.AbsolutePosition.Y)
-					)
-				else
-					copy.Position = UDim2.fromOffset(
-						math.round(data.position.X),
-						math.round(data.position.Y)
-					)
-				end
-				copy.Size = UDim2.fromOffset(
-					math.max(0, math.round(data.size.X)),
-					math.max(0, math.round(data.size.Y))
-				)
-				copy.AutomaticSize = Enum.AutomaticSize.None
-			end
-		end
-
 		clone.Visible = true
 		clone.Parent = surface
 
@@ -4987,12 +4988,6 @@ function createmodalblur()
 
 		object.Visible = false
 	end
-
-	addroot(shell)
-	addroot(draglayer)
-	addroot(hotkeylist)
-	addroot(notificationholder)
-	addroot(watermark)
 
 	local function update()
 		camera = workspace.CurrentCamera
@@ -5012,18 +5007,11 @@ function createmodalblur()
 			return
 		end
 
-		local canvassize = gui and gui.AbsoluteSize or viewport
-		if canvassize.X <= 0 or canvassize.Y <= 0 then
-			canvassize = viewport
-		end
-
 		local distance = 2
 		local height =
 			2
 			* distance
-			* math.tan(
-				math.rad(camera.FieldOfView) / 2
-			)
+			* math.tan(math.rad(camera.FieldOfView) / 2)
 		local pixel = height / viewport.Y
 
 		part.Size = Vector3.new(
@@ -5032,10 +5020,22 @@ function createmodalblur()
 			.01
 		)
 		part.CFrame = camera.CFrame * CFrame.new(0, 0, -distance)
-		surface.CanvasSize = Vector2.new(math.round(canvassize.X), math.round(canvassize.Y))
+		surface.CanvasSize = Vector2.new(
+			math.round(viewport.X),
+			math.round(viewport.Y)
+		)
 	end
 
 	update()
+
+	-- Clone after CanvasSize is correct so Scale-based layouts resolve exactly
+	-- like the original ScreenGui tree.
+	addroot(shell)
+	addroot(draglayer)
+	addroot(hotkeylist)
+	addroot(notificationholder)
+	addroot(watermark)
+
 	state.connection = runservice.PreRender:Connect(update)
 	return state
 end
@@ -5294,7 +5294,7 @@ function showmodal(titletext, bodytext, actions)
 
 	tween(
 		blocker,
-		{BackgroundTransparency = .88},
+		{BackgroundTransparency = .96},
 		modalinfo
 	)
 	env.__blush_modal.cardtween = tween(
@@ -14982,6 +14982,10 @@ function createsection(
 		local parentobject =
 			target or body
 
+		captureoptions = type(captureoptions) == "table" and captureoptions or {}
+		local compactpicker = captureoptions.Compact == true or captureoptions.compact == true
+		local hidelabel = captureoptions.HideLabel == true or captureoptions.hideLabel == true
+
 		local row = new("Frame", {
 			Parent = parentobject,
 
@@ -15011,6 +15015,7 @@ function createsection(
 			)
 
 		title.TextSize = 17
+		title.Visible = not hidelabel
 
 		local button = new("TextButton", {
 			Parent = row,
@@ -15101,7 +15106,13 @@ function createsection(
 				#plaintext(value) == 1
 
 			local width =
-				math.clamp(
+				compactpicker
+				and math.clamp(
+					math.ceil(bounds.X) + (singlecharacter and 12 or 14),
+					28,
+					40
+				)
+				or math.clamp(
 					math.ceil(bounds.X)
 						+ (singlecharacter and 14 or 20),
 					singlecharacter and 30 or 42,
@@ -15120,13 +15131,17 @@ function createsection(
 				fastti
 			)
 
-			title.Size =
-				UDim2.new(
-					1,
-					-width - 12,
-					1,
-					0
-				)
+			if hidelabel then
+				title.Size = UDim2.fromOffset(0, 0)
+			else
+				title.Size =
+					UDim2.new(
+						1,
+						-width - 12,
+						1,
+						0
+					)
+			end
 
 			tween(
 				keystroke,
@@ -15538,15 +15553,18 @@ function createsection(
 			ZIndex = 16,
 		})
 
+		options = options or {}
+		local compactoptions = #options == 2
+
 		new("UIListLayout", {
 			Parent = row,
 			FillDirection = Enum.FillDirection.Horizontal,
+			HorizontalAlignment = Enum.HorizontalAlignment.Left,
 			VerticalAlignment = Enum.VerticalAlignment.Center,
-			Padding = UDim.new(0, 8),
+			Padding = UDim.new(0, compactoptions and 14 or 8),
 			SortOrder = Enum.SortOrder.LayoutOrder,
 		})
 
-		options = options or {}
 		multiselect = multiselect == true
 		local buttons = {}
 		local selected
@@ -15587,19 +15605,25 @@ function createsection(
 		end
 
 		for index, option in ipairs(options) do
+			local optiontext = tostring(option)
+			local optionbounds = measuretext(plaintext(optiontext), 14, font, Vector2.new(240, 29))
+			local contentwidth = 26 + math.ceil(optionbounds.X)
+
 			local button = new("TextButton", {
 				Parent = row, LayoutOrder = index,
-				Size = UDim2.new(1 / math.max(1, #options), -6, 1, 0),
+				Size = compactoptions
+					and UDim2.fromOffset(contentwidth + 4, 29)
+					or UDim2.new(1 / math.max(1, #options), -6, 1, 0),
 				BackgroundColor3 = theme.hover, BackgroundTransparency = 1,
 				BorderSizePixel = 0, Text = "", AutoButtonColor = false, ZIndex = 16,
 			})
 			corner(button, 6)
 
-			local optiontext = tostring(option)
-			local optionbounds = measuretext(plaintext(optiontext), 14, font, Vector2.new(240, 29))
 			local contentgroup = new("Frame", {
-				Parent = button, AnchorPoint = Vector2.new(.5, .5), Position = UDim2.fromScale(.5, .5),
-				Size = UDim2.fromOffset(26 + math.ceil(optionbounds.X), 29),
+				Parent = button,
+				AnchorPoint = compactoptions and Vector2.new(0, .5) or Vector2.new(.5, .5),
+				Position = compactoptions and UDim2.new(0, 0, .5, 0) or UDim2.fromScale(.5, .5),
+				Size = UDim2.fromOffset(contentwidth, 29),
 				BackgroundTransparency = 1, BorderSizePixel = 0, ZIndex = 17,
 			})
 			local circle = new("Frame", {
@@ -15661,47 +15685,78 @@ function createsection(
 		local parentobject = target or body
 		local holder = new("Frame", {
 			Parent = parentobject,
-			Size = UDim2.new(1, 0, 0, 31),
+			Size = UDim2.new(1, 0, 0, 30),
 			BackgroundTransparency = 1,
 			BorderSizePixel = 0,
 			ZIndex = 15,
 		})
-		local titleobject = label(holder, name, UDim2.new(1, -90, 1, 0), font, theme.text2)
+
+		local titleobject = label(
+			holder,
+			name,
+			UDim2.new(1, -88, 1, 0),
+			font,
+			theme.text2
+		)
 		titleobject.TextSize = 16
 		titleobject.TextTruncate = Enum.TextTruncate.AtEnd
 		titleobject.ZIndex = 16
+
+		local customcolor = typeof(color) == "Color3"
 		local badge = new("Frame", {
 			Parent = holder,
 			AnchorPoint = Vector2.new(1, .5),
 			Position = UDim2.new(1, 0, .5, 0),
-			Size = UDim2.fromOffset(56, 25),
-			BackgroundColor3 = typeof(color) == "Color3" and color or theme.input,
-			BackgroundTransparency = .06,
+			Size = UDim2.fromOffset(52, 24),
+			BackgroundColor3 = customcolor and color or theme.input,
+			BackgroundTransparency = .02,
 			BorderSizePixel = 0,
 			ZIndex = 16,
 		})
-		if typeof(color) ~= "Color3" then bindtheme(badge, "BackgroundColor3", theme.input) end
-		corner(badge, 999)
-		local textobject = label(badge, textvalue or "Ready", UDim2.new(1, -12, 1, 0), medium, theme.text)
-		textobject.Position = UDim2.fromOffset(6, 0)
+		if not customcolor then
+			bindtheme(badge, "BackgroundColor3", theme.input)
+		end
+		corner(badge, 7)
+
+		local textobject = label(
+			badge,
+			textvalue or "Ready",
+			UDim2.new(1, -20, 1, 0),
+			medium,
+			theme.text2
+		)
+		textobject.Position = UDim2.fromOffset(10, 0)
 		textobject.TextXAlignment = Enum.TextXAlignment.Center
-		textobject.TextSize = 15
+		textobject.TextYAlignment = Enum.TextYAlignment.Center
+		textobject.TextSize = 13
 		textobject.TextTruncate = Enum.TextTruncate.AtEnd
 		textobject.ZIndex = 17
+
 		local function resizebadge()
-			local bounds = measuretext(tostring(textobject.Text or ""), 15, medium, Vector2.new(300, 25))
-			local width = math.clamp(math.ceil(bounds.X) + 18, 34, 170)
-			badge.Size = UDim2.fromOffset(width, 25)
+			local bounds = measuretext(
+				plaintext(textobject.Text or ""),
+				textobject.TextSize,
+				medium,
+				Vector2.new(300, 24)
+			)
+			local width = math.clamp(math.ceil(bounds.X) + 20, 34, 180)
+			badge.Size = UDim2.fromOffset(width, 24)
 			titleobject.Size = UDim2.new(1, -width - 12, 1, 0)
 		end
+
+		connect(textobject:GetPropertyChangedSignal("Text"), resizebadge)
 		resizebadge()
 		register(holder, name .. " " .. tostring(textvalue or ""))
+
 		return {
 			SetText = function(_, value)
 				textobject.Text = tostring(value)
-				resizebadge()
 			end,
-			SetColor = function(_, value) if typeof(value) == "Color3" then badge.BackgroundColor3 = value end end,
+			SetColor = function(_, value)
+				if typeof(value) == "Color3" then
+					badge.BackgroundColor3 = value
+				end
+			end,
 			Object = holder,
 			Badge = badge,
 			TextObject = textobject,
@@ -17619,26 +17674,65 @@ function preparebackgroundblurbase(asset, token)
 	end
 
 	if backgroundblureditable then
-		invoke(function() backgroundblureditable:Destroy() end)
+		pcall(function() backgroundblureditable:Destroy() end)
 		backgroundblureditable = nil
 	end
 
-	local editable
-	local pixels
-	local ok = invoke(function()
-		editable = assetservice:CreateEditableImageAsync(Content.fromUri(asset))
-		if not editable then error("editable image unavailable") end
-		pixels = editable:ReadPixelsBuffer(Vector2.zero, editable.Size)
-	end)
+	local candidates = {}
 
-	if not ok or not editable or not pixels or token ~= backgroundblurtoken then
-		if editable then invoke(function() editable:Destroy() end) end
+	if backgroundimage and backgroundimage.Parent then
+		local ok, content = pcall(function()
+			return backgroundimage.ImageContent
+		end)
+		if ok and content then
+			candidates[#candidates + 1] = content
+		end
+	end
+
+	if asset and asset ~= "" then
+		local ok, content = pcall(Content.fromUri, asset)
+		if ok and content then
+			candidates[#candidates + 1] = content
+		end
+	end
+
+	if backgroundimagesource and backgroundimagesource ~= "" then
+		local ok, content = pcall(Content.fromUri, backgroundimagesource)
+		if ok and content then
+			candidates[#candidates + 1] = content
+		end
+	end
+
+	local editable
+	for _, content in ipairs(candidates) do
+		local ok, result = pcall(function()
+			return assetservice:CreateEditableImageAsync(content)
+		end)
+
+		if ok and result then
+			editable = result
+			break
+		end
+	end
+
+	if not editable or token ~= backgroundblurtoken then
+		if editable then pcall(function() editable:Destroy() end) end
 		return false
 	end
 
-	local size = editable.Size
-	if size.X < 1 or size.Y < 1 then
-		invoke(function() editable:Destroy() end)
+	local ok, size, pixels = pcall(function()
+		local imagesize = editable.Size
+		return imagesize, editable:ReadPixelsBuffer(Vector2.zero, imagesize)
+	end)
+
+	if not ok
+		or not size
+		or not pixels
+		or size.X < 1
+		or size.Y < 1
+		or token ~= backgroundblurtoken
+	then
+		pcall(function() editable:Destroy() end)
 		return false
 	end
 
@@ -17649,14 +17743,17 @@ function preparebackgroundblurbase(asset, token)
 	backgroundblureditable = editable
 	backgroundblurlastsignature = nil
 
-	local applied = invoke(function()
+	local applied = pcall(function()
 		backgroundblurdisplay.Image = ""
 		backgroundblurdisplay.ImageContent = Content.fromObject(editable)
 	end)
+
 	if not applied then
-		invoke(function() editable:Destroy() end)
+		pcall(function() editable:Destroy() end)
 		backgroundblureditable = nil
 		backgroundblurbasepixels = nil
+		backgroundblurbasewidth = 0
+		backgroundblurbaseheight = 0
 		return false
 	end
 
@@ -17694,14 +17791,20 @@ function buildbackgroundblur(asset, blur, token)
 		return false
 	end
 
-	local ok = invoke(function()
-		editable:WritePixelsBuffer(Vector2.zero, Vector2.new(width, height), output)
+	local ok = pcall(function()
+		editable:WritePixelsBuffer(
+			Vector2.zero,
+			Vector2.new(width, height),
+			output
+		)
 	end)
+
 	if not ok or token ~= backgroundblurtoken then
 		return false
 	end
 
 	backgroundblurlastsignature = signature
+	backgroundblurdisplay.ImageContent = Content.fromObject(editable)
 	return true
 end
 
@@ -19626,8 +19729,17 @@ keybindblacklistpicker = blacklistrow:AddKeyPicker(
 		AllowBlacklisted = true,
 		AllowEscape = true,
 		KeepDelete = true,
+		Compact = true,
+		HideLabel = true,
 	}
 )
+
+if keybindblacklistcontrol and keybindblacklistcontrol.Object
+	and keybindblacklistpicker and keybindblacklistpicker.Object
+then
+	keybindblacklistcontrol.Object.Size = UDim2.new(1, -48, 0, 57)
+	keybindblacklistpicker.Object.Size = UDim2.fromOffset(40, 29)
+end
 
 windowglowtoggle = settingssection:AddToggleColor(
 	"Window glow",
@@ -19814,10 +19926,19 @@ themeselector = themessection:AddDropdown(
 			1,
 			true
 		)
-		applymaincolor(preset.main or preset.accent, true)
+		local presetmain =
+			preset.main
+			or buildtheme(
+				preset.background,
+				preset.accent,
+				preset.font,
+				nil
+			).main
+
+		applymaincolor(presetmain, true)
 
 		if maincolorpicker then
-			maincolorpicker:Set(preset.main or preset.accent, 1, false)
+			maincolorpicker:Set(presetmain, 1, false)
 		end
 
 		if accentpicker then
@@ -20456,8 +20577,15 @@ function applysaveduisettings(data, silent)
 
 	local loadedbackground = decodecolor(data.background) or theme.window
 	local loadedaccent = decodecolor(data.accent) or theme.white
-	local loadedmain = decodecolor(data.main) or loadedaccent
 	local loadedfont = decodecolor(data.font) or theme.font
+	local loadedmain =
+		decodecolor(data.main)
+		or buildtheme(
+			loadedbackground,
+			loadedaccent,
+			loadedfont,
+			nil
+		).main
 	local loadedbackgroundalpha = math.clamp(tonumber(data.backgroundAlpha) or 1, 0, 1)
 	local loadedaccentalpha = math.clamp(tonumber(data.accentAlpha) or 1, 0, 1)
 	local loadedfontalpha = math.clamp(tonumber(data.fontAlpha) or 1, 0, 1)
@@ -23718,7 +23846,7 @@ function applysidebarlayout(width, animate)
 
 	avat.Position = sidebarcompact
 		and UDim2.fromOffset(math.floor(width * .5), 45)
-		or UDim2.fromOffset(39, 45)
+		or avat.Position
 
 	footeravatar.AnchorPoint = sidebarcompact
 		and Vector2.new(.5, 0)
