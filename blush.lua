@@ -2958,15 +2958,13 @@ function updatebrandlayout()
 
 	local width = math.max(1, sidebar.AbsoluteSize.X)
 	local hasicon = avat.Visible and avat.Image ~= ""
-	local left = 42
 	local iconwidth = hasicon and 22 or 0
-	local icongap = hasicon and 11 or 0
-	local textleft = hasicon and (left + iconwidth + icongap) or left
-	local available = math.max(40, width - textleft - 14)
+	local icongap = hasicon and 10 or 0
+	local maxtextwidth = math.max(40, width - iconwidth - icongap - 20)
 
 	local brandwidth = brand.Visible and math.min(
 		math.ceil(measuretext(brand.Text, brand.TextSize, brand.Font, Vector2.new(100000, 23)).X),
-		available
+		maxtextwidth
 	) or 0
 	local versionwidth = version.Visible and version.Text ~= ""
 		and math.ceil(measuretext(version.Text, version.TextSize, version.Font, Vector2.new(100000, 18)).X)
@@ -2975,20 +2973,28 @@ function updatebrandlayout()
 		and math.ceil(measuretext(username.Text, username.TextSize, username.Font, Vector2.new(100000, 18)).X)
 		or 0
 
-	if hasicon then
-		avat.Position = UDim2.fromOffset(left + 11, 45)
-	end
-
-	brand.Position = UDim2.fromOffset(textleft, 23)
-	brand.Size = UDim2.fromOffset(math.max(1, math.min(brandwidth, available)), 23)
-
-	version.Position = UDim2.fromOffset(textleft, 48)
-	version.Size = UDim2.fromOffset(math.min(versionwidth, available), 18)
-
 	local hasversion = versionwidth > 0
 	local hasusername = usernamewidth > 0
-	local usernamex = textleft + (hasversion and math.min(versionwidth, available) or 0)
+	local dividerwidth = hasversion and hasusername and 17 or 0
+	local metadatawidth = math.min(versionwidth + dividerwidth + usernamewidth, maxtextwidth)
+	local textblockwidth = math.max(brandwidth, metadatawidth)
+	local groupwidth = iconwidth + icongap + textblockwidth
+	local startx = math.max(6, math.floor((width - groupwidth) * .5 + .5))
+	local textleft = startx + iconwidth + icongap
 
+	if hasicon then
+		avat.Position = UDim2.fromOffset(startx + math.floor(iconwidth * .5), 45)
+	end
+
+	local brandx = textleft + math.max(0, math.floor((textblockwidth - brandwidth) * .5 + .5))
+	brand.Position = UDim2.fromOffset(brandx, 23)
+	brand.Size = UDim2.fromOffset(math.max(1, brandwidth), 23)
+
+	local metadatax = textleft + math.max(0, math.floor((textblockwidth - metadatawidth) * .5 + .5))
+	version.Position = UDim2.fromOffset(metadatax, 48)
+	version.Size = UDim2.fromOffset(math.min(versionwidth, maxtextwidth), 18)
+
+	local usernamex = metadatax + math.min(versionwidth, maxtextwidth)
 	versiondivider.Visible = hasversion and hasusername
 	if versiondivider.Visible then
 		versiondivider.Position = UDim2.fromOffset(usernamex + 8, 51)
@@ -2997,7 +3003,7 @@ function updatebrandlayout()
 
 	username.Position = UDim2.fromOffset(usernamex, 48)
 	username.Size = UDim2.fromOffset(
-		math.max(0, math.min(usernamewidth, width - usernamex - 14)),
+		math.max(0, math.min(usernamewidth, textleft + textblockwidth - usernamex)),
 		18
 	)
 end
@@ -3727,6 +3733,9 @@ function makedragghost(source, zindex)
 	for _, object in ipairs(clone:GetDescendants()) do
 		if object:IsA("GuiObject") then
 			object.ZIndex += (zindex or 460)
+			if object.Name == "TabActiveIndicator" then
+				object.BackgroundTransparency = 1
+			end
 		end
 	end
 	clone.ZIndex += (zindex or 460)
@@ -3743,6 +3752,10 @@ function hideforghost(source)
 
 	for _, object in ipairs(objects) do
 		if object:IsA("GuiObject") then
+			if object.Name == "TabActiveIndicator" then
+				continue
+			end
+
 			local props = {}
 			if object.BackgroundTransparency ~= nil then
 				props.BackgroundTransparency = object.BackgroundTransparency
@@ -5017,7 +5030,7 @@ hotkeyscroll = new("ScrollingFrame", {
 	ElasticBehavior = Enum.ElasticBehavior.Never,
 	ZIndex = 322,
 })
-list(hotkeyscroll, 2)
+list(hotkeyscroll, 1)
 hotkeyshown = false
 hotkeytargetposition = hotkeylist.Position
 hotkeydrag = nil
@@ -5317,21 +5330,21 @@ function updatehotkeygroup(data, category, binding)
 		if asset ~= nil and tostring(asset) ~= "" then
 			data.icon = image(data.holder, asset, 13, theme.text3, 323)
 			data.icon.AnchorPoint = Vector2.new(0, .5)
-			data.icon.Position = UDim2.fromOffset(4, 22)
+			data.icon.Position = UDim2.fromOffset(4, 21)
 			data.icon.ImageTransparency = .08
 		end
 	end
 
 	local textx = data.icon and 23 or 4
 	data.text.Text = tostring(category)
-	data.text.Position = UDim2.fromOffset(textx, 10)
+	data.text.Position = UDim2.fromOffset(textx, 9)
 	data.text.Size = UDim2.new(1, -textx - 4, 0, 24)
 end
 
 function createhotkeygroup(key, category, binding)
 	local holder = new("Frame", {
 		Parent = hotkeyscroll,
-		Size = UDim2.new(1, 0, 0, 36),
+		Size = UDim2.new(1, 0, 0, 42),
 		BackgroundTransparency = 1,
 		BorderSizePixel = 0,
 		ZIndex = 322,
@@ -5344,7 +5357,7 @@ function createhotkeygroup(key, category, binding)
 		medium,
 		theme.text2
 	)
-	textobject.Position = UDim2.fromOffset(4, 10)
+	textobject.Position = UDim2.fromOffset(4, 9)
 	textobject.TextSize = 13
 	textobject.TextXAlignment = Enum.TextXAlignment.Left
 	textobject.ZIndex = 323
@@ -5366,7 +5379,7 @@ end
 function createhotkeyrow(binding)
 	local row = new("TextButton", {
 		Parent = hotkeyscroll,
-		Size = UDim2.new(1, 0, 0, 26),
+		Size = UDim2.new(1, 0, 0, 25),
 		BackgroundColor3 = theme.hover,
 		BackgroundTransparency = 1,
 		BorderSizePixel = 0,
@@ -5382,7 +5395,7 @@ function createhotkeyrow(binding)
 		false
 	)
 	checkbox.AnchorPoint = Vector2.new(0, .5)
-	checkbox.Position = UDim2.new(0, 5, .5, 0)
+	checkbox.Position = UDim2.new(0, 12, .5, 0)
 
 	local nametext = label(
 		row,
@@ -5391,7 +5404,7 @@ function createhotkeyrow(binding)
 		font,
 		theme.text3
 	)
-	nametext.Position = UDim2.fromOffset(28, 0)
+	nametext.Position = UDim2.fromOffset(36, 0)
 	nametext.TextSize = 13
 	nametext.TextXAlignment = Enum.TextXAlignment.Left
 	nametext.TextTruncate = Enum.TextTruncate.AtEnd
@@ -5484,7 +5497,7 @@ function updatehotkeyrow(data, binding, active, layoutorder, animate)
 	)
 
 	data.keyholder.Size = UDim2.fromOffset(keywidth, 22)
-	data.nametext.Size = UDim2.new(1, -keywidth - 48, 1, 0)
+	data.nametext.Size = UDim2.new(1, -keywidth - 56, 1, 0)
 
 	local changed = data.active ~= active
 	if data.rendercheckbox then
@@ -5581,7 +5594,7 @@ function refreshhotkeylist()
 		seengroups[group.key] = true
 		layoutorder += 1
 		groupdata.holder.LayoutOrder = layoutorder
-		contentheight += 36
+		contentheight += 42
 		itemcount += 1
 
 		for _, binding in ipairs(group.bindings) do
@@ -5612,7 +5625,7 @@ function refreshhotkeylist()
 				layoutorder,
 				not created
 			)
-			contentheight += 26
+			contentheight += 25
 			itemcount += 1
 		end
 	end
@@ -5665,7 +5678,7 @@ function refreshhotkeylist()
 	end
 
 	if itemcount > 1 then
-		contentheight += (itemcount - 1) * 2
+		contentheight += itemcount - 1
 	end
 
 	hotkeyscroll.CanvasSize =
@@ -7650,21 +7663,32 @@ function refreshcheckboxcolors()
 		else
 			local checked = data.checked == true
 			local strokecolor = checked and theme.white or theme.border
+			local strokebase = checked and .26 or .4
+			local fillbase = checked and 0 or 1
+			local checkbase = checked and .02 or 1
 
 			if data.stroke and data.stroke.Parent then
 				syncbinding(data.stroke, "Color", strokecolor)
 				data.stroke.Color = strokecolor
-				data.stroke.Transparency = checked and .26 or .4
+				if checked then
+					registeraccentalpha(data.stroke, "Color", "white")
+					setaccentalphabase(data.stroke, "Transparency", strokebase)
+					data.stroke.Transparency = effectiveaccentalpha(strokebase)
+				else
+					env.__blush_accent_alpha[data.stroke] = nil
+					data.stroke.Transparency = strokebase
+				end
 			end
 
 			if data.fill and data.fill.Parent then
 				syncbinding(data.fill, "BackgroundColor3", theme.white)
 				data.fill.BackgroundColor3 = theme.white
-				data.fill.BackgroundTransparency = checked and 0 or 1
+				registeraccentalpha(data.fill, "BackgroundColor3", "white")
+				setaccentalphabase(data.fill, "BackgroundTransparency", fillbase)
+				data.fill.BackgroundTransparency = effectiveaccentalpha(fillbase)
 			end
 
 			if data.glow and data.glow.Parent then
-				syncbinding(data.glow, "Color", theme.white)
 				data.glow.Color = theme.white
 				data.glow.Transparency = checked and .64 or 1
 			end
@@ -7672,6 +7696,9 @@ function refreshcheckboxcolors()
 			if data.check and data.check.Parent then
 				syncbinding(data.check, "ImageColor3", theme.black)
 				data.check.ImageColor3 = theme.black
+				registeraccentalpha(data.check, "ImageColor3", "black")
+				setaccentalphabase(data.check, "ImageTransparency", checkbase)
+				data.check.ImageTransparency = effectiveaccentalpha(checkbase)
 			end
 		end
 	end
@@ -7683,7 +7710,8 @@ function makecheckbox(
 	default
 )
 	local checked = default == true
-	local indicatortween
+	local filltween
+	local checktween
 
 	local box = new("Frame", {
 		Parent = parentobject,
@@ -7748,46 +7776,72 @@ function makecheckbox(
 	env.__blush_checkboxstates[box] = checkboxstate
 
 	local function render(value)
-		checked = value == true
+		local nextchecked = value == true
+		local changed = nextchecked ~= checked
+		checked = nextchecked
 		checkboxstate.checked = checked
 
-		if indicatortween then
-			invoke(function()
-				indicatortween:Cancel()
-			end)
-			indicatortween = nil
+		if filltween then
+			invoke(function() filltween:Cancel() end)
+			filltween = nil
+		end
+		if checktween then
+			invoke(function() checktween:Cancel() end)
+			checktween = nil
 		end
 
 		local strokecolor = checked and theme.white or theme.border
+		local strokebase = checked and .26 or .4
 		if boxstroke then
 			syncbinding(boxstroke, "Color", strokecolor)
 			boxstroke.Color = strokecolor
-			boxstroke.Transparency = checked and .26 or .4
+			if checked then
+				registeraccentalpha(boxstroke, "Color", "white")
+				setaccentalphabase(boxstroke, "Transparency", strokebase)
+				boxstroke.Transparency = effectiveaccentalpha(strokebase)
+			else
+				env.__blush_accent_alpha[boxstroke] = nil
+				boxstroke.Transparency = strokebase
+			end
 		end
 
-		fill.BackgroundTransparency = checked and 0 or 1
-
 		if checkedglow then
+			checkedglow.Color = theme.white
 			checkedglow.Transparency = checked and .64 or 1
 		end
 
-		local target = checked and .02 or 1
-		if not animationsenabled then
-			check.ImageTransparency = target
+		local fillbase = checked and 0 or 1
+		local checkbase = checked and .02 or 1
+		registeraccentalpha(fill, "BackgroundColor3", "white")
+		setaccentalphabase(fill, "BackgroundTransparency", fillbase)
+		registeraccentalpha(check, "ImageColor3", "black")
+		setaccentalphabase(check, "ImageTransparency", checkbase)
+
+		local filltarget = effectiveaccentalpha(fillbase)
+		local checktarget = effectiveaccentalpha(checkbase)
+		if not changed or not animationsenabled then
+			fill.BackgroundTransparency = filltarget
+			check.ImageTransparency = checktarget
 			return
 		end
 
-		indicatortween = tween(
-			check,
-			{ImageTransparency = target},
-			checkti
-		)
+		filltween = tween(fill, {BackgroundTransparency = fillbase}, checkti)
+		checktween = tween(check, {ImageTransparency = checkbase}, checkti)
 
-		local current = indicatortween
-		if current then
-			current.Completed:Connect(function()
-				if indicatortween == current then
-					indicatortween = nil
+		local currentfill = filltween
+		if currentfill then
+			currentfill.Completed:Connect(function()
+				if filltween == currentfill then
+					filltween = nil
+				end
+			end)
+		end
+
+		local currentcheck = checktween
+		if currentcheck then
+			currentcheck.Completed:Connect(function()
+				if checktween == currentcheck then
+					checktween = nil
 				end
 			end)
 		end
@@ -7897,6 +7951,7 @@ function createcolorstate(
 		rainbow = false,
 
 		dragging = false,
+		dragtype = nil,
 
 		callback = callback,
 		swatch = swatch,
@@ -8066,21 +8121,9 @@ function createcolorstate(
 		self.h, self.s, self.v = colorvalue:ToHSV()
 
 		if alphavalue ~= nil then
-			local previousalpha = self.alpha
 			self.alpha = math.clamp(alphavalue, 0, 1)
-
-			if self.fading then
-				if previousalpha > 0 then
-					self.fadevalue = math.clamp(
-						self.fadevalue * self.alpha / previousalpha,
-						0,
-						self.alpha
-					)
-				else
-					self.fadevalue = self.alpha
-				end
-			else
-				self.fadevalue = self.alpha
+			self.fadevalue = self.alpha
+			if not self.fading then
 				self.fadedirection = -1
 			end
 		end
@@ -8100,10 +8143,6 @@ function createcolorstate(
 	end
 
 	function state:update(dt)
-		if self.dragging then
-			return
-		end
-
 		if not self.swatch
 			or not self.swatch.Parent
 		then
@@ -8113,40 +8152,35 @@ function createcolorstate(
 
 		local active = false
 
+		-- Manual SV movement must not pause either automatic mode.
+		-- Hue pauses only Rainbow; alpha pauses only Fading.
 		if self.rainbow then
-			self.h = (self.h + dt * .27) % 1
+			if self.dragtype ~= "hue" then
+				self.h = (self.h + dt * .27) % 1
+			end
 			active = true
 		end
 
 		if self.fading then
-			local limit = math.clamp(self.alpha, 0, 1)
-
-			if limit <= 0 then
-				self.fadevalue = 0
-			else
-				local normalized = math.clamp(self.fadevalue / limit, 0, 1)
-				local eased = .18 + .82 * math.sin(normalized * math.pi)
-				local step = dt * .34 * eased
+			if self.dragtype ~= "alpha" then
+				local step = dt * .52
 				local nextvalue = self.fadevalue + step * self.fadedirection
 
 				if self.fadedirection < 0 and nextvalue <= 0 then
 					self.fadevalue = 0
 					self.fadedirection = 1
-				elseif self.fadedirection > 0 and nextvalue >= limit then
-					self.fadevalue = limit
+				elseif self.fadedirection > 0 and nextvalue >= 1 then
+					self.fadevalue = 1
 					self.fadedirection = -1
 				else
-					self.fadevalue = math.clamp(nextvalue, 0, limit)
+					self.fadevalue = math.clamp(nextvalue, 0, 1)
 				end
 			end
-
 			active = true
 		end
 
 		if not active then
-			animatedpickers[self] =
-				nil
-
+			animatedpickers[self] = nil
 			return
 		end
 
@@ -8159,6 +8193,7 @@ function createcolorstate(
 			state.fading = false
 			state.rainbow = false
 			state.dragging = false
+			state.dragtype = nil
 
 			if pickerdrag
 				and pickerdrag.state == state
@@ -8392,8 +8427,8 @@ function opencolorpicker(
 
 		Size =
 			UDim2.fromOffset(
-				10,
-				10
+				9,
+				9
 			),
 
 		BackgroundColor3 =
@@ -9032,6 +9067,7 @@ function opencolorpicker(
 		end
 
 		state.dragging = true
+		state.dragtype = typename
 		state:refresh()
 
 		pickerdrag = {
@@ -9112,6 +9148,7 @@ function opencolorpicker(
 			or nil
 
 		state.dragging = false
+		state.dragtype = nil
 		state.popup = nil
 
 		if pickerdrag
@@ -9317,6 +9354,7 @@ function beginsectiondrag(drag)
 
 	drag.reopen =
 		not section.collapsed
+		and not drag.wasfloating
 
 	local absolute =
 		section.frame.AbsolutePosition
@@ -9379,6 +9417,34 @@ function beginsectiondrag(drag)
 			originalsize.Y
 		)
 
+	-- The source section normally inherits the window CanvasGroup transparency.
+	-- Preserve that exact appearance on the drag clone instead of making it
+	-- suddenly more opaque when it leaves the window hierarchy.
+	if not drag.wasfloating and uitransparency > 0 then
+		local function inheritgroupalpha(value)
+			return 1 - (1 - value) * (1 - uitransparency)
+		end
+
+		local cloneobjects = {clone}
+		for _, object in ipairs(clone:GetDescendants()) do
+			cloneobjects[#cloneobjects + 1] = object
+		end
+
+		for _, object in ipairs(cloneobjects) do
+			if object:IsA("GuiObject") then
+				object.BackgroundTransparency = inheritgroupalpha(object.BackgroundTransparency)
+				if object:IsA("TextLabel") or object:IsA("TextButton") or object:IsA("TextBox") then
+					object.TextTransparency = inheritgroupalpha(object.TextTransparency)
+				end
+				if object:IsA("ImageLabel") or object:IsA("ImageButton") then
+					object.ImageTransparency = inheritgroupalpha(object.ImageTransparency)
+				end
+			elseif object:IsA("UIStroke") or object:IsA("UIShadow") then
+				object.Transparency = inheritgroupalpha(object.Transparency)
+			end
+		end
+	end
+
 	for _, object in ipairs(
 		clone:GetDescendants()
 	) do
@@ -9412,7 +9478,8 @@ function beginsectiondrag(drag)
 
 		local clonedcollapse =
 			clone:FindFirstChild(
-				"SectionCollapse"
+				"SectionCollapse",
+				true
 			)
 
 		local cloneddivider =
@@ -9646,7 +9713,7 @@ function attachsectiontransition(drag)
 	local clone = drag.clone
 
 	if clone and clone.Parent then
-		local clonedcollapse = clone:FindFirstChild("SectionCollapse")
+		local clonedcollapse = clone:FindFirstChild("SectionCollapse", true)
 		local cloneddivider = clone:FindFirstChild("SectionDivider")
 		local clonedclip = clone:FindFirstChild("SectionClip")
 		local visibleheight = drag.wascollapsed and 0 or math.max(0, targetheight - 43)
@@ -9786,10 +9853,14 @@ function finishsectiondrag()
 				floatingposition.Y
 			)
 
+		local keepheight = drag.wasfloating
+			and (drag.wascollapsed and 43 or math.max(43, drag.expandedheight or detachedheight))
+			or 43
+
 		section.frame.Size =
 			UDim2.fromOffset(
 				drag.width,
-				43
+				keepheight
 			)
 
 		section.dragging = false
@@ -9814,11 +9885,22 @@ function finishsectiondrag()
 			true
 		)
 
-		section:SetCollapsed(
-			drag.wascollapsed,
-			true,
-			false
-		)
+		if drag.wasfloating then
+			section:SetCollapsed(
+				drag.wascollapsed,
+				false,
+				false
+			)
+			if section.RefreshLayout then
+				section:RefreshLayout(false, false)
+			end
+		else
+			section:SetCollapsed(
+				drag.wascollapsed,
+				true,
+				false
+			)
+		end
 
 		notify(
 			"Section detached",
@@ -13131,7 +13213,9 @@ function createsection(
 			local position = overlayposition(button)
 			local size = button.AbsoluteSize
 			local popupy = position.Y + size.Y + 6
-			local dividerheight = ((#options > 0 or includeeveryone) and #currentplayers > 0) and 18 or 0
+			local dividerheight = ((#options > 0 or includeeveryone) and #currentplayers > 0)
+				and ((playersdivider and playersdivider ~= "") and 18 or 10)
+				or 0
 			local wanted = math.max(
 				70,
 				#options * 34
@@ -13213,7 +13297,7 @@ function createsection(
 
 			local rows = {}
 
-			local function makerow(value, textvalue, searchvalue, usernamevalue, playerrow)
+			local function makerow(value, textvalue, searchvalue, usernamevalue, playerrow, rowicon)
 				local rowheight = playerrow and (uis.TouchEnabled and 62 or 54) or (uis.TouchEnabled and 38 or 32)
 				local row = new("TextButton", {
 					Parent = scroll,
@@ -13241,6 +13325,12 @@ function createsection(
 					})
 					corner(playericon, 999)
 					left = uis.TouchEnabled and 61 or 55
+				elseif rowicon then
+					playericon = image(row, rowicon, 15, theme.text3, 515)
+					playericon.AnchorPoint = Vector2.new(0, .5)
+					playericon.Position = UDim2.fromOffset(8, rowheight * .5)
+					playericon.ImageTransparency = .08
+					left = 31
 				end
 
 				local rowlabel = label(
@@ -13323,7 +13413,10 @@ function createsection(
 				makerow(
 					everyonevalue,
 					"Everyone",
-					"everyone all players"
+					"everyone all players",
+					nil,
+					false,
+					icons.userround
 				)
 			end
 
@@ -13363,7 +13456,7 @@ function createsection(
 			if (#options > 0 or includeeveryone) and #currentplayers > 0 then
 				dividerrow = new("Frame", {
 					Parent = scroll,
-					Size = UDim2.new(1, 0, 0, 24),
+					Size = UDim2.new(1, 0, 0, (playersdivider and playersdivider ~= "") and 18 or 10),
 					BackgroundTransparency = 1,
 					BorderSizePixel = 0,
 					ZIndex = 514,
@@ -20976,6 +21069,7 @@ function navbutton(
 
 	if not sub then
 		indicator = new("Frame", {
+			Name = "TabActiveIndicator",
 			Parent = button,
 
 			AnchorPoint =
@@ -22132,6 +22226,20 @@ function rendernaventry(button, sub, hovered)
 	end
 
 	local active = sub and currentsub == button or (not sub and currentnav == button)
+
+	if active and not sub then
+		for otherbutton, otherentry in pairs(naventries or {}) do
+			if otherbutton ~= button and otherentry.indicator and otherentry.indicator.Parent then
+				local previous = otherentry.indicatoranimation
+				if previous then
+					invoke(function() previous:Cancel() end)
+					otherentry.indicatoranimation = nil
+				end
+				otherentry.indicator.BackgroundTransparency = 1
+			end
+		end
+	end
+
 	local textcolor = (active or hovered) and theme.text or theme.text3
 	local iconcolor = active
 		and (sub and theme.text2 or theme.text)
@@ -23816,6 +23924,7 @@ connect(
 
 			state.dragging =
 				false
+			state.dragtype = nil
 
 			pickerdrag =
 				nil
