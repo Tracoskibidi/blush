@@ -1,7 +1,7 @@
 -- blush.lua retro / classic UI refactor
 -- flat monochrome, Code font, hard 1px borders, compact ImGui-inspired geometry
 
-```
+
 local state = { base = getfenv() }
 setmetatable(state, { __index = state.base })
 setfenv(1, state)
@@ -27415,4 +27415,4 @@ modalguard.Active = false
 modalguard.Visible = false
 
 return library
-```
+
