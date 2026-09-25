@@ -1071,7 +1071,7 @@ function applytheme(
 			or accentalphachanged
 		)
 	then
-		refreshcheckboxcolors()
+		refreshcheckboxcolors(animate == true)
 	end
 
 	if backgroundchanged and updatebackgroundtone then
@@ -7656,7 +7656,9 @@ env.__blush_checkboxstates =
 	env.__blush_checkboxstates
 	or setmetatable({}, { __mode = "k" })
 
-function refreshcheckboxcolors()
+function refreshcheckboxcolors(animate)
+	local info = animate == true and animationsenabled and checkti or nil
+
 	for box, data in pairs(env.__blush_checkboxstates) do
 		if not box.Parent then
 			env.__blush_checkboxstates[box] = nil
@@ -7666,39 +7668,71 @@ function refreshcheckboxcolors()
 			local strokebase = checked and .26 or .4
 			local fillbase = checked and 0 or 1
 			local checkbase = checked and .02 or 1
+			local glowbase = checked and .64 or 1
 
 			if data.stroke and data.stroke.Parent then
 				syncbinding(data.stroke, "Color", strokecolor)
-				data.stroke.Color = strokecolor
+
 				if checked then
 					registeraccentalpha(data.stroke, "Color", "white")
 					setaccentalphabase(data.stroke, "Transparency", strokebase)
-					data.stroke.Transparency = effectiveaccentalpha(strokebase)
 				else
 					env.__blush_accent_alpha[data.stroke] = nil
-					data.stroke.Transparency = strokebase
+				end
+
+				if info then
+					tween(data.stroke, {
+						Color = strokecolor,
+						Transparency = checked and effectiveaccentalpha(strokebase) or strokebase,
+					}, info, true)
+				else
+					data.stroke.Color = strokecolor
+					data.stroke.Transparency = checked and effectiveaccentalpha(strokebase) or strokebase
 				end
 			end
 
 			if data.fill and data.fill.Parent then
 				syncbinding(data.fill, "BackgroundColor3", theme.white)
-				data.fill.BackgroundColor3 = theme.white
 				registeraccentalpha(data.fill, "BackgroundColor3", "white")
 				setaccentalphabase(data.fill, "BackgroundTransparency", fillbase)
-				data.fill.BackgroundTransparency = effectiveaccentalpha(fillbase)
+
+				if info then
+					tween(data.fill, {
+						BackgroundColor3 = theme.white,
+						BackgroundTransparency = effectiveaccentalpha(fillbase),
+					}, info, true)
+				else
+					data.fill.BackgroundColor3 = theme.white
+					data.fill.BackgroundTransparency = effectiveaccentalpha(fillbase)
+				end
 			end
 
 			if data.glow and data.glow.Parent then
-				data.glow.Color = theme.white
-				data.glow.Transparency = checked and .64 or 1
+				if info then
+					tween(data.glow, {
+						Color = theme.white,
+						Transparency = glowbase,
+					}, info, true)
+				else
+					data.glow.Color = theme.white
+					data.glow.Transparency = glowbase
+				end
 			end
 
 			if data.check and data.check.Parent then
 				syncbinding(data.check, "ImageColor3", theme.black)
-				data.check.ImageColor3 = theme.black
 				registeraccentalpha(data.check, "ImageColor3", "black")
 				setaccentalphabase(data.check, "ImageTransparency", checkbase)
-				data.check.ImageTransparency = effectiveaccentalpha(checkbase)
+
+				if info then
+					tween(data.check, {
+						ImageColor3 = theme.black,
+						ImageTransparency = effectiveaccentalpha(checkbase),
+					}, info, true)
+				else
+					data.check.ImageColor3 = theme.black
+					data.check.ImageTransparency = effectiveaccentalpha(checkbase)
+				end
 			end
 		end
 	end
@@ -7710,6 +7744,8 @@ function makecheckbox(
 	default
 )
 	local checked = default == true
+	local stroketween
+	local glowtween
 	local filltween
 	local checktween
 
@@ -7781,52 +7817,95 @@ function makecheckbox(
 		checked = nextchecked
 		checkboxstate.checked = checked
 
-		if filltween then
-			invoke(function() filltween:Cancel() end)
-			filltween = nil
+		for _, active in ipairs({stroketween, glowtween, filltween, checktween}) do
+			if active then
+				invoke(function() active:Cancel() end)
+			end
 		end
-		if checktween then
-			invoke(function() checktween:Cancel() end)
-			checktween = nil
-		end
+		stroketween, glowtween, filltween, checktween = nil, nil, nil, nil
 
 		local strokecolor = checked and theme.white or theme.border
 		local strokebase = checked and .26 or .4
+		local glowbase = checked and .64 or 1
+		local fillbase = checked and 0 or 1
+		local checkbase = checked and .02 or 1
+
 		if boxstroke then
 			syncbinding(boxstroke, "Color", strokecolor)
-			boxstroke.Color = strokecolor
 			if checked then
 				registeraccentalpha(boxstroke, "Color", "white")
 				setaccentalphabase(boxstroke, "Transparency", strokebase)
-				boxstroke.Transparency = effectiveaccentalpha(strokebase)
 			else
 				env.__blush_accent_alpha[boxstroke] = nil
-				boxstroke.Transparency = strokebase
 			end
 		end
 
-		if checkedglow then
-			checkedglow.Color = theme.white
-			checkedglow.Transparency = checked and .64 or 1
-		end
-
-		local fillbase = checked and 0 or 1
-		local checkbase = checked and .02 or 1
 		registeraccentalpha(fill, "BackgroundColor3", "white")
 		setaccentalphabase(fill, "BackgroundTransparency", fillbase)
 		registeraccentalpha(check, "ImageColor3", "black")
 		setaccentalphabase(check, "ImageTransparency", checkbase)
 
+		local stroketarget = checked and effectiveaccentalpha(strokebase) or strokebase
 		local filltarget = effectiveaccentalpha(fillbase)
 		local checktarget = effectiveaccentalpha(checkbase)
+
 		if not changed or not animationsenabled then
+			if boxstroke then
+				boxstroke.Color = strokecolor
+				boxstroke.Transparency = stroketarget
+			end
+			if checkedglow then
+				checkedglow.Color = theme.white
+				checkedglow.Transparency = glowbase
+			end
+			fill.BackgroundColor3 = theme.white
 			fill.BackgroundTransparency = filltarget
+			check.ImageColor3 = theme.black
 			check.ImageTransparency = checktarget
 			return
 		end
 
-		filltween = tween(fill, {BackgroundTransparency = fillbase}, checkti)
-		checktween = tween(check, {ImageTransparency = checkbase}, checkti)
+		if boxstroke then
+			stroketween = tween(boxstroke, {
+				Color = strokecolor,
+				Transparency = stroketarget,
+			}, checkti, true)
+		end
+
+		if checkedglow then
+			glowtween = tween(checkedglow, {
+				Color = theme.white,
+				Transparency = glowbase,
+			}, checkti, true)
+		end
+
+		filltween = tween(fill, {
+			BackgroundColor3 = theme.white,
+			BackgroundTransparency = filltarget,
+		}, checkti, true)
+
+		checktween = tween(check, {
+			ImageColor3 = theme.black,
+			ImageTransparency = checktarget,
+		}, checkti, true)
+
+		local currentstroke = stroketween
+		if currentstroke then
+			currentstroke.Completed:Connect(function()
+				if stroketween == currentstroke then
+					stroketween = nil
+				end
+			end)
+		end
+
+		local currentglow = glowtween
+		if currentglow then
+			currentglow.Completed:Connect(function()
+				if glowtween == currentglow then
+					glowtween = nil
+				end
+			end)
+		end
 
 		local currentfill = filltween
 		if currentfill then
