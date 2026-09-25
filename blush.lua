@@ -703,13 +703,10 @@ transparencybase = setmetatable({}, {
 env.__blush_background_visibility = env.__blush_background_visibility or 0
 
 function effectivetransparency(value, role)
-	return 1
-		- (1 - value)
-			* math.clamp(
-				theme.backgroundAlpha or 1,
-				0,
-				1
-			)
+	local basealpha = 1 - math.clamp(value or 0, 0, 1)
+	local themealpha = math.clamp(theme.backgroundAlpha or 1, 0, 1)
+	local globalalpha = 1 - math.clamp(uitransparency or 0, 0, .90)
+	return 1 - basealpha * themealpha * globalalpha
 end
 
 function applyuitransparency(value)
@@ -725,16 +722,18 @@ function applyuitransparency(value)
 		end
 	end
 
+	-- Global transparency is already folded into every themed surface above.
+	-- Keep root CanvasGroups neutral so nested content is not faded a second time.
 	if window and window.Parent then
-		window.GroupTransparency = uitransparency
+		window.GroupTransparency = 0
 	end
 
 	if popuplayer and popuplayer.Parent then
-		popuplayer.GroupTransparency = uitransparency
+		popuplayer.GroupTransparency = 0
 	end
 
 	if draglayer and draglayer.Parent then
-		draglayer.GroupTransparency = uitransparency
+		draglayer.GroupTransparency = 0
 	end
 end
 
@@ -1055,6 +1054,16 @@ function applytheme(
 
 	if backgroundalphachanged then
 		applyuitransparency(uitransparency * 100)
+	end
+
+	if maincolorpicker
+		and not maincolorpicker.dragging
+		and (
+			backgroundchanged
+			or backgroundalphachanged
+		)
+	then
+		maincolorpicker:Set(theme.window, theme.backgroundAlpha, false)
 	end
 
 	if accentalphachanged then
@@ -4845,7 +4854,71 @@ function createmodalblur()
 			return
 		end
 
+		-- Freeze the rendered geometry before putting the copy on a SurfaceGui.
+		-- Layout objects otherwise recompute against a different parent and shift UI.
 		local clone = object:Clone()
+		local geometry = {}
+
+		local function collectgeometry(original, copy)
+			if original:IsA("GuiObject") and copy:IsA("GuiObject") then
+				local parentobject = original.Parent
+				local parentposition = parentobject and parentobject:IsA("GuiObject")
+					and parentobject.AbsolutePosition
+					or Vector2.zero
+				geometry[#geometry + 1] = {
+					object = copy,
+					position = original.AbsolutePosition - parentposition,
+					size = original.AbsoluteSize,
+				}
+			end
+
+			local originalchildren = original:GetChildren()
+			local copychildren = copy:GetChildren()
+			for index = 1, math.min(#originalchildren, #copychildren) do
+				collectgeometry(originalchildren[index], copychildren[index])
+			end
+		end
+
+		collectgeometry(object, clone)
+
+		for _, descendant in ipairs(clone:GetDescendants()) do
+			if descendant:IsA("UIListLayout")
+				or descendant:IsA("UIGridLayout")
+				or descendant:IsA("UIPageLayout")
+				or descendant:IsA("UITableLayout")
+				or descendant:IsA("UIPadding")
+				or descendant:IsA("UIScale")
+				or descendant:IsA("UISizeConstraint")
+				or descendant:IsA("UIAspectRatioConstraint")
+			then
+				descendant:Destroy()
+			end
+		end
+
+		for index, data in ipairs(geometry) do
+			local copy = data.object
+			if copy and (index == 1 or copy.Parent) then
+				copy.AnchorPoint = Vector2.zero
+				if index == 1 then
+					copy.Position = UDim2.fromOffset(
+						math.round(object.AbsolutePosition.X),
+						math.round(object.AbsolutePosition.Y)
+					)
+				else
+					copy.Position = UDim2.fromOffset(
+						math.round(data.position.X),
+						math.round(data.position.Y)
+					)
+				end
+				copy.Size = UDim2.fromOffset(
+					math.max(0, math.round(data.size.X)),
+					math.max(0, math.round(data.size.Y))
+				)
+				copy.AutomaticSize = Enum.AutomaticSize.None
+			end
+		end
+
+		clone.Visible = true
 		clone.Parent = surface
 
 		state.roots[#state.roots + 1] = {
@@ -4881,6 +4954,11 @@ function createmodalblur()
 			return
 		end
 
+		local canvassize = gui and gui.AbsoluteSize or viewport
+		if canvassize.X <= 0 or canvassize.Y <= 0 then
+			canvassize = viewport
+		end
+
 		local distance = 2
 		local height =
 			2
@@ -4896,7 +4974,7 @@ function createmodalblur()
 			.01
 		)
 		part.CFrame = camera.CFrame * CFrame.new(0, 0, -distance)
-		surface.CanvasSize = viewport
+		surface.CanvasSize = Vector2.new(math.round(canvassize.X), math.round(canvassize.Y))
 	end
 
 	update()
@@ -5158,7 +5236,7 @@ function showmodal(titletext, bodytext, actions)
 
 	tween(
 		blocker,
-		{BackgroundTransparency = .72},
+		{BackgroundTransparency = .88},
 		modalinfo
 	)
 	env.__blush_modal.cardtween = tween(
@@ -9731,7 +9809,7 @@ end
 
 function beginsectiondrag(drag)
 	if draglayer and draglayer.Parent then
-		draglayer.GroupTransparency = uitransparency
+		draglayer.GroupTransparency = 0
 	end
 
 	local section =
@@ -10145,7 +10223,7 @@ end
 
 function finishsectiondrag()
 	if draglayer and draglayer.Parent then
-		draglayer.GroupTransparency = uitransparency
+		draglayer.GroupTransparency = 0
 	end
 
 	local drag =
@@ -13703,8 +13781,8 @@ function createsection(
 			local wanted = math.max(
 				70,
 				#options * 34
-					+ #currentplayers * (uis.TouchEnabled and 56 or 48)
-					+ (includeeveryone and (uis.TouchEnabled and 40 or 34) or 0)
+					+ #currentplayers * (uis.TouchEnabled and 52 or 44)
+					+ (includeeveryone and (uis.TouchEnabled and 44 or 38) or 0)
 					+ dividerheight
 					+ (usesearch and 38 or 0)
 					+ 8
@@ -13782,7 +13860,10 @@ function createsection(
 			local rows = {}
 
 			local function makerow(value, textvalue, searchvalue, usernamevalue, playerrow, rowicon)
-				local rowheight = playerrow and (uis.TouchEnabled and 54 or 46) or (uis.TouchEnabled and 38 or 32)
+				local iseveryone = value == everyonevalue
+				local rowheight = playerrow
+					and (uis.TouchEnabled and 50 or 42)
+					or (iseveryone and (uis.TouchEnabled and 42 or 36) or (uis.TouchEnabled and 38 or 32))
 				local row = new("TextButton", {
 					Parent = scroll,
 					Size = UDim2.new(1, 0, 0, rowheight),
@@ -13800,7 +13881,7 @@ function createsection(
 						Parent = row,
 						AnchorPoint = Vector2.new(0, .5),
 						Position = UDim2.fromOffset(7, rowheight * .5),
-						Size = UDim2.fromOffset(uis.TouchEnabled and 40 or 34, uis.TouchEnabled and 40 or 34),
+						Size = UDim2.fromOffset(uis.TouchEnabled and 36 or 30, uis.TouchEnabled and 36 or 30),
 						BackgroundTransparency = 1,
 						BorderSizePixel = 0,
 						Image = getplayerthumbnail(value),
@@ -13808,7 +13889,7 @@ function createsection(
 						ZIndex = 515,
 					})
 					corner(playericon, 999)
-					left = uis.TouchEnabled and 53 or 47
+					left = uis.TouchEnabled and 49 or 43
 				elseif rowicon then
 					playericon = image(row, rowicon, 15, theme.text3, 515)
 					playericon.AnchorPoint = Vector2.new(0, .5)
@@ -13825,7 +13906,7 @@ function createsection(
 					issel(value) and theme.text or theme.text2
 				)
 				rowlabel.Position = UDim2.fromOffset(left, playerrow and (uis.TouchEnabled and 6 or 4) or 0)
-				rowlabel.TextSize = playerrow and (uis.TouchEnabled and 16 or 15) or 16
+				rowlabel.TextSize = playerrow and (uis.TouchEnabled and 15 or 14) or (iseveryone and 16 or 16)
 				rowlabel.TextTruncate = Enum.TextTruncate.AtEnd
 				rowlabel.ZIndex = 515
 
@@ -13838,8 +13919,8 @@ function createsection(
 						font,
 						theme.text3
 					)
-					usernamelabel.Position = UDim2.fromOffset(left, uis.TouchEnabled and 29 or 24)
-					usernamelabel.TextSize = uis.TouchEnabled and 13 or 12
+					usernamelabel.Position = UDim2.fromOffset(left, uis.TouchEnabled and 26 or 21)
+					usernamelabel.TextSize = uis.TouchEnabled and 12 or 11
 					usernamelabel.TextTruncate = Enum.TextTruncate.AtEnd
 					usernamelabel.ZIndex = 515
 				end
@@ -17362,62 +17443,99 @@ function resolvebackgroundimage(source, force)
 end
 
 function boxblurbackgroundbuffer(sourcebuffer, width, height, radius)
-	radius = math.max(1, math.floor(radius))
+	radius = math.max(0, math.floor(radius))
+	if radius == 0 then
+		return sourcebuffer
+	end
+
 	local bytes = width * height * 4
 	local horizontal = buffer.create(bytes)
 	local output = buffer.create(bytes)
-	local diameter = radius * 2 + 1
 
+	-- Horizontal pass. Use the real clipped sample count at the edges.
 	for y = 0, height - 1 do
-		local sums = { 0, 0, 0, 0 }
-		for sx = -radius, radius do
-			local x = math.clamp(sx, 0, width - 1)
-			local offset = (y * width + x) * 4
-			for channel = 0, 3 do
-				sums[channel + 1] += buffer.readu8(sourcebuffer, offset + channel)
-			end
+		local r, g, b, a = 0, 0, 0, 0
+
+		for x = 0, math.min(radius, width - 1) do
+			local i = (y * width + x) * 4
+			r += buffer.readu8(sourcebuffer, i)
+			g += buffer.readu8(sourcebuffer, i + 1)
+			b += buffer.readu8(sourcebuffer, i + 2)
+			a += buffer.readu8(sourcebuffer, i + 3)
 		end
 
 		for x = 0, width - 1 do
-			local offset = (y * width + x) * 4
-			for channel = 0, 3 do
-				buffer.writeu8(horizontal, offset + channel, math.floor(sums[channel + 1] / diameter + .5))
+			local left = math.max(0, x - radius)
+			local right = math.min(width - 1, x + radius)
+			local count = right - left + 1
+			local i = (y * width + x) * 4
+
+			buffer.writeu8(horizontal, i, math.round(r / count))
+			buffer.writeu8(horizontal, i + 1, math.round(g / count))
+			buffer.writeu8(horizontal, i + 2, math.round(b / count))
+			buffer.writeu8(horizontal, i + 3, math.round(a / count))
+
+			local removeX = x - radius
+			local addX = x + radius + 1
+
+			if removeX >= 0 then
+				local remove = (y * width + removeX) * 4
+				r -= buffer.readu8(sourcebuffer, remove)
+				g -= buffer.readu8(sourcebuffer, remove + 1)
+				b -= buffer.readu8(sourcebuffer, remove + 2)
+				a -= buffer.readu8(sourcebuffer, remove + 3)
 			end
 
-			local removeX = math.clamp(x - radius, 0, width - 1)
-			local addX = math.clamp(x + radius + 1, 0, width - 1)
-			local removeOffset = (y * width + removeX) * 4
-			local addOffset = (y * width + addX) * 4
-			for channel = 0, 3 do
-				sums[channel + 1] += buffer.readu8(sourcebuffer, addOffset + channel)
-				sums[channel + 1] -= buffer.readu8(sourcebuffer, removeOffset + channel)
+			if addX < width then
+				local add = (y * width + addX) * 4
+				r += buffer.readu8(sourcebuffer, add)
+				g += buffer.readu8(sourcebuffer, add + 1)
+				b += buffer.readu8(sourcebuffer, add + 2)
+				a += buffer.readu8(sourcebuffer, add + 3)
 			end
 		end
 	end
 
+	-- Vertical pass.
 	for x = 0, width - 1 do
-		local sums = { 0, 0, 0, 0 }
-		for sy = -radius, radius do
-			local y = math.clamp(sy, 0, height - 1)
-			local offset = (y * width + x) * 4
-			for channel = 0, 3 do
-				sums[channel + 1] += buffer.readu8(horizontal, offset + channel)
-			end
+		local r, g, b, a = 0, 0, 0, 0
+
+		for y = 0, math.min(radius, height - 1) do
+			local i = (y * width + x) * 4
+			r += buffer.readu8(horizontal, i)
+			g += buffer.readu8(horizontal, i + 1)
+			b += buffer.readu8(horizontal, i + 2)
+			a += buffer.readu8(horizontal, i + 3)
 		end
 
 		for y = 0, height - 1 do
-			local offset = (y * width + x) * 4
-			for channel = 0, 3 do
-				buffer.writeu8(output, offset + channel, math.floor(sums[channel + 1] / diameter + .5))
+			local top = math.max(0, y - radius)
+			local bottom = math.min(height - 1, y + radius)
+			local count = bottom - top + 1
+			local i = (y * width + x) * 4
+
+			buffer.writeu8(output, i, math.round(r / count))
+			buffer.writeu8(output, i + 1, math.round(g / count))
+			buffer.writeu8(output, i + 2, math.round(b / count))
+			buffer.writeu8(output, i + 3, math.round(a / count))
+
+			local removeY = y - radius
+			local addY = y + radius + 1
+
+			if removeY >= 0 then
+				local remove = (removeY * width + x) * 4
+				r -= buffer.readu8(horizontal, remove)
+				g -= buffer.readu8(horizontal, remove + 1)
+				b -= buffer.readu8(horizontal, remove + 2)
+				a -= buffer.readu8(horizontal, remove + 3)
 			end
 
-			local removeY = math.clamp(y - radius, 0, height - 1)
-			local addY = math.clamp(y + radius + 1, 0, height - 1)
-			local removeOffset = (removeY * width + x) * 4
-			local addOffset = (addY * width + x) * 4
-			for channel = 0, 3 do
-				sums[channel + 1] += buffer.readu8(horizontal, addOffset + channel)
-				sums[channel + 1] -= buffer.readu8(horizontal, removeOffset + channel)
+			if addY < height then
+				local add = (addY * width + x) * 4
+				r += buffer.readu8(horizontal, add)
+				g += buffer.readu8(horizontal, add + 1)
+				b += buffer.readu8(horizontal, add + 2)
+				a += buffer.readu8(horizontal, add + 3)
 			end
 		end
 	end
@@ -17430,62 +17548,52 @@ function preparebackgroundblurbase(asset, token)
 		and backgroundblurbasepixels
 		and backgroundblurbasewidth > 0
 		and backgroundblurbaseheight > 0
+		and backgroundblureditable
 	then
 		return true
 	end
 
-	local source
-	local ok = invoke(function()
-		source = assetservice:CreateEditableImageAsync(Content.fromUri(asset))
-	end)
-	if not ok or not source or token ~= backgroundblurtoken then
-		if source then invoke(function() source:Destroy() end) end
-		return false
+	if backgroundblureditable then
+		invoke(function() backgroundblureditable:Destroy() end)
+		backgroundblureditable = nil
 	end
 
-	local sourceSize = source.Size
-	if sourceSize.X < 1 or sourceSize.Y < 1 then
-		invoke(function() source:Destroy() end)
-		return false
-	end
-
-	local maxdimension = 112
-	local scale = math.min(1, maxdimension / math.max(sourceSize.X, sourceSize.Y))
-	local width = math.max(24, math.floor(sourceSize.X * scale + .5))
-	local height = math.max(24, math.floor(sourceSize.Y * scale + .5))
-	local base
+	local editable
 	local pixels
-
-	ok = invoke(function()
-		base = assetservice:CreateEditableImage({ Size = Vector2.new(width, height) })
-		if not base then error("editable image unavailable") end
-
-		base:DrawImageTransformed(
-			Vector2.zero,
-			Vector2.new(width / sourceSize.X, height / sourceSize.Y),
-			0,
-			source,
-			{
-				CombineType = Enum.ImageCombineType.Overwrite,
-				SamplingMode = Enum.ResamplerMode.Default,
-				PivotPoint = Vector2.zero,
-			}
-		)
-
-		pixels = base:ReadPixelsBuffer(Vector2.zero, Vector2.new(width, height))
+	local ok = invoke(function()
+		editable = assetservice:CreateEditableImageAsync(Content.fromUri(asset))
+		if not editable then error("editable image unavailable") end
+		pixels = editable:ReadPixelsBuffer(Vector2.zero, editable.Size)
 	end)
 
-	invoke(function() source:Destroy() end)
-	if base then invoke(function() base:Destroy() end) end
+	if not ok or not editable or not pixels or token ~= backgroundblurtoken then
+		if editable then invoke(function() editable:Destroy() end) end
+		return false
+	end
 
-	if not ok or not pixels or token ~= backgroundblurtoken then
+	local size = editable.Size
+	if size.X < 1 or size.Y < 1 then
+		invoke(function() editable:Destroy() end)
 		return false
 	end
 
 	backgroundblurbaseasset = asset
 	backgroundblurbasepixels = pixels
-	backgroundblurbasewidth = width
-	backgroundblurbaseheight = height
+	backgroundblurbasewidth = size.X
+	backgroundblurbaseheight = size.Y
+	backgroundblureditable = editable
+	backgroundblurlastsignature = nil
+
+	local applied = invoke(function()
+		backgroundblurdisplay.ImageContent = Content.fromObject(editable)
+	end)
+	if not applied then
+		invoke(function() editable:Destroy() end)
+		backgroundblureditable = nil
+		backgroundblurbasepixels = nil
+		return false
+	end
+
 	return true
 end
 
@@ -17504,55 +17612,30 @@ function buildbackgroundblur(asset, blur, token)
 	local width = backgroundblurbasewidth
 	local height = backgroundblurbaseheight
 	local sourcepixels = backgroundblurbasepixels
-	if not sourcepixels or width < 1 or height < 1 then
+	local editable = backgroundblureditable
+	if not editable or not sourcepixels or width < 1 or height < 1 then
 		return false
 	end
 
-	local strength = math.clamp(blur / backgroundimageblurmax, 0, 1)
-	local radius = math.clamp(math.floor((strength ^ 1.35) * 8 + .5), 1, 8)
-	local passes = blur >= 72 and 2 or 1
-	local signature = tostring(backgroundblurbaseasset) .. ":" .. tostring(radius) .. ":" .. tostring(passes)
-	if backgroundblureditable and backgroundblurlastsignature == signature then
+	local radius = math.clamp(math.round(blur), 1, backgroundimageblurmax)
+	local signature = tostring(backgroundblurbaseasset) .. ":" .. tostring(radius)
+	if backgroundblurlastsignature == signature then
 		return true
 	end
 
-	local pixels = sourcepixels
-
-	for _ = 1, passes do
-		pixels = boxblurbackgroundbuffer(pixels, width, height, radius)
-	end
+	local output = boxblurbackgroundbuffer(sourcepixels, width, height, radius)
 	if token ~= backgroundblurtoken then
 		return false
 	end
 
-	local blurred
 	local ok = invoke(function()
-		blurred = assetservice:CreateEditableImage({ Size = Vector2.new(width, height) })
-		if not blurred then error("editable image unavailable") end
-		blurred:WritePixelsBuffer(Vector2.zero, Vector2.new(width, height), pixels)
+		editable:WritePixelsBuffer(Vector2.zero, Vector2.new(width, height), output)
 	end)
-
-	if not ok or not blurred or token ~= backgroundblurtoken then
-		if blurred then invoke(function() blurred:Destroy() end) end
+	if not ok or token ~= backgroundblurtoken then
 		return false
 	end
 
-	if backgroundblureditable and backgroundblureditable ~= blurred then
-		invoke(function() backgroundblureditable:Destroy() end)
-	end
-	backgroundblureditable = blurred
 	backgroundblurlastsignature = signature
-
-	local applied = invoke(function()
-		backgroundblurdisplay.ImageContent = Content.fromObject(blurred)
-	end)
-	if not applied then
-		invoke(function() blurred:Destroy() end)
-		backgroundblureditable = nil
-		backgroundblurlastsignature = nil
-		return false
-	end
-
 	return true
 end
 
@@ -17569,26 +17652,18 @@ function applybackgroundblurblend()
 		return
 	end
 
-	backgroundimage.Visible = true
 	if blur <= 0 or not backgroundblureditable then
+		backgroundimage.Visible = true
 		backgroundimage.ImageTransparency = 1 - opacity
 		backgroundblurdisplay.Visible = false
 		backgroundblurdisplay.ImageTransparency = 1
 		return
 	end
 
-	-- Non-linear blend keeps the first blur values extremely subtle.
-	local strength = math.clamp(blur / backgroundimageblurmax, 0, 1)
-	local blend = strength ^ 1.75
-	local bluralpha = opacity * blend
-	local basealpha = opacity
-	if bluralpha < 1 then
-		basealpha = math.clamp((opacity - bluralpha) / math.max(.001, 1 - bluralpha), 0, 1)
-	end
-
-	backgroundimage.ImageTransparency = 1 - basealpha
-	backgroundblurdisplay.ImageTransparency = 1 - bluralpha
-	backgroundblurdisplay.Visible = bluralpha > .001
+	backgroundimage.Visible = false
+	backgroundimage.ImageTransparency = 1
+	backgroundblurdisplay.Visible = true
+	backgroundblurdisplay.ImageTransparency = 1 - opacity
 end
 
 function schedulebackgroundblur(animate)
@@ -17613,7 +17688,7 @@ function schedulebackgroundblur(animate)
 		pcall(task.cancel, backgroundblurtask)
 	end
 
-	backgroundblurtask = task.delay(.008, function()
+	backgroundblurtask = task.spawn(function()
 		if debounce ~= backgroundblurdebounce or token ~= backgroundblurtoken then
 			return
 		end
@@ -18232,6 +18307,7 @@ themeselector = nil
 accentpicker = nil
 backgroundpicker = nil
 fontpicker = nil
+maincolorpicker = nil
 animationtoggle = nil
 searchtoggle = nil
 menukeypicker = nil
@@ -19546,6 +19622,26 @@ uitransparencycontrol = settingssection:AddSlider(
 
 applyuitransparency(initialtransparency)
 
+maincolorpicker = settingssection:AddColorPicker(
+	"Main color",
+	theme.window,
+	function(color, alpha)
+		applytheme(
+			color,
+			theme.white,
+			alpha,
+			theme.accentAlpha,
+			theme.font,
+			theme.fontAlpha,
+			true
+		)
+		if backgroundpicker then
+			backgroundpicker:Set(color, alpha, false)
+		end
+		saveuisettings()
+	end
+)
+
 themessection =
 	createsection(
 		settings,
@@ -20280,6 +20376,9 @@ function applysaveduisettings(data, silent)
 
 	accentpicker:Set(loadedaccent, loadedaccentalpha, false)
 	backgroundpicker:Set(loadedbackground, loadedbackgroundalpha, false)
+	if maincolorpicker then
+		maincolorpicker:Set(loadedbackground, loadedbackgroundalpha, false)
+	end
 	fontpicker:Set(loadedfont, loadedfontalpha, false)
 
 	syncwindowglowcolor(false)
@@ -20514,9 +20613,9 @@ function playvisibilityfade(show, token)
 	)
 
 	local roots = {
-		{window, show and uitransparency or 1},
-		{popuplayer, show and uitransparency or 1},
-		{draglayer, show and uitransparency or 1},
+		{window, show and 0 or 1},
+		{popuplayer, show and 0 or 1},
+		{draglayer, show and 0 or 1},
 	}
 
 	local extras = {}
