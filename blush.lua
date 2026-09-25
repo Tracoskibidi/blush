@@ -16,6 +16,7 @@ httpservice = game:GetService("HttpService")
 guiservice = game:GetService("GuiService")
 contextactionservice = game:GetService("ContextActionService")
 assetservice = game:GetService("AssetService")
+lighting = game:GetService("Lighting")
 
 player = players.LocalPlayer
 parent = gethui and gethui() or player:WaitForChild("PlayerGui")
@@ -123,6 +124,12 @@ env.__blush_cleanup = function()
 
 	if destroybackgroundeditable then
 		destroybackgroundeditable()
+	end
+
+	if closemodal then
+		invoke(function()
+			closemodal(true)
+		end)
 	end
 
 	for _, connection in ipairs(connections) do
@@ -271,6 +278,7 @@ icons = {
 	resize = "rbxassetid://79701968834514",
 	keyboard = "rbxassetid://121474456068237",
 	userround = "rbxassetid://136485052187963",
+	usersround = "rbxassetid://7743876054",
 	menu = "rbxassetid://77021539815611",
 	columns2 = "rbxassetid://113004100221850",
 	wallpaper = "rbxassetid://74682121235494",
@@ -715,7 +723,9 @@ function applyuitransparency(value)
 				and object:IsDescendantOf(draglayer)
 
 			object.BackgroundTransparency =
-				effectivetransparency(
+				detached
+				and data.base
+				or effectivetransparency(
 					data.base,
 					data.role
 				)
@@ -1206,11 +1216,12 @@ rainbowtextconnection = nil
 rainbowtextphase = 0
 rainbowtextsequence = ColorSequence.new({
 	ColorSequenceKeypoint.new(0, Color3.fromHSV(0, 1, 1)),
-	ColorSequenceKeypoint.new(.2, Color3.fromHSV(.16, 1, 1)),
-	ColorSequenceKeypoint.new(.4, Color3.fromHSV(.33, 1, 1)),
-	ColorSequenceKeypoint.new(.6, Color3.fromHSV(.5, 1, 1)),
-	ColorSequenceKeypoint.new(.8, Color3.fromHSV(.66, 1, 1)),
-	ColorSequenceKeypoint.new(1, Color3.fromHSV(.83, 1, 1)),
+	ColorSequenceKeypoint.new(1 / 6, Color3.fromHSV(1 / 6, 1, 1)),
+	ColorSequenceKeypoint.new(2 / 6, Color3.fromHSV(2 / 6, 1, 1)),
+	ColorSequenceKeypoint.new(3 / 6, Color3.fromHSV(3 / 6, 1, 1)),
+	ColorSequenceKeypoint.new(4 / 6, Color3.fromHSV(4 / 6, 1, 1)),
+	ColorSequenceKeypoint.new(5 / 6, Color3.fromHSV(5 / 6, 1, 1)),
+	ColorSequenceKeypoint.new(1, Color3.fromHSV(1, 1, 1)),
 })
 
 function registergradienttarget(target, textobject)
@@ -1320,8 +1331,8 @@ function ensurerainbowtextloop()
 			return
 		end
 
-		rainbowtextphase = (rainbowtextphase + dt * 2.15) % (math.pi * 2)
-		local offset = Vector2.new(math.sin(rainbowtextphase) * .28, 0)
+		rainbowtextphase = (rainbowtextphase + dt * .32) % 1
+		local offset = Vector2.new(rainbowtextphase, 0)
 
 		for textobject, gradient in pairs(env.__blush_rainbowgradients) do
 			if not textobject.Parent or not gradient.Parent then
@@ -1368,6 +1379,12 @@ function settextgradient(target, value)
 		Color = sequence,
 		Offset = Vector2.zero,
 	})
+
+	if rainbow then
+		invoke(function()
+			gradient.TileMode = Enum.GradientTileMode.Repeat
+		end)
+	end
 
 	local state = {
 		gradient = gradient,
@@ -1776,6 +1793,8 @@ windowmaxsize = nil
 
 windowshadowenabled = true
 windowglowenabled = true
+windowglowintensitymax = 200
+windowglowsizemax = 48
 windowglowintensity = 16
 windowglowsize = 10
 windowglowcolor = theme.white
@@ -1806,13 +1825,13 @@ function applywindowglow()
 	local strength = math.clamp(
 		tonumber(windowglowintensity) or 16,
 		0,
-		100
+		windowglowintensitymax
 	)
 
 	local size = math.clamp(
 		tonumber(windowglowsize) or 10,
 		0,
-		24
+		windowglowsizemax
 	)
 
 	local alpha = math.clamp(
@@ -1827,7 +1846,7 @@ function applywindowglow()
 		* alpha
 
 	local transparency =
-		1 - opacity
+		1 - math.clamp(opacity, 0, 1)
 
 	windowglow:SetAttribute(
 		"BlushBaseTransparency",
@@ -3416,8 +3435,8 @@ function updatebreadcrumblayout()
 
 	local contentwidth = primarywidth + (hassubtitle and (secondarywidth + 24) or 0)
 	contentwidth = math.min(contentwidth, available)
-	breadcrumb.AnchorPoint = Vector2.new(.5, .5)
-	breadcrumb.Position = UDim2.fromOffset(math.round((left + right) * .5), 31)
+	breadcrumb.AnchorPoint = Vector2.new(0, .5)
+	breadcrumb.Position = UDim2.fromOffset(left, 31)
 	breadcrumb.Size = UDim2.fromOffset(math.max(1, contentwidth), 28)
 end
 
@@ -4722,26 +4741,204 @@ function attachcontextmenu(object, entries)
 	return object
 end
 
-function closemodal()
+function destroymodalblur(state)
+	if not state then
+		return
+	end
+
+	if state.connection and state.connection.Connected then
+		state.connection:Disconnect()
+		state.connection = nil
+	end
+
+	for _, data in ipairs(state.roots or {}) do
+		if data.object and data.object.Parent then
+			data.object.Visible = data.visible
+		end
+	end
+
+	for _, object in ipairs({
+		state.surface,
+		state.part,
+		state.blur,
+	}) do
+		if object and object.Parent then
+			object:Destroy()
+		end
+	end
+end
+
+function createmodalblur()
+	local camera = workspace.CurrentCamera
+	if not camera then
+		return nil
+	end
+
+	local blur = Instance.new("BlurEffect")
+	blur.Name = "BlushModalBlur"
+	blur.Size = 0
+	blur.Parent = lighting
+
+	local part = Instance.new("Part")
+	part.Name = "BlushModalBlurSurface"
+	part.Anchored = true
+	part.Transparency = 1
+	part.CanCollide = false
+	part.CanTouch = false
+	part.CanQuery = false
+	part.CastShadow = false
+	part.Size = Vector3.new(1, 1, .01)
+	part.Parent = camera
+
+	local surface = Instance.new("SurfaceGui")
+	surface.Name = "BlushModalBlurGui"
+	surface.Adornee = part
+	surface.Face = Enum.NormalId.Back
+	surface.AlwaysOnTop = false
+	surface.Active = false
+	surface.LightInfluence = 0
+	surface.Brightness = 1
+	surface.Parent = player:WaitForChild("PlayerGui")
+
+	local state = {
+		blur = blur,
+		part = part,
+		surface = surface,
+		roots = {},
+	}
+
+	local function addroot(object)
+		if not object
+			or not object.Parent
+			or not object:IsA("GuiObject")
+			or not object.Visible
+		then
+			return
+		end
+
+		local clone = object:Clone()
+		clone.Parent = surface
+
+		state.roots[#state.roots + 1] = {
+			object = object,
+			visible = object.Visible,
+			clone = clone,
+		}
+
+		object.Visible = false
+	end
+
+	addroot(shell)
+	addroot(draglayer)
+	addroot(hotkeylist)
+	addroot(notificationholder)
+	addroot(watermark)
+
+	local function update()
+		camera = workspace.CurrentCamera
+		if not camera
+			or not part.Parent
+			or not surface.Parent
+		then
+			return
+		end
+
+		if part.Parent ~= camera then
+			part.Parent = camera
+		end
+
+		local viewport = camera.ViewportSize
+		if viewport.X <= 0 or viewport.Y <= 0 then
+			return
+		end
+
+		local distance = 2
+		local height =
+			2
+			* distance
+			* math.tan(
+				math.rad(camera.FieldOfView) / 2
+			)
+		local pixel = height / viewport.Y
+
+		part.Size = Vector3.new(
+			viewport.X * pixel,
+			viewport.Y * pixel,
+			.01
+		)
+		part.CFrame = camera.CFrame * CFrame.new(0, 0, -distance)
+		surface.CanvasSize = viewport
+	end
+
+	update()
+	state.connection = runservice.PreRender:Connect(update)
+	return state
+end
+
+function closemodal(instant)
 	local modal = env.__blush_modal
+	if not modal and instant == true then
+		modal = env.__blush_closingmodal
+	end
+
 	env.__blush_modal = nil
 
-	if not modal
-		or not modal.root
-		or not modal.root.Parent
-	then
+	if not modal then
 		return
+	end
+
+	if instant == true then
+		env.__blush_closingmodal = nil
+	else
+		env.__blush_closingmodal = modal
 	end
 
 	local root = modal.root
 	local blocker = modal.blocker
 	local card = modal.card
+	local blurstate = modal.blurstate
+
+	local function finish()
+		if env.__blush_closingmodal == modal then
+			env.__blush_closingmodal = nil
+		end
+
+		if root and root.Parent then
+			root:Destroy()
+		end
+		destroymodalblur(blurstate)
+	end
+
+	if instant == true
+		or not root
+		or not root.Parent
+	then
+		if blurstate and blurstate.blur and blurstate.blur.Parent then
+			blurstate.blur.Size = 0
+		end
+		finish()
+		return
+	end
+
+	local info = TweenInfo.new(
+		.2,
+		Enum.EasingStyle.Quart,
+		Enum.EasingDirection.Out
+	)
+
+	if blurstate and blurstate.blur and blurstate.blur.Parent then
+		tweenservice:Create(
+			blurstate.blur,
+			info,
+			{Size = 0}
+		):Play()
+	end
 
 	if blocker and blocker.Parent then
 		tween(
 			blocker,
 			{BackgroundTransparency = 1},
-			TweenInfo.new(.24, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
+			info
 		)
 	end
 
@@ -4749,25 +4946,29 @@ function closemodal()
 	if card and card.Parent then
 		animation = tween(
 			card,
-			{GroupTransparency = 1},
-			TweenInfo.new(.24, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
+			{
+				GroupTransparency = 1,
+				Size = UDim2.fromOffset(
+					math.max(210, card.Size.X.Offset - 30),
+					math.max(110, card.Size.Y.Offset - 20)
+				),
+			},
+			info
 		)
 	end
 
 	if animation then
-		animation.Completed:Connect(function()
-			if root.Parent then
-				root:Destroy()
-			end
-		end)
+		animation.Completed:Once(finish)
 	else
-		root:Destroy()
+		finish()
 	end
 end
 
 function showmodal(titletext, bodytext, actions)
 	closepopup()
-	closemodal()
+	closemodal(true)
+
+	local blurstate = createmodalblur()
 
 	local root = new("Frame", {
 		Parent = popuplayer,
@@ -4791,11 +4992,12 @@ function showmodal(titletext, bodytext, actions)
 	local modalviewport = workspace.CurrentCamera and workspace.CurrentCamera.ViewportSize or Vector2.new(800, 450)
 	local modalwidth = uis.TouchEnabled and math.min(360, math.max(260, modalviewport.X - 28)) or 360
 
+	local modalheight = uis.TouchEnabled and 178 or 170
 	local card = new("CanvasGroup", {
 		Parent = root,
 		AnchorPoint = Vector2.new(.5, .5),
 		Position = UDim2.fromScale(.5, .5),
-		Size = UDim2.fromOffset(modalwidth, uis.TouchEnabled and 178 or 170),
+		Size = UDim2.fromOffset(modalwidth - 30, modalheight - 20),
 		BackgroundColor3 = theme.popup,
 		BackgroundTransparency = .025,
 		BorderSizePixel = 0,
@@ -4902,17 +5104,35 @@ function showmodal(titletext, bodytext, actions)
 		root = root,
 		blocker = blocker,
 		card = card,
+		blurstate = blurstate,
 	}
+
+	local modalinfo = TweenInfo.new(
+		.2,
+		Enum.EasingStyle.Quart,
+		Enum.EasingDirection.Out
+	)
+
+	if blurstate and blurstate.blur and blurstate.blur.Parent then
+		tweenservice:Create(
+			blurstate.blur,
+			modalinfo,
+			{Size = 10}
+		):Play()
+	end
 
 	tween(
 		blocker,
-		{BackgroundTransparency = .58},
-		TweenInfo.new(.24, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
+		{BackgroundTransparency = .72},
+		modalinfo
 	)
 	tween(
 		card,
-		{GroupTransparency = 0},
-		TweenInfo.new(.24, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
+		{
+			Size = UDim2.fromOffset(modalwidth, modalheight),
+			GroupTransparency = 0,
+		},
+		modalinfo
 	)
 
 	return root
@@ -5330,21 +5550,21 @@ function updatehotkeygroup(data, category, binding)
 		if asset ~= nil and tostring(asset) ~= "" then
 			data.icon = image(data.holder, asset, 13, theme.text3, 323)
 			data.icon.AnchorPoint = Vector2.new(0, .5)
-			data.icon.Position = UDim2.fromOffset(4, 21)
+			data.icon.Position = UDim2.fromOffset(4, 15)
 			data.icon.ImageTransparency = .08
 		end
 	end
 
 	local textx = data.icon and 23 or 4
 	data.text.Text = tostring(category)
-	data.text.Position = UDim2.fromOffset(textx, 9)
+	data.text.Position = UDim2.fromOffset(textx, 3)
 	data.text.Size = UDim2.new(1, -textx - 4, 0, 24)
 end
 
 function createhotkeygroup(key, category, binding)
 	local holder = new("Frame", {
 		Parent = hotkeyscroll,
-		Size = UDim2.new(1, 0, 0, 42),
+		Size = UDim2.new(1, 0, 0, 31),
 		BackgroundTransparency = 1,
 		BorderSizePixel = 0,
 		ZIndex = 322,
@@ -5357,7 +5577,7 @@ function createhotkeygroup(key, category, binding)
 		medium,
 		theme.text2
 	)
-	textobject.Position = UDim2.fromOffset(4, 9)
+	textobject.Position = UDim2.fromOffset(4, 3)
 	textobject.TextSize = 13
 	textobject.TextXAlignment = Enum.TextXAlignment.Left
 	textobject.ZIndex = 323
@@ -5463,6 +5683,10 @@ function createhotkeyrow(binding)
 	end)
 
 	row.Activated:Connect(function()
+		if binding.locked == true then
+			return
+		end
+
 		local ok, current = invoke(binding.get)
 		if ok and binding.set then
 			binding.set(not (current == true), true)
@@ -5594,7 +5818,7 @@ function refreshhotkeylist()
 		seengroups[group.key] = true
 		layoutorder += 1
 		groupdata.holder.LayoutOrder = layoutorder
-		contentheight += 42
+		contentheight += 31
 		itemcount += 1
 
 		for _, binding in ipairs(group.bindings) do
@@ -5828,15 +6052,12 @@ for name, labelvalue in pairs(keybindblacklistlabelmap) do
 end
 
 keybindblacklistoptions = {
-	"M1", "M2", "M3",
-	"A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M",
-	"N", "O", "P", "Q", "R", "S", "T", "U", "V", "W", "X", "Y", "Z",
-	"0", "1", "2", "3", "4", "5", "6", "7", "8", "9",
-	"Space", "Tab", "Enter", "Esc", "Backspace", "Del", "Ins", "Home", "End", "PgUp", "PgDn",
-	"↑", "↓", "←", "→",
-	"LShift", "RShift", "LCtrl", "RCtrl", "LAlt", "RAlt",
-	"`", "-", "=", "[", "]", "\\", ";", "'", ",", ".", "/",
-	"F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "F9", "F10", "F11", "F12",
+	"M1",
+	"W",
+	"A",
+	"S",
+	"D",
+	"Space",
 }
 
 function keybindblacklistcanonical(value)
@@ -5849,6 +6070,17 @@ function keybindblacklistlabel(value)
 	return keybindblacklistlabelmap[value] or value
 end
 
+function ensurekeybindblacklistoption(value)
+	local name = keybindblacklistcanonical(value)
+	local labelvalue = keybindblacklistlabel(name)
+
+	if name ~= "" and not table.find(keybindblacklistoptions, labelvalue) then
+		table.insert(keybindblacklistoptions, labelvalue)
+	end
+
+	return name, labelvalue
+end
+
 function setkeybindblacklist(values)
 	table.clear(keybindblacklist)
 
@@ -5857,7 +6089,10 @@ function setkeybindblacklist(values)
 			and values
 			or keybindblacklistdefaults
 	) do
-		keybindblacklist[keybindblacklistcanonical(value)] = true
+		local name = ensurekeybindblacklistoption(value)
+		if name ~= "" then
+			keybindblacklist[name] = true
+		end
 	end
 end
 
@@ -5908,7 +6143,7 @@ function capturephysicalkey(input)
 	return nil
 end
 
-function beginkeycapture(owner, cancelcallback, selectcallback, ignorecallback)
+function beginkeycapture(owner, cancelcallback, selectcallback, ignorecallback, captureoptions)
 	if keycaptureowner and keycaptureowner.owner ~= owner then
 		local previous = keycaptureowner
 		keycaptureowner = nil
@@ -5929,6 +6164,7 @@ function beginkeycapture(owner, cancelcallback, selectcallback, ignorecallback)
 		cancel = cancelcallback,
 		select = selectcallback,
 		ignore = ignorecallback,
+		options = captureoptions or {},
 	}
 	keypickercapturing = true
 	return true
@@ -5963,6 +6199,7 @@ function dispatchtogglebinding(key, began)
 		local anchor = binding.anchor
 
 		if binding.key == key
+			and binding.locked ~= true
 			and (
 				not anchor
 				or anchor.Parent
@@ -6890,7 +7127,11 @@ connect(
 				return
 			end
 
-			if physical == Enum.KeyCode.Escape then
+			local captureoptions = capture.options or {}
+
+			if physical == Enum.KeyCode.Escape
+				and captureoptions.AllowEscape ~= true
+			then
 				local cancel = capture.cancel
 				endkeycapture(capture.owner, physical)
 				if cancel then
@@ -6900,9 +7141,13 @@ connect(
 			end
 
 			local selected = physical
-			if physical == Enum.KeyCode.Backspace or physical == Enum.KeyCode.Delete then
+			if (physical == Enum.KeyCode.Backspace or physical == Enum.KeyCode.Delete)
+				and captureoptions.KeepDelete ~= true
+			then
 				selected = nil
-			elseif iskeybindblacklisted(physical) then
+			elseif iskeybindblacklisted(physical)
+				and captureoptions.AllowBlacklisted ~= true
+			then
 				return
 			end
 
@@ -8964,9 +9209,14 @@ function opencolorpicker(
 		end,
 
 		function(value)
-			state.fading = value
-			state.fadevalue = state.alpha
-			state.fadedirection = -1
+			if value then
+				state.fadevalue = state.alpha
+				state.fadedirection = -1
+				state.fading = true
+			else
+				state.alpha = math.clamp(state.fadevalue, 0, 1)
+				state.fading = false
+			end
 		end
 	)
 
@@ -9496,33 +9746,6 @@ function beginsectiondrag(drag)
 			originalsize.Y
 		)
 
-	-- The source section normally inherits the window CanvasGroup transparency.
-	-- Preserve that exact appearance on the drag clone instead of making it
-	-- suddenly more opaque when it leaves the window hierarchy.
-	if not drag.wasfloating and uitransparency > 0 then
-		local function inheritgroupalpha(value)
-			return 1 - (1 - value) * (1 - uitransparency)
-		end
-
-		local cloneobjects = {clone}
-		for _, object in ipairs(clone:GetDescendants()) do
-			cloneobjects[#cloneobjects + 1] = object
-		end
-
-		for _, object in ipairs(cloneobjects) do
-			if object:IsA("GuiObject") then
-				object.BackgroundTransparency = inheritgroupalpha(object.BackgroundTransparency)
-				if object:IsA("TextLabel") or object:IsA("TextButton") or object:IsA("TextBox") then
-					object.TextTransparency = inheritgroupalpha(object.TextTransparency)
-				end
-				if object:IsA("ImageLabel") or object:IsA("ImageButton") then
-					object.ImageTransparency = inheritgroupalpha(object.ImageTransparency)
-				end
-			elseif object:IsA("UIStroke") or object:IsA("UIShadow") then
-				object.Transparency = inheritgroupalpha(object.Transparency)
-			end
-		end
-	end
 
 	for _, object in ipairs(
 		clone:GetDescendants()
@@ -9981,12 +10204,6 @@ function finishsectiondrag()
 			)
 		end
 
-		notify(
-			"Section detached",
-			section.name,
-			2.25
-		)
-
 		return
 	end
 
@@ -10259,8 +10476,11 @@ function createsection(
 		order = page.order,
 
 		frame = frame,
+		header = headerobject,
 		body = body,
 		clip = clip,
+		collapse = collapse,
+		divider = divider,
 		shadow = floatingshadow,
 		TextObject = titleobject,
 
@@ -10274,6 +10494,7 @@ function createsection(
 		floating = false,
 		floatingwidth = nil,
 
+		headerheight = 43,
 		targetheight = 43,
 		targety = 0,
 
@@ -10337,7 +10558,7 @@ function createsection(
 				and 0
 				or bodyheight
 
-			section.targetheight = 43 + visibleheight
+			section.targetheight = section.headerheight + visibleheight
 
 			frame.Size = UDim2.new(
 				1,
@@ -10383,7 +10604,7 @@ function createsection(
 			or bodyheight
 
 		section.targetheight =
-			43
+			section.headerheight
 			+ visibleheight
 
 		local framesize
@@ -11895,7 +12116,8 @@ function createsection(
 		defaultmax,
 		suffix,
 		callback,
-		target
+		target,
+		mindistance
 	)
 		local parentobject =
 			target or body
@@ -12126,6 +12348,31 @@ function createsection(
 				maximum
 			)
 
+		local minimumdistance = math.clamp(
+			tonumber(mindistance) or 0,
+			0,
+			math.max(0, maximum - minimum)
+		)
+
+		local function enforcegap(preferred)
+			if high - low >= minimumdistance then
+				return
+			end
+
+			if preferred == "low" then
+				low = math.clamp(high - minimumdistance, minimum, maximum)
+			elseif preferred == "high" then
+				high = math.clamp(low + minimumdistance, minimum, maximum)
+			else
+				high = math.min(maximum, low + minimumdistance)
+				if high - low < minimumdistance then
+					low = math.max(minimum, high - minimumdistance)
+				end
+			end
+		end
+
+		enforcegap()
+
 		local active =
 			"low"
 
@@ -12230,13 +12477,13 @@ function createsection(
 					math.clamp(
 						value,
 						minimum,
-						high
+						math.max(minimum, high - minimumdistance)
 					)
 			else
 				high =
 					math.clamp(
 						value,
-						low,
+						math.min(maximum, low + minimumdistance),
 						maximum
 					)
 			end
@@ -12334,7 +12581,20 @@ function createsection(
 				)
 				low = math.min(a, b)
 				high = math.max(a, b)
+				enforcegap()
 				render(fire ~= false)
+			end,
+			SetMinimumDistance = function(_, value, fire)
+				minimumdistance = math.clamp(
+					tonumber(value) or 0,
+					0,
+					math.max(0, maximum - minimum)
+				)
+				enforcegap()
+				render(fire ~= false)
+			end,
+			GetMinimumDistance = function()
+				return minimumdistance
 			end,
 			Object = holder,
 			TextObject = title,
@@ -13298,7 +13558,7 @@ function createsection(
 			local wanted = math.max(
 				70,
 				#options * 34
-					+ #currentplayers * (uis.TouchEnabled and 64 or 56)
+					+ #currentplayers * (uis.TouchEnabled and 56 or 48)
 					+ (includeeveryone and (uis.TouchEnabled and 40 or 34) or 0)
 					+ dividerheight
 					+ (usesearch and 38 or 0)
@@ -13377,7 +13637,7 @@ function createsection(
 			local rows = {}
 
 			local function makerow(value, textvalue, searchvalue, usernamevalue, playerrow, rowicon)
-				local rowheight = playerrow and (uis.TouchEnabled and 62 or 54) or (uis.TouchEnabled and 38 or 32)
+				local rowheight = playerrow and (uis.TouchEnabled and 54 or 46) or (uis.TouchEnabled and 38 or 32)
 				local row = new("TextButton", {
 					Parent = scroll,
 					Size = UDim2.new(1, 0, 0, rowheight),
@@ -13395,7 +13655,7 @@ function createsection(
 						Parent = row,
 						AnchorPoint = Vector2.new(0, .5),
 						Position = UDim2.fromOffset(7, rowheight * .5),
-						Size = UDim2.fromOffset(uis.TouchEnabled and 48 or 42, uis.TouchEnabled and 48 or 42),
+						Size = UDim2.fromOffset(uis.TouchEnabled and 40 or 34, uis.TouchEnabled and 40 or 34),
 						BackgroundTransparency = 1,
 						BorderSizePixel = 0,
 						Image = getplayerthumbnail(value),
@@ -13403,7 +13663,7 @@ function createsection(
 						ZIndex = 515,
 					})
 					corner(playericon, 999)
-					left = uis.TouchEnabled and 61 or 55
+					left = uis.TouchEnabled and 53 or 47
 				elseif rowicon then
 					playericon = image(row, rowicon, 15, theme.text3, 515)
 					playericon.AnchorPoint = Vector2.new(0, .5)
@@ -13419,8 +13679,8 @@ function createsection(
 					playerrow and medium or font,
 					issel(value) and theme.text or theme.text2
 				)
-				rowlabel.Position = UDim2.fromOffset(left, playerrow and (uis.TouchEnabled and 8 or 6) or 0)
-				rowlabel.TextSize = playerrow and (uis.TouchEnabled and 17 or 16) or 16
+				rowlabel.Position = UDim2.fromOffset(left, playerrow and (uis.TouchEnabled and 6 or 4) or 0)
+				rowlabel.TextSize = playerrow and (uis.TouchEnabled and 16 or 15) or 16
 				rowlabel.TextTruncate = Enum.TextTruncate.AtEnd
 				rowlabel.ZIndex = 515
 
@@ -13433,8 +13693,8 @@ function createsection(
 						font,
 						theme.text3
 					)
-					usernamelabel.Position = UDim2.fromOffset(left, uis.TouchEnabled and 34 or 29)
-					usernamelabel.TextSize = uis.TouchEnabled and 14 or 13
+					usernamelabel.Position = UDim2.fromOffset(left, uis.TouchEnabled and 29 or 24)
+					usernamelabel.TextSize = uis.TouchEnabled and 13 or 12
 					usernamelabel.TextTruncate = Enum.TextTruncate.AtEnd
 					usernamelabel.ZIndex = 515
 				end
@@ -13495,7 +13755,7 @@ function createsection(
 					"everyone all players",
 					nil,
 					false,
-					icons.userround
+					icons.usersround
 				)
 			end
 
@@ -13697,10 +13957,16 @@ function createsection(
 		options,
 		default,
 		callback,
-		target
+		target,
+		config
 	)
 		local parentobject =
 			target or body
+
+		config = config or {}
+		local keypickerenabled = config.keypicker == true or config.KeyPicker == true
+		local keypickerlabel = tostring(config.keypickerlabel or config.KeyPickerLabel or "Add key")
+		local keyformatter = config.keyformatter or config.KeyFormatter
 
 		local selected = {}
 
@@ -13871,7 +14137,7 @@ function createsection(
 			local panel, popup =
 				dropdownpopup(
 					button,
-					#options
+					#options + (keypickerenabled and 1 or 0)
 				)
 
 			if not panel or not popup then
@@ -13886,8 +14152,16 @@ function createsection(
 				tabti
 			)
 
+			local keypickerowner
+			local keypickerlistening = false
+
 			popup.onclose =
 				function()
+					if keypickerlistening and keypickerowner then
+						keypickerlistening = false
+						endkeycapture(keypickerowner, nil)
+					end
+
 					tween(
 						arrow,
 						{
@@ -13942,6 +14216,105 @@ function createsection(
 				2
 			)
 			binddropdownscrollbar(scroll, 2)
+
+			if keypickerenabled then
+				local pickerrow = new("TextButton", {
+					Parent = scroll,
+					Size = UDim2.new(1, 0, 0, 32),
+					BackgroundColor3 = theme.hover,
+					BackgroundTransparency = 1,
+					BorderSizePixel = 0,
+					Text = "",
+					AutoButtonColor = false,
+					ZIndex = 514,
+				})
+				corner(pickerrow, 6)
+				keyeditbuttons[pickerrow] = true
+
+				local pickerlabel = label(
+					pickerrow,
+					keypickerlabel,
+					UDim2.new(1, -70, 1, 0),
+					font,
+					theme.text2
+				)
+				pickerlabel.Position = UDim2.fromOffset(9, 0)
+				pickerlabel.TextSize = 15
+				pickerlabel.ZIndex = 515
+
+				local pickerkey = label(
+					pickerrow,
+					"Press",
+					UDim2.fromOffset(58, 32),
+					medium,
+					theme.text3
+				)
+				pickerkey.AnchorPoint = Vector2.new(1, 0)
+				pickerkey.Position = UDim2.new(1, -9, 0, 0)
+				pickerkey.TextSize = 13
+				pickerkey.TextXAlignment = Enum.TextXAlignment.Right
+				pickerkey.ZIndex = 515
+
+				keypickerowner = pickerrow
+
+				pickerrow.MouseEnter:Connect(function()
+					tween(pickerlabel, {TextColor3 = theme.text}, hoverti)
+				end)
+
+				pickerrow.MouseLeave:Connect(function()
+					tween(pickerlabel, {TextColor3 = theme.text2}, hoverti)
+				end)
+
+				pickerrow.Activated:Connect(function()
+					if keypickerlistening then
+						keypickerlistening = false
+						endkeycapture(pickerrow, nil)
+						pickerkey.Text = "Press"
+						return
+					end
+
+					keypickerlistening = true
+					pickerkey.Text = "..."
+
+					if not beginkeycapture(
+						pickerrow,
+						function()
+							keypickerlistening = false
+							pickerkey.Text = "Press"
+						end,
+						function(key)
+							keypickerlistening = false
+							local option = keyformatter
+								and keyformatter(key)
+								or togglekeyname(key)
+
+							option = tostring(option or "")
+							if option == "" then
+								pickerkey.Text = "Press"
+								return
+							end
+
+							if not table.find(options, option) then
+								table.insert(options, option)
+							end
+
+							selected[option] = true
+							pickerkey.Text = option
+							refresh(true)
+							closepopup()
+						end,
+						nil,
+						{
+							AllowBlacklisted = true,
+							AllowEscape = true,
+							KeepDelete = true,
+						}
+					) then
+						keypickerlistening = false
+						pickerkey.Text = "Press"
+					end
+				end)
+			end
 
 			for _, option in ipairs(
 				options
@@ -15328,6 +15701,16 @@ function createsection(
 	-- section tabs
 
 	function section:AddSubTabs(names)
+		if not section.subtabheaderhidden then
+			section.subtabheaderhidden = true
+			section.headerheight = 0
+			headerobject.Visible = false
+			collapse.Visible = false
+			divider.Visible = false
+			clip.Position = UDim2.fromOffset(0, 0)
+			resize(false, false)
+		end
+
 		local barheight = 32
 		local contentoffset = 39
 		local sidepadding = 2
@@ -17762,12 +18145,12 @@ windowglowenabled = savedsettings.windowGlow ~= false
 windowglowintensity = math.clamp(
 	tonumber(savedsettings.windowGlowIntensity) or 16,
 	0,
-	100
+	windowglowintensitymax
 )
 windowglowsize = math.clamp(
 	tonumber(savedsettings.windowGlowSize) or 10,
 	0,
-	24
+	windowglowsizemax
 )
 windowglowcolor = theme.white
 windowglowalpha = math.clamp(
@@ -19002,7 +19385,16 @@ keybindblacklistcontrol = settingssection:AddMultiDropdown(
 	function(values)
 		setkeybindblacklist(values)
 		saveuisettings()
-	end
+	end,
+	nil,
+	{
+		KeyPicker = true,
+		KeyPickerLabel = "Add key",
+		KeyFormatter = function(key)
+			local _, labelvalue = ensurekeybindblacklistoption(key.Name)
+			return labelvalue
+		end,
+	}
 )
 
 windowglowtoggle = settingssection:AddToggleColor(
@@ -19053,7 +19445,7 @@ applywindowglow()
 windowglowintensitycontrol = settingssection:AddSlider(
 	"Glow intensity",
 	0,
-	100,
+	windowglowintensitymax,
 	windowglowintensity,
 	"%",
 	function(value)
@@ -19066,7 +19458,7 @@ windowglowintensitycontrol = settingssection:AddSlider(
 windowglowsizecontrol = settingssection:AddSlider(
 	"Glow size",
 	0,
-	24,
+	windowglowsizemax,
 	windowglowsize,
 	"px",
 	function(value)
@@ -19702,12 +20094,12 @@ function applysaveduisettings(data, silent)
 	windowglowintensity = math.clamp(
 		tonumber(data.windowGlowIntensity) or 16,
 		0,
-		100
+		windowglowintensitymax
 	)
 	windowglowsize = math.clamp(
 		tonumber(data.windowGlowSize) or 10,
 		0,
-		24
+		windowglowsizemax
 	)
 	windowglowcolor = theme.white
 	windowglowalpha = math.clamp(
@@ -24105,6 +24497,119 @@ function librarynormalizeicon(value)
 	return tostring(value)
 end
 
+lockedcontrols = setmetatable({}, { __mode = "k" })
+
+function resolvecontrolroot(control)
+	if typeof(control) == "Instance" then
+		if control:IsA("TextBox") then
+			local parentobject = control.Parent
+			local holder = parentobject and parentobject.Parent
+			if holder and holder:IsA("GuiObject") then
+				return holder
+			end
+			if parentobject and parentobject:IsA("GuiObject") then
+				return parentobject
+			end
+		end
+		return control:IsA("GuiObject") and control or nil
+	end
+
+	if type(control) == "table" then
+		local object = control.Object or control.Button or control.Frame or control.ToggleObject
+		if typeof(object) == "Instance" and object:IsA("GuiObject") then
+			return object
+		end
+	end
+
+	return nil
+end
+
+function applylockedoption(control, value, textvalue)
+	local root = resolvecontrolroot(control)
+	if not root then
+		return false
+	end
+
+	local state = lockedcontrols[control] or lockedcontrols[root]
+	if not state then
+		local overlay = new("TextButton", {
+			Name = "BlushLocked",
+			Parent = root,
+			Position = UDim2.fromOffset(0, 0),
+			Size = UDim2.fromScale(1, 1),
+			BackgroundColor3 = Color3.fromRGB(8, 8, 9),
+			BackgroundTransparency = .46,
+			BorderSizePixel = 0,
+			Text = "",
+			AutoButtonColor = false,
+			Active = true,
+			Selectable = false,
+			Visible = false,
+			ZIndex = 1000,
+		})
+		corner(overlay, 6)
+
+		local locktext = label(
+			overlay,
+			tostring(textvalue or "Locked feature"),
+			UDim2.new(1, -44, 1, 0),
+			medium,
+			theme.text3
+		)
+		locktext.Position = UDim2.fromOffset(42, 0)
+		locktext.TextSize = 15
+		locktext.ZIndex = 1001
+
+		state = {
+			root = root,
+			overlay = overlay,
+			text = locktext,
+			locked = false,
+		}
+		lockedcontrols[control] = state
+		lockedcontrols[root] = state
+	end
+
+	state.locked = value == true
+	state.overlay.Visible = state.locked
+	state.overlay.Active = state.locked
+	state.text.Text = tostring(textvalue or state.text.Text or "Locked feature")
+	root:SetAttribute("BlushLocked", state.locked)
+
+	if state.locked then
+		if root:IsA("TextBox") then
+			root:ReleaseFocus(false)
+		end
+		for _, descendant in ipairs(root:GetDescendants()) do
+			if descendant:IsA("TextBox") and descendant:IsFocused() then
+				descendant:ReleaseFocus(false)
+			end
+		end
+	end
+
+	if type(control) == "table" then
+		if control.Binding then
+			control.Binding.locked = state.locked
+			if state.locked and control.Binding.held then
+				control.Binding.held = false
+				if control.Binding.mode == "Hold" and control.Binding.set then
+					control.Binding.set(false, true)
+				end
+			end
+		end
+
+		control.SetLocked = function(_, enabled, labelvalue)
+			return applylockedoption(control, enabled, labelvalue)
+		end
+		control.IsLocked = function()
+			local current = lockedcontrols[control]
+			return current and current.locked == true or false
+		end
+	end
+
+	return true
+end
+
 function libraryenhancerow(row, section)
 	if not row or row.__blush_config_api then
 		return row
@@ -24125,11 +24630,15 @@ function libraryenhancerow(row, section)
 
 	row.AddButton = function(self, config, callback)
 		if type(config) == "table" then
-			return addbutton(
+			local control = addbutton(
 				self,
 				tostring(config.Name or config.Text or "Button"),
 				config.Callback
 			)
+			if config.Locked ~= nil then
+				applylockedoption(control, config.Locked, config.LockedText)
+			end
+			return control
 		end
 
 		return addbutton(self, config, callback)
@@ -24182,6 +24691,10 @@ function libraryenhancerow(row, section)
 				control,
 				sourceconfig
 			)
+		end
+
+		if sourceconfig and sourceconfig.Locked ~= nil then
+			applylockedoption(control, sourceconfig.Locked, sourceconfig.LockedText)
 		end
 
 		return control
@@ -24251,12 +24764,16 @@ function libraryenhancesection(section)
 
 	section.AddButton = function(self, config, callback, target)
 		if type(config) == "table" then
-			return addbutton(
+			local control = addbutton(
 				self,
 				tostring(config.Name or config.Text or "Button"),
 				config.Callback,
 				config.Target
 			)
+			if config.Locked ~= nil then
+				applylockedoption(control, config.Locked, config.LockedText)
+			end
+			return control
 		end
 
 		return addbutton(self, config, callback, target)
@@ -24409,7 +24926,7 @@ function libraryenhancesection(section)
 		)
 	end
 
-	section.AddRangeSlider = function(self, config, minimum, maximum, defaultmin, defaultmax, suffix, callback, target)
+	section.AddRangeSlider = function(self, config, minimum, maximum, defaultmin, defaultmax, suffix, callback, target, mindistance)
 		if type(config) == "table" then
 			return addrangeslider(
 				self,
@@ -24420,7 +24937,8 @@ function libraryenhancesection(section)
 				tonumber(config.DefaultMax or config.ValueMax or config.High) or 100,
 				tostring(config.Suffix or ""),
 				config.Callback,
-				config.Target
+				config.Target,
+				tonumber(config.MinimumDistance or config.MinDistance or config.MinGap) or 0
 			)
 		end
 
@@ -24433,7 +24951,8 @@ function libraryenhancesection(section)
 			defaultmax,
 			suffix,
 			callback,
-			target
+			target,
+			mindistance
 		)
 	end
 
@@ -24573,15 +25092,27 @@ function libraryenhancesection(section)
 		)
 	end
 
-	section.AddMultiDropdown = function(self, config, options, default, callback, target)
+	section.AddMultiDropdown = function(self, config, options, default, callback, target, dropdownconfig)
 		if type(config) == "table" then
+			local settings = table.clone(config.Config or {})
+			if config.KeyPicker ~= nil then
+				settings.KeyPicker = config.KeyPicker == true
+			end
+			if config.KeyPickerLabel ~= nil then
+				settings.KeyPickerLabel = config.KeyPickerLabel
+			end
+			if config.KeyFormatter ~= nil then
+				settings.KeyFormatter = config.KeyFormatter
+			end
+
 			return addmultidropdown(
 				self,
 				tostring(config.Name or config.Text or "Multi Dropdown"),
 				config.Options or config.Values or config.Items or {},
 				config.Default or config.Selected or {},
 				config.Callback,
-				config.Target
+				config.Target,
+				settings
 			)
 		end
 
@@ -24591,7 +25122,8 @@ function libraryenhancesection(section)
 			options,
 			default,
 			callback,
-			target
+			target,
+			dropdownconfig
 		)
 	end
 
@@ -24803,12 +25335,16 @@ function libraryenhancesection(section)
 
 	section.AddContextMenu = function(self, config, entries, target)
 		if type(config) == "table" then
-			return addcontextmenu(
+			local control = addcontextmenu(
 				self,
 				tostring(config.Name or config.Text or "Actions"),
 				config.Entries or config.Items or {},
 				config.Target
 			)
+			if config.Locked ~= nil then
+				applylockedoption(control, config.Locked, config.LockedText)
+			end
+			return control
 		end
 
 		return addcontextmenu(
@@ -24821,7 +25357,7 @@ function libraryenhancesection(section)
 
 	section.AddConfirmButton = function(self, config, titletext, bodytext, callback, target)
 		if type(config) == "table" then
-			return addconfirmbutton(
+			local control = addconfirmbutton(
 				self,
 				tostring(config.Name or config.Text or "Confirm"),
 				tostring(config.Title or "Confirm"),
@@ -24829,6 +25365,10 @@ function libraryenhancesection(section)
 				config.Callback,
 				config.Target
 			)
+			if config.Locked ~= nil then
+				applylockedoption(control, config.Locked, config.LockedText)
+			end
+			return control
 		end
 
 		return addconfirmbutton(
@@ -24843,13 +25383,17 @@ function libraryenhancesection(section)
 
 	section.AddModalButton = function(self, config, titletext, bodytext, target)
 		if type(config) == "table" then
-			return addmodalbutton(
+			local control = addmodalbutton(
 				self,
 				tostring(config.Name or config.Text or "Open"),
 				tostring(config.Title or "Information"),
 				tostring(config.Body or config.Message or ""),
 				config.Target
 			)
+			if config.Locked ~= nil then
+				applylockedoption(control, config.Locked, config.LockedText)
+			end
+			return control
 		end
 
 		return addmodalbutton(
@@ -24863,11 +25407,21 @@ function libraryenhancesection(section)
 
 	section.AddButtonGroup = function(self, config, target)
 		if type(config) == "table" and config.Buttons then
-			return addbuttongroup(
-				self,
-				config.Buttons,
-				config.Target
-			)
+			local row = self:AddRow({
+				Spacing = config.Spacing or 8,
+				Height = config.Height or 32,
+				Target = config.Target,
+			})
+
+			for _, data in ipairs(config.Buttons) do
+				if type(data) == "table" then
+					row:AddButton(data)
+				else
+					row:AddButton(tostring(data))
+				end
+			end
+
+			return row
 		end
 
 		return addbuttongroup(self, config, target)
@@ -25019,6 +25573,10 @@ function libraryenhancesection(section)
 				sourceconfig,
 				inputcallback
 			)
+
+			if sourceconfig and sourceconfig.Locked ~= nil then
+				applylockedoption(control, sourceconfig.Locked, sourceconfig.LockedText)
+			end
 
 			return control
 		end
@@ -25627,6 +26185,10 @@ function library:CreateWindow(options)
 	end
 
 	librarysetbrand(title, versiontext)
+	username.Text = options.Username == false
+		and ""
+		or tostring(options.Username ~= nil and options.Username or player.Name)
+	updatebrandlayout()
 	librarysetlogo(options.Logo, options.LogoColor)
 	librarysetsettingstab(settingsconfig)
 
@@ -25692,7 +26254,7 @@ function library:CreateWindow(options)
 		windowglowintensity = math.clamp(
 			tonumber(options.GlowIntensity) or windowglowintensity,
 			0,
-			100
+			windowglowintensitymax
 		)
 	end
 
@@ -25700,7 +26262,7 @@ function library:CreateWindow(options)
 		windowglowsize = math.clamp(
 			tonumber(options.GlowSize) or windowglowsize,
 			0,
-			24
+			windowglowsizemax
 		)
 	end
 
@@ -26138,7 +26700,7 @@ function library:CreateWindow(options)
 		windowglowintensity = math.clamp(
 			tonumber(value) or windowglowintensity,
 			0,
-			100
+			windowglowintensitymax
 		)
 
 		applywindowglow()
@@ -26152,7 +26714,7 @@ function library:CreateWindow(options)
 		windowglowsize = math.clamp(
 			tonumber(value) or windowglowsize,
 			0,
-			24
+			windowglowsizemax
 		)
 
 		applywindowglow()
@@ -26461,6 +27023,17 @@ function library:CreateWindow(options)
 		updatebrandlayout()
 	end
 
+	function librarywindow:SetUsername(value)
+		username.Text = value == false
+			and ""
+			or tostring(value ~= nil and value or player.Name)
+		updatebrandlayout()
+	end
+
+	function librarywindow:GetUsername()
+		return username.Text
+	end
+
 	function librarywindow:GetGui()
 		return gui
 	end
@@ -26492,13 +27065,6 @@ function library:CreateWindow(options)
 		end)
 	end
 
-	if options.NotifyLoaded ~= false then
-		notify(
-			tostring(title),
-			"Interface loaded",
-			2.5
-		)
-	end
 
 	return librarywindow
 end
@@ -26509,6 +27075,16 @@ end
 
 function library:Notify(...)
 	notify(...)
+end
+
+function library:SetLocked(element, value, textvalue)
+	return applylockedoption(element, value, textvalue)
+end
+
+function library:IsLocked(element)
+	local root = resolvecontrolroot(element)
+	local state = lockedcontrols[element] or (root and lockedcontrols[root])
+	return state and state.locked == true or false
 end
 
 function library:SetGradient(element, value)
