@@ -246,6 +246,8 @@ theme = {
 	text2 = Color3.fromRGB(173, 173, 176),
 	text3 = Color3.fromRGB(113, 113, 116),
 
+	-- Main is reserved for selection/highlight indicators only.
+	main = Color3.fromRGB(245, 245, 247),
 	white = Color3.fromRGB(246, 246, 248),
 	black = Color3.fromRGB(14, 14, 15),
 	font = Color3.fromRGB(235, 235, 239),
@@ -358,6 +360,7 @@ themekeys = {
 	"text3",
 	"white",
 	"black",
+	"main",
 }
 
 themebindings = {}
@@ -376,11 +379,24 @@ function themerole(color)
 	return nil
 end
 
-function bindtheme(object, property, value)
-	local role = themerole(value)
+function bindtheme(object, property, value, explicitrole)
+	local role = explicitrole or themerole(value)
 
 	if not role then
 		return
+	end
+
+	for index = #themebindings, 1, -1 do
+		local binding = themebindings[index]
+		if not binding.object.Parent then
+			table.remove(themebindings, index)
+		elseif binding.object == object and binding.property == property then
+			binding.role = role
+			if role == "main" and env.__blush_accent_alpha then
+				env.__blush_accent_alpha[object] = nil
+			end
+			return
+		end
 	end
 
 	themebindings[#themebindings + 1] = {
@@ -388,6 +404,10 @@ function bindtheme(object, property, value)
 		property = property,
 		role = role,
 	}
+
+	if role == "main" and env.__blush_accent_alpha then
+		env.__blush_accent_alpha[object] = nil
+	end
 
 	registeraccentalpha(
 		object,
@@ -714,11 +734,15 @@ function applyuitransparency(value)
 
 	for object, data in pairs(transparencybase) do
 		if object and object.Parent then
-			object.BackgroundTransparency =
-				effectivetransparency(
-					data.base,
-					data.role
-				)
+			if object:GetAttribute("BlushDetachedSection") == true then
+				object.BackgroundTransparency = 0
+			else
+				object.BackgroundTransparency =
+					effectivetransparency(
+						data.base,
+						data.role
+					)
+			end
 		end
 	end
 
@@ -1056,16 +1080,6 @@ function applytheme(
 		applyuitransparency(uitransparency * 100)
 	end
 
-	if maincolorpicker
-		and not maincolorpicker.dragging
-		and (
-			backgroundchanged
-			or backgroundalphachanged
-		)
-	then
-		maincolorpicker:Set(theme.window, theme.backgroundAlpha, false)
-	end
-
 	if accentalphachanged then
 		applyaccentalpha(theme.accentAlpha)
 	end
@@ -1119,6 +1133,43 @@ function applytheme(
 		and (fontchanged or fontalphachanged)
 	then
 		fontpicker:Set(theme.font, theme.fontAlpha, false)
+	end
+end
+
+function applymaincolor(color, animate)
+	if typeof(color) ~= "Color3" or theme.main == color then
+		return
+	end
+
+	theme.main = color
+	env.__blush_theme_tweens = env.__blush_theme_tweens or setmetatable({}, { __mode = "k" })
+
+	for index = #themebindings, 1, -1 do
+		local binding = themebindings[index]
+		if not binding.object.Parent then
+			table.remove(themebindings, index)
+		elseif binding.role == "main" then
+			local object = binding.object
+			if animate == true and animationsenabled then
+				local objecttweens = env.__blush_theme_tweens[object] or {}
+				env.__blush_theme_tweens[object] = objecttweens
+				local previous = objecttweens[binding.property]
+				if previous then invoke(function() previous:Cancel() end) end
+				local animation = tweenservice:Create(
+					object,
+					TweenInfo.new(.16, Enum.EasingStyle.Quint, Enum.EasingDirection.Out),
+					{ [binding.property] = color }
+				)
+				objecttweens[binding.property] = animation
+				animation:Play()
+			else
+				object[binding.property] = color
+			end
+		end
+	end
+
+	if maincolorpicker and not maincolorpicker.dragging then
+		maincolorpicker:Set(color, 1, false)
 	end
 end
 
@@ -1328,20 +1379,33 @@ function ensurerainbowtextloop()
 		return
 	end
 
-	rainbowtextconnection = runservice.RenderStepped:Connect(function(dt)
+	rainbowtextconnection = runservice.PreRender:Connect(function(dt)
 		if next(env.__blush_rainbowgradients) == nil then
 			stoprainbowtextloop()
 			return
 		end
 
-		rainbowtextphase = (rainbowtextphase + dt * .38) % 1
-		local offset = Vector2.new(rainbowtextphase, 0)
+		rainbowtextphase = (rainbowtextphase + dt * .30) % 1
+		local colors = {}
+		local points = 12
 
+		for index = 0, points do
+			local position = index / points
+			local hue = (position + rainbowtextphase) % 1
+			colors[#colors + 1] = ColorSequenceKeypoint.new(
+				position,
+				Color3.fromHSV(hue, 1, 1)
+			)
+		end
+
+		local sequence = ColorSequence.new(colors)
 		for textobject, gradient in pairs(env.__blush_rainbowgradients) do
 			if not textobject.Parent or not gradient.Parent then
 				env.__blush_rainbowgradients[textobject] = nil
 			else
-				gradient.Offset = offset
+				gradient.Offset = Vector2.zero
+				gradient.Rotation = 0
+				gradient.Color = sequence
 			end
 		end
 	end)
@@ -1385,10 +1449,7 @@ function settextgradient(target, value)
 
 	if rainbow then
 		gradient.Rotation = 0
-		invoke(function()
-			gradient.TileMode = Enum.GradientTileMode.Repeat
-			gradient.Scale = .62
-		end)
+		gradient.Offset = Vector2.zero
 	end
 
 	local state = {
@@ -2075,14 +2136,9 @@ function updatebackgroundtone()
 		+ theme.window.B * .0722
 	local lighttheme = luminance >= .62
 
-	backgroundtoneoverlay.Visible = true
-	if lighttheme then
-		backgroundtoneoverlay.BackgroundColor3 = Color3.new(1, 1, 1)
-		backgroundtoneoverlay.BackgroundTransparency = .91
-	else
-		backgroundtoneoverlay.BackgroundColor3 = Color3.new(0, 0, 0)
-		backgroundtoneoverlay.BackgroundTransparency = .965
-	end
+	-- Do not add contrast on top of the configured image opacity.
+	backgroundtoneoverlay.Visible = false
+	backgroundtoneoverlay.BackgroundTransparency = 1
 
 	if updatebackgroundsurfaces then
 		updatebackgroundsurfaces()
@@ -2239,13 +2295,11 @@ function updatebackgroundsurfaces()
 		+ theme.window.B * .0722
 	local lighttheme = luminance >= .62
 
-	-- Wallpaper transparency belongs to the surfaces/groupboxes, never to the image-opacity control.
-	local mainbase = visible and (lighttheme and .12 or .24) or 0
-	local sidebarbase = visible
-		and not backgroundexcludesidebar
-		and (lighttheme and .06 or .14)
-		or 0
-	local sectionbase = visible and (lighttheme and .76 or .82) or .10
+	-- Keep wallpaper-backed surfaces on one opacity so the image reads consistently.
+	local wallpaperbase = visible and (lighttheme and .68 or .74) or 0
+	local mainbase = wallpaperbase
+	local sidebarbase = visible and not backgroundexcludesidebar and wallpaperbase or 0
+	local sectionbase = visible and wallpaperbase or .10
 
 	local maindata = transparencybase[main]
 	if maindata then
@@ -2265,13 +2319,17 @@ function updatebackgroundsurfaces()
 
 	for frame, defaultbase in pairs(backgroundsectionframes) do
 		if frame and frame.Parent then
-			local base = visible and sectionbase or defaultbase
-			local data = transparencybase[frame]
-			if data then
-				data.base = base
-				frame.BackgroundTransparency = effectivetransparency(base, data.role)
+			if frame:GetAttribute("BlushDetachedSection") == true then
+				frame.BackgroundTransparency = 0
 			else
-				frame.BackgroundTransparency = base
+				local base = visible and sectionbase or defaultbase
+				local data = transparencybase[frame]
+				if data then
+					data.base = base
+					frame.BackgroundTransparency = effectivetransparency(base, data.role)
+				else
+					frame.BackgroundTransparency = base
+				end
 			end
 		else
 			backgroundsectionframes[frame] = nil
@@ -10044,6 +10102,7 @@ function updatesectiondrag(drag)
 
 	if section.floating then
 		section.floating = false
+		section.frame:SetAttribute("BlushDetachedSection", false)
 		section.floatingwidth = nil
 
 		if section.shadow then
@@ -10112,6 +10171,7 @@ function attachsectiontransition(drag)
 
 	section.floating = false
 	section.floatingwidth = nil
+	section.frame:SetAttribute("BlushDetachedSection", false)
 	section.dragging = true
 	section.frame.Visible = false
 
@@ -10283,6 +10343,8 @@ function finishsectiondrag()
 		)
 
 		section.floating = true
+		section.frame:SetAttribute("BlushDetachedSection", true)
+		section.frame.BackgroundTransparency = 0
 		section.floatingwidth =
 			drag.width
 
@@ -15454,7 +15516,7 @@ function createsection(
 
 	-- radio
 
-	function section:AddRadio(name, options, default, callback, target)
+	function section:AddRadio(name, options, default, callback, target, multiselect)
 		local parentobject = target or body
 		local holder = new("Frame", {
 			Parent = parentobject,
@@ -15485,138 +15547,111 @@ function createsection(
 		})
 
 		options = options or {}
-
+		multiselect = multiselect == true
 		local buttons = {}
-		local selected = default or options[1]
+		local selected
+
+		if multiselect then
+			selected = {}
+			if type(default) == "table" then
+				for _, value in ipairs(default) do selected[value] = true end
+			elseif default ~= nil then
+				selected[default] = true
+			end
+		else
+			selected = default or options[1]
+		end
+
+		local function isactive(value)
+			return multiselect and selected[value] == true or selected == value
+		end
+
+		local function values()
+			if not multiselect then return selected end
+			local result = {}
+			for _, option in ipairs(options) do
+				if selected[option] then result[#result + 1] = option end
+			end
+			return result
+		end
 
 		local function render()
 			for value, data in pairs(buttons) do
-				local active = value == selected
-				data.text.TextColor3 =
-					active and theme.text or theme.text3
-
-				tween(
-					data.dot,
-					{
-						BackgroundTransparency = active and 0 or 1,
-						Size = active
-							and UDim2.fromOffset(8, 8)
-							or UDim2.fromOffset(3, 3),
-					},
-					fastti
-				)
+				local active = isactive(value)
+				data.text.TextColor3 = active and theme.text or theme.text3
+				tween(data.dot, {
+					BackgroundTransparency = active and 0 or 1,
+					Size = active and UDim2.fromOffset(8, 8) or UDim2.fromOffset(3, 3),
+				}, fastti)
 			end
 		end
 
-		for index, option in ipairs(options or {}) do
+		for index, option in ipairs(options) do
 			local button = new("TextButton", {
-				Parent = row,
-				LayoutOrder = index,
+				Parent = row, LayoutOrder = index,
 				Size = UDim2.new(1 / math.max(1, #options), -6, 1, 0),
-				BackgroundColor3 = theme.hover,
-				BackgroundTransparency = 1,
-				BorderSizePixel = 0,
-				Text = "",
-				AutoButtonColor = false,
-				ZIndex = 16,
+				BackgroundColor3 = theme.hover, BackgroundTransparency = 1,
+				BorderSizePixel = 0, Text = "", AutoButtonColor = false, ZIndex = 16,
 			})
 			corner(button, 6)
 
 			local optiontext = tostring(option)
-			local optionbounds = measuretext(
-				plaintext(optiontext),
-				14,
-				font,
-				Vector2.new(240, 29)
-			)
-			local contentwidth = 26 + math.ceil(optionbounds.X)
-
+			local optionbounds = measuretext(plaintext(optiontext), 14, font, Vector2.new(240, 29))
 			local contentgroup = new("Frame", {
-				Parent = button,
-				AnchorPoint = Vector2.new(.5, .5),
-				Position = UDim2.fromScale(.5, .5),
-				Size = UDim2.fromOffset(contentwidth, 29),
-				BackgroundTransparency = 1,
-				BorderSizePixel = 0,
-				ZIndex = 17,
+				Parent = button, AnchorPoint = Vector2.new(.5, .5), Position = UDim2.fromScale(.5, .5),
+				Size = UDim2.fromOffset(26 + math.ceil(optionbounds.X), 29),
+				BackgroundTransparency = 1, BorderSizePixel = 0, ZIndex = 17,
 			})
-
 			local circle = new("Frame", {
-				Parent = contentgroup,
-				AnchorPoint = Vector2.new(0, .5),
-				Position = UDim2.new(0, 0, .5, 0),
-				Size = UDim2.fromOffset(16, 16),
-				BackgroundColor3 = theme.input,
-				BorderSizePixel = 0,
-				ZIndex = 17,
+				Parent = contentgroup, AnchorPoint = Vector2.new(0, .5), Position = UDim2.new(0, 0, .5, 0),
+				Size = UDim2.fromOffset(16, 16), BackgroundColor3 = theme.input, BorderSizePixel = 0, ZIndex = 17,
 			})
 			corner(circle, 999)
 			stroke(circle, .46, theme.border, .7)
-
 			local dot = new("Frame", {
-				Parent = circle,
-				AnchorPoint = Vector2.new(.5, .5),
-				Position = UDim2.fromScale(.5, .5),
-				Size = UDim2.fromOffset(3, 3),
-				BackgroundColor3 = theme.white,
-				BackgroundTransparency = 1,
-				BorderSizePixel = 0,
-				ZIndex = 18,
+				Parent = circle, AnchorPoint = Vector2.new(.5, .5), Position = UDim2.fromScale(.5, .5),
+				Size = UDim2.fromOffset(3, 3), BackgroundColor3 = theme.white,
+				BackgroundTransparency = 1, BorderSizePixel = 0, ZIndex = 18,
 			})
 			corner(dot, 999)
-
-			local textobject = label(
-				contentgroup,
-				optiontext,
-				UDim2.fromOffset(math.ceil(optionbounds.X) + 2, 29),
-				font,
-				theme.text3
-			)
+			local textobject = label(contentgroup, optiontext, UDim2.fromOffset(math.ceil(optionbounds.X) + 2, 29), font, theme.text3)
 			textobject.Position = UDim2.fromOffset(24, 0)
 			textobject.TextSize = 14
 			textobject.ZIndex = 17
+			buttons[option] = {button = button, dot = dot, text = textobject}
 
-			buttons[option] = {
-				button = button,
-				dot = dot,
-				text = textobject,
-			}
-
-			button.MouseEnter:Connect(function()
-				tween(textobject, {TextColor3 = theme.text}, hoverti)
-			end)
-			button.MouseLeave:Connect(function()
-				tween(textobject, {
-					TextColor3 = selected == option and theme.text or theme.text3,
-				}, hoverti)
-			end)
+			button.MouseEnter:Connect(function() tween(textobject, {TextColor3 = theme.text}, hoverti) end)
+			button.MouseLeave:Connect(function() tween(textobject, {TextColor3 = isactive(option) and theme.text or theme.text3}, hoverti) end)
 			button.Activated:Connect(function()
-				selected = option
-				render()
-				if callback then
-					callback(option)
+				if multiselect then
+					selected[option] = not selected[option] or nil
+				else
+					selected = option
 				end
+				render()
+				if callback then callback(values()) end
 			end)
 		end
 
 		render()
 		register(holder, name)
-
 		return {
-			Get = function()
-				return selected
-			end,
+			Get = function() return values() end,
 			Set = function(_, value, fire)
-				if buttons[value] then
+				if multiselect then
+					table.clear(selected)
+					if type(value) == "table" then
+						for _, item in ipairs(value) do if buttons[item] then selected[item] = true end end
+					elseif buttons[value] then selected[value] = true end
+				elseif buttons[value] then
 					selected = value
-					render()
-					if fire ~= false and callback then
-						callback(value)
-					end
+				else
+					return
 				end
+				render()
+				if fire ~= false and callback then callback(values()) end
 			end,
-			Object = holder,
-			TextObject = titleobject,
+			Object = holder, TextObject = titleobject, Multi = multiselect,
 		}
 	end
 
@@ -16570,7 +16605,7 @@ function createsection(
 						2
 					),
 
-				BackgroundColor3 = theme.white,
+				BackgroundColor3 = theme.main,
 				BackgroundTransparency = 1,
 				BorderSizePixel = 0,
 
@@ -16581,6 +16616,8 @@ function createsection(
 				line,
 				999
 			)
+			bindtheme(line, "BackgroundColor3", theme.main, "main")
+			line.BackgroundColor3 = theme.main
 
 			buttons[tabname] = {
 				button = button,
@@ -17015,6 +17052,34 @@ themefolder = storagefolder .. "/themes"
 backgroundfolder = storagefolder .. "/backgrounds"
 settingspath = storagefolder .. "/settings.json"
 savedsettings = {}
+
+function configurestoragefolders(options)
+	options = type(options) == "table" and options or {}
+	local folders = type(options.Folders) == "table" and options.Folders or {}
+	local root = options.StorageFolder or options.Folder or folders.Root or folders.Storage
+	if type(root) == "string" and root ~= "" then
+		storagefolder = root:gsub("[\\/]+$", "")
+	end
+
+	local function subpath(value, fallback)
+		if type(value) ~= "string" or value == "" then return storagefolder .. "/" .. fallback end
+		value = value:gsub("^[\\/]+", ""):gsub("[\\/]+$", "")
+		if value:find("[\\/]") then return value end
+		return storagefolder .. "/" .. value
+	end
+
+	configfolder = subpath(options.ConfigFolder or folders.Configs or folders.Config, "configs")
+	themefolder = subpath(options.ThemeFolder or folders.Themes or folders.Theme, "themes")
+	backgroundfolder = subpath(options.BackgroundFolder or folders.Backgrounds or folders.Background, "backgrounds")
+
+	local settingsfile = options.SettingsFile or folders.Settings
+	if type(settingsfile) == "string" and settingsfile ~= "" then
+		settingsfile = settingsfile:gsub("^[\\/]+", "")
+		settingspath = settingsfile:find("[\\/]") and settingsfile or (storagefolder .. "/" .. settingsfile)
+	else
+		settingspath = storagefolder .. "/settings.json"
+	end
+end
 
 function ensurefolder(path)
 	if typeof(isfolder) == "function" then
@@ -17585,6 +17650,7 @@ function preparebackgroundblurbase(asset, token)
 	backgroundblurlastsignature = nil
 
 	local applied = invoke(function()
+		backgroundblurdisplay.Image = ""
 		backgroundblurdisplay.ImageContent = Content.fromObject(editable)
 	end)
 	if not applied then
@@ -17668,47 +17734,52 @@ end
 
 function schedulebackgroundblur(animate)
 	backgroundblurdebounce += 1
-	local debounce = backgroundblurdebounce
-	backgroundblurtoken += 1
-	local token = backgroundblurtoken
-	local blur = math.clamp(backgroundimageblur, 0, backgroundimageblurmax)
+	local requested = backgroundblurdebounce
+	local blur = math.clamp(math.round(backgroundimageblur), 0, backgroundimageblurmax)
 	local asset = backgroundresolvedasset
 
 	if blur <= 0 or not asset or asset == "" then
+		backgroundblurtoken += 1
 		applybackgroundblurblend()
 		return
 	end
 
-	-- Keep the previous blur visible while the new level is rebuilt.
+	-- Keep the last valid frame visible while the newest radius is processed.
 	applybackgroundblurblend()
 
-	if backgroundblurtask
-		and coroutine.status(backgroundblurtask) == "suspended"
-	then
-		pcall(task.cancel, backgroundblurtask)
+	if backgroundblurtask and coroutine.status(backgroundblurtask) ~= "dead" then
+		return
 	end
 
 	backgroundblurtask = task.spawn(function()
-		if debounce ~= backgroundblurdebounce or token ~= backgroundblurtoken then
-			return
+		while true do
+			local serial = backgroundblurdebounce
+			local currentasset = backgroundresolvedasset
+			local currentblur = math.clamp(math.round(backgroundimageblur), 0, backgroundimageblurmax)
+
+			if currentblur <= 0 or not currentasset or currentasset == "" then
+				break
+			end
+
+			backgroundblurtoken += 1
+			local token = backgroundblurtoken
+			local success = buildbackgroundblur(currentasset, currentblur, token)
+
+			if success and token == backgroundblurtoken then
+				applybackgroundblurblend()
+			elseif token == backgroundblurtoken then
+				backgroundblurdisplay.Visible = false
+				backgroundblurdisplay.ImageTransparency = 1
+				backgroundimage.Visible = true
+				backgroundimage.ImageTransparency = 1 - math.clamp(backgroundimageopacity / 100, 0, 1)
+			end
+
+			if serial == backgroundblurdebounce then
+				break
+			end
 		end
 
 		backgroundblurtask = nil
-
-		local success = buildbackgroundblur(asset, blur, token)
-		if debounce ~= backgroundblurdebounce or token ~= backgroundblurtoken then
-			return
-		end
-
-		if success then
-			applybackgroundblurblend()
-		else
-			backgroundblurdisplay.Visible = false
-			backgroundblurdisplay.ImageTransparency = 1
-			backgroundimage.Image = backgroundresolvedasset or backgroundimage.Image
-			backgroundimage.Visible = backgroundresolvedasset ~= nil
-			backgroundimage.ImageTransparency = 1 - math.clamp(backgroundimageopacity / 100, 0, 1)
-		end
 	end)
 end
 
@@ -18347,6 +18418,11 @@ function currentuipayload()
 		and backgroundpicker:color()
 		or theme.window
 
+	local maincolor =
+		maincolorpicker
+		and maincolorpicker:color()
+		or theme.main
+
 	local fontcolor =
 		fontpicker
 		and fontpicker:color()
@@ -18446,6 +18522,7 @@ function currentuipayload()
 			and themeselector:Get()
 			or "Default",
 
+		main = encodecolor(maincolor),
 		accent = encodecolor(accent),
 		background = encodecolor(background),
 		font = encodecolor(fontcolor),
@@ -18468,6 +18545,7 @@ function currentthemepayload()
 	local payload = currentuipayload()
 	return {
 		theme = payload.theme,
+		main = payload.main,
 		accent = payload.accent,
 		background = payload.background,
 		font = payload.font,
@@ -19155,6 +19233,7 @@ function applythemepayload(data)
 
 	local background = decodecolor(data.background) or theme.window
 	local accent = decodecolor(data.accent) or theme.white
+	local maincolor = decodecolor(data.main) or accent
 	local fontcolor = decodecolor(data.font) or theme.font
 	local backgroundalpha = math.clamp(tonumber(data.backgroundAlpha) or 1, 0, 1)
 	local accentalpha = math.clamp(tonumber(data.accentAlpha) or 1, 0, 1)
@@ -19184,6 +19263,8 @@ function applythemepayload(data)
 		fontalpha,
 		true
 	)
+	applymaincolor(maincolor, true)
+	if maincolorpicker then maincolorpicker:Set(maincolor, 1, false) end
 	accentpicker:Set(accent, accentalpha, false)
 	backgroundpicker:Set(background, backgroundalpha, false)
 	fontpicker:Set(fontcolor, fontalpha, false)
@@ -19390,24 +19471,35 @@ watermarkinfocontrol =
 		end
 	)
 
+local playermodedefault = {}
+local normalizedplayermode = normalizewatermarkplayermode(watermarkconfig.PlayerMode)
+if normalizedplayermode == "Display" or normalizedplayermode == "Both" then
+	playermodedefault[#playermodedefault + 1] = "Display"
+end
+if normalizedplayermode == "Username" or normalizedplayermode == "Both" then
+	playermodedefault[#playermodedefault + 1] = "Username"
+end
+
 watermarkplayermodecontrol =
 	settingssection:AddRadio(
 		"Player name",
-		{
-			"Display",
-			"Username",
-			"Both",
-		},
-		normalizewatermarkplayermode(
-			watermarkconfig.PlayerMode
-		),
-		function(value)
-			watermarkconfig.PlayerMode =
-				normalizewatermarkplayermode(value)
-
+		{ "Display", "Username" },
+		playermodedefault,
+		function(values)
+			local selected = {}
+			for _, value in ipairs(values or {}) do selected[value] = true end
+			if selected.Display and selected.Username then
+				watermarkconfig.PlayerMode = "Both"
+			elseif selected.Username then
+				watermarkconfig.PlayerMode = "Username"
+			else
+				watermarkconfig.PlayerMode = "Display"
+			end
 			updatewatermarklayout()
 			saveuisettings()
-		end
+		end,
+		nil,
+		true
 	)
 
 updatewatermarklayout()
@@ -19622,26 +19714,6 @@ uitransparencycontrol = settingssection:AddSlider(
 
 applyuitransparency(initialtransparency)
 
-maincolorpicker = settingssection:AddColorPicker(
-	"Main color",
-	theme.window,
-	function(color, alpha)
-		applytheme(
-			color,
-			theme.white,
-			alpha,
-			theme.accentAlpha,
-			theme.font,
-			theme.fontAlpha,
-			true
-		)
-		if backgroundpicker then
-			backgroundpicker:Set(color, alpha, false)
-		end
-		saveuisettings()
-	end
-)
-
 themessection =
 	createsection(
 		settings,
@@ -19742,6 +19814,11 @@ themeselector = themessection:AddDropdown(
 			1,
 			true
 		)
+		applymaincolor(preset.main or preset.accent, true)
+
+		if maincolorpicker then
+			maincolorpicker:Set(preset.main or preset.accent, 1, false)
+		end
 
 		if accentpicker then
 			accentpicker:Set(preset.accent, 1, false)
@@ -19783,6 +19860,15 @@ themeselector = themessection:AddDropdown(
 		},
 		colors = themecolors,
 	}
+)
+
+maincolorpicker = themessection:AddColorPicker(
+	"Main color",
+	theme.main,
+	function(color)
+		applymaincolor(color, true)
+		saveuisettings()
+	end
 )
 
 accentpicker = themessection:AddColorPicker(
@@ -20120,7 +20206,15 @@ new("Frame", {
 autosaveconfigcontrol = savessection:AddToggle(
 	"Auto save",
 	rawsavedsettings.autoSaveConfig == true,
-	function()
+	function(value)
+		if value ~= true then
+			env.__blush_autosave_serial += 1
+			local pending = env.__blush_autosave_task
+			if pending and coroutine.status(pending) == "suspended" then
+				pcall(task.cancel, pending)
+			end
+			env.__blush_autosave_task = nil
+		end
 		saveuisettings(true)
 	end
 )
@@ -20195,12 +20289,11 @@ function applysaveduisettings(data, silent)
 	end
 
 	if watermarkplayermodecontrol then
-		watermarkplayermodecontrol:Set(
-			normalizewatermarkplayermode(
-				watermarkconfig.PlayerMode
-			),
-			false
-		)
+		local mode = normalizewatermarkplayermode(watermarkconfig.PlayerMode)
+		local values = {}
+		if mode == "Display" or mode == "Both" then values[#values + 1] = "Display" end
+		if mode == "Username" or mode == "Both" then values[#values + 1] = "Username" end
+		watermarkplayermodecontrol:Set(values, false)
 	end
 
 	updatewatermarklayout()
@@ -20223,6 +20316,10 @@ function applysaveduisettings(data, silent)
 
 		hotkeylisttoggle:Set(visible, true)
 		sethotkeylistvisible(visible)
+	end
+
+	if autosaveconfigcontrol and data.autoSaveConfig ~= nil then
+		autosaveconfigcontrol:Set(data.autoSaveConfig == true, false)
 	end
 
 	if data.minimizeButton ~= nil then
@@ -20359,6 +20456,7 @@ function applysaveduisettings(data, silent)
 
 	local loadedbackground = decodecolor(data.background) or theme.window
 	local loadedaccent = decodecolor(data.accent) or theme.white
+	local loadedmain = decodecolor(data.main) or loadedaccent
 	local loadedfont = decodecolor(data.font) or theme.font
 	local loadedbackgroundalpha = math.clamp(tonumber(data.backgroundAlpha) or 1, 0, 1)
 	local loadedaccentalpha = math.clamp(tonumber(data.accentAlpha) or 1, 0, 1)
@@ -20374,10 +20472,11 @@ function applysaveduisettings(data, silent)
 		true
 	)
 
+	applymaincolor(loadedmain, true)
 	accentpicker:Set(loadedaccent, loadedaccentalpha, false)
 	backgroundpicker:Set(loadedbackground, loadedbackgroundalpha, false)
 	if maincolorpicker then
-		maincolorpicker:Set(loadedbackground, loadedbackgroundalpha, false)
+		maincolorpicker:Set(loadedmain, 1, false)
 	end
 	fontpicker:Set(loadedfont, loadedfontalpha, false)
 
@@ -21727,7 +21826,7 @@ function navbutton(
 				),
 
 			BackgroundColor3 =
-				theme.white,
+				theme.main,
 
 			BackgroundTransparency = 1,
 			BorderSizePixel = 0,
@@ -21739,6 +21838,8 @@ function navbutton(
 			indicator,
 			999
 		)
+		bindtheme(indicator, "BackgroundColor3", theme.main, "main")
+		indicator.BackgroundColor3 = theme.main
 
 		indicatorglow = nil
 	end
@@ -25485,7 +25586,7 @@ function libraryenhancesection(section)
 		)
 	end
 
-	section.AddRadio = function(self, config, options, default, callback, target)
+	section.AddRadio = function(self, config, options, default, callback, target, multiselect)
 		if type(config) == "table" then
 			return addradio(
 				self,
@@ -25493,17 +25594,13 @@ function libraryenhancesection(section)
 				config.Options or config.Values or config.Items or {},
 				configdefault(config),
 				config.Callback,
-				config.Target
+				config.Target,
+				config.Multi == true or config.MultiSelect == true
 			)
 		end
 
 		return addradio(
-			self,
-			config,
-			options,
-			default,
-			callback,
-			target
+			self, config, options, default, callback, target, multiselect
 		)
 	end
 
@@ -26424,6 +26521,23 @@ end
 function library:CreateWindow(options)
 	options = options or {}
 
+	local customfolders = options.StorageFolder ~= nil
+		or options.Folder ~= nil
+		or options.ConfigFolder ~= nil
+		or options.ThemeFolder ~= nil
+		or options.BackgroundFolder ~= nil
+		or options.SettingsFile ~= nil
+		or type(options.Folders) == "table"
+
+	if customfolders then
+		configurestoragefolders(options)
+		ensurestorage()
+		local foldersettings = readuisettingsfile()
+		if next(foldersettings) ~= nil then
+			applysaveduisettings(foldersettings, true)
+		end
+	end
+
 	if librarywindow then
 		return librarywindow
 	end
@@ -26604,6 +26718,9 @@ function library:CreateWindow(options)
 			options.Theme.FontAlpha or theme.fontAlpha,
 			options.Theme.Animate ~= false
 		)
+		if typeof(options.Theme.Main) == "Color3" then
+			applymaincolor(options.Theme.Main, options.Theme.Animate ~= false)
+		end
 	end
 
 	if options.MenuKey ~= nil then
@@ -26709,10 +26826,11 @@ function library:CreateWindow(options)
 		end
 
 		if watermarkplayermodecontrol then
-			watermarkplayermodecontrol:Set(
-				watermarkconfig.PlayerMode,
-				false
-			)
+			local mode = normalizewatermarkplayermode(watermarkconfig.PlayerMode)
+			local values = {}
+			if mode == "Display" or mode == "Both" then values[#values + 1] = "Display" end
+			if mode == "Username" or mode == "Both" then values[#values + 1] = "Username" end
+			watermarkplayermodecontrol:Set(values, false)
 		end
 
 		updatewatermarklayout()
@@ -27148,10 +27266,11 @@ function library:CreateWindow(options)
 		end
 
 		if watermarkplayermodecontrol then
-			watermarkplayermodecontrol:Set(
-				watermarkconfig.PlayerMode,
-				false
-			)
+			local mode = normalizewatermarkplayermode(watermarkconfig.PlayerMode)
+			local values = {}
+			if mode == "Display" or mode == "Both" then values[#values + 1] = "Display" end
+			if mode == "Username" or mode == "Both" then values[#values + 1] = "Username" end
+			watermarkplayermodecontrol:Set(values, false)
 		end
 
 		updatewatermarklayout()
