@@ -268,6 +268,7 @@ S.hoverti = TweenInfo.new(0.18, Enum.EasingStyle.Quart, Enum.EasingDirection.Out
 S.checkti = S.fastti
 S.tabti = S.ti
 S.sectionti = TweenInfo.new(0.24, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
+S.sectionattachti = TweenInfo.new(0.09, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
 S.dropti = TweenInfo.new(0.18, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
 S.quart20 = TweenInfo.new(0.20, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
 S.quart24 = TweenInfo.new(0.24, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
@@ -1754,7 +1755,8 @@ S.window = S.new("CanvasGroup", {
 }, { BackgroundColor3 = "window" })
 
 S.windowcorner = S.corner(S.window, 12)
-S.windowstroke = S.stroke(S.window, 0.76, S.theme.border, 1)
+S.windowstroke = S.stroke(S.window, 1, S.theme.border, 1)
+S.windowstroke.Enabled = false
 S.windowshadow = S.adddepthshadow(S.window, "window")
 S.windowglow =
 	S.addshadow(S.window, "WindowGlow", 0.88, 18, 2, -2, S.theme.white, UDim2.fromOffset(0, 0))
@@ -2978,7 +2980,7 @@ S.closeline1 = S.new("Frame", {
 	Parent = S.closebutton,
 	AnchorPoint = Vector2.new(0.5, 0.5),
 	Position = UDim2.fromScale(0.5, 0.5),
-	Size = UDim2.fromOffset(18, 2),
+	Size = UDim2.fromOffset(21, 1),
 	Rotation = 45,
 	BackgroundColor3 = S.theme.text3,
 	BackgroundTransparency = 0.08,
@@ -2991,7 +2993,7 @@ S.closeline2 = S.new("Frame", {
 	Parent = S.closebutton,
 	AnchorPoint = Vector2.new(0.5, 0.5),
 	Position = UDim2.fromScale(0.5, 0.5),
-	Size = UDim2.fromOffset(18, 2),
+	Size = UDim2.fromOffset(21, 1),
 	Rotation = -45,
 	BackgroundColor3 = S.theme.text3,
 	BackgroundTransparency = 0.08,
@@ -4522,7 +4524,7 @@ function S.showmodal(
 	S.closepopup()
 	S.closemodal(true)
 
-	blurstate = S.createmodalblur()
+	blurstate = nil
 
 	root = S.new("Frame", {
 		Parent = S.popuplayer,
@@ -6651,7 +6653,7 @@ end
 function S.queuepagelayout(page, column, animate)
 	if not S.gui or not S.gui.Parent then return end
 	S.pendingpagelayouts[page] = S.pendingpagelayouts[page] or {}
-	S.pendingpagelayouts[page][column] = animate == true
+	S.pendingpagelayouts[page][column] = S.pendingpagelayouts[page][column] == true or animate == true
 	if not S.constructing and not S.pagelayoutconnection then
 		S.pagelayoutconnection = S.runservice.PreRender:Connect(S.flushpagelayouts)
 	end
@@ -6832,7 +6834,14 @@ function S.createpage(name, primary, secondary, pageframe, left, right, page, se
 
 		bottompadding = S.uis.TouchEnabled and 24 or 0
 
-		scroll.CanvasSize = UDim2.fromOffset(0, math.max(y + bottompadding, scroll.AbsoluteSize.Y))
+		if animate then
+			scroll.CanvasSize = UDim2.fromOffset(
+				0,
+				math.max(scroll.CanvasSize.Y.Offset, y + bottompadding, scroll.AbsoluteSize.Y)
+			)
+		else
+			scroll.CanvasSize = UDim2.fromOffset(0, math.max(y + bottompadding, scroll.AbsoluteSize.Y))
+		end
 
 		-- CanvasSize and AbsoluteSize signals own scrollbar refreshes.
 	end
@@ -8439,19 +8448,19 @@ function S.attachsectiontransition(
 		clonedclip = clone:FindFirstChild("SectionClip")
 		visibleheight = drag.wascollapsed and 0 or math.max(0, targetheight - 43)
 
-		S.tween(clone, { Size = targetsize }, S.sectionti)
+		S.tween(clone, { Size = targetsize }, S.sectionattachti)
 		if clonedclip then
 			clonedclip.ClipsDescendants = true
-			S.tween(clonedclip, { Size = UDim2.new(1, 0, 0, visibleheight) }, S.sectionti)
+			S.tween(clonedclip, { Size = UDim2.new(1, 0, 0, visibleheight) }, S.sectionattachti)
 		end
 		if clonedcollapse then
-			S.tween(clonedcollapse, { Rotation = drag.wascollapsed and -90 or 0 }, S.sectionti)
+			S.tween(clonedcollapse, { Rotation = drag.wascollapsed and -90 or 0 }, S.sectionattachti)
 		end
 		if cloneddivider then
 			S.tween(
 				cloneddivider,
 				{ BackgroundTransparency = drag.wascollapsed and 1 or 0.52 },
-				S.sectionti
+				S.sectionattachti
 			)
 		end
 	end
@@ -8472,7 +8481,6 @@ function S.attachsectiontransition(
 
 		if ghost and ghost.Parent then ghost:Destroy() end
 
-		if drag.wasfloating then S.notify("Section attached", section.name, 2.25) end
 	end
 
 	if not ghost or not ghost.Parent then
@@ -8483,7 +8491,7 @@ function S.attachsectiontransition(
 	animation5 = S.tween(ghost, {
 		Position = UDim2.fromOffset(target.X, target.Y),
 		Size = targetsize,
-	}, S.sectionti)
+	}, S.sectionattachti)
 
 	if animation5 then
 		animation5.Completed:Connect(finish)
@@ -8870,9 +8878,10 @@ function S.createsection(
 			sectiontransition("clip", clip, { Size = clipsize }, false)
 		end
 
-		if clipanimation and not section.collapsed then
+		if clipanimation then
 			clipanimation.Completed:Connect(function()
 				if not section.collapsed and clip.Parent then clip.ClipsDescendants = false end
+				if page and page.frame and page.frame.Parent then page:reflow(section.column, false) end
 			end)
 		end
 
@@ -9041,7 +9050,7 @@ function S.createsection(
 
 	-- label
 
-	function section:AddLabel(text, wrap, target, parentobject, object10)
+	function section:AddLabel(text, wrap, target, parentobject, object10, resize)
 		parentobject = target or body
 
 		object10 = S.label(parentobject, text, UDim2.new(1, 0, 0, 20), S.font, S.theme.text2)
@@ -9050,8 +9059,27 @@ function S.createsection(
 		object10.TextWrapped = wrap ~= false
 		object10.TextTruncate = Enum.TextTruncate.None
 		object10.TextYAlignment = wrap ~= false and Enum.TextYAlignment.Top or Enum.TextYAlignment.Center
-		object10.AutomaticSize = wrap ~= false and Enum.AutomaticSize.Y or Enum.AutomaticSize.None
-		if wrap ~= false then object10.Size = UDim2.new(1, 0, 0, 20) end
+		object10.AutomaticSize = Enum.AutomaticSize.None
+
+		if wrap ~= false then
+			resize = function(bounds, width, height)
+				width = object10.AbsoluteSize.X
+				if width <= 1 then return end
+				bounds = S.measuretext(
+					S.plaintext(object10.Text),
+					object10.TextSize,
+					object10.Font,
+					Vector2.new(width, 10000)
+				)
+				height = math.max(20, math.ceil(bounds.Y) + 2)
+				if object10.Size.Y.Offset ~= height then
+					object10.Size = UDim2.new(1, 0, 0, height)
+				end
+			end
+			S.connect(object10:GetPropertyChangedSignal("AbsoluteSize"), resize)
+			S.connect(object10:GetPropertyChangedSignal("Text"), resize)
+			resize()
+		end
 
 		register(object10, text)
 
@@ -9147,7 +9175,7 @@ function S.createsection(
 			Parent = holder,
 			FillDirection = S.uis.TouchEnabled and Enum.FillDirection.Vertical
 				or Enum.FillDirection.Horizontal,
-			VerticalAlignment = Enum.VerticalAlignment.Center,
+			VerticalAlignment = Enum.VerticalAlignment.Top,
 			Padding = UDim.new(0, gap),
 			SortOrder = Enum.SortOrder.LayoutOrder,
 		})
@@ -9158,32 +9186,44 @@ function S.createsection(
 			Items = {},
 		}
 
-		function row:Refresh(count, offset)
+		function row:Refresh(count, offset, maxheight, totalheight, itemheight)
 			count = #self.Items
 
 			if count == 0 then return end
 
+			maxheight = rowheight
+			totalheight = 0
+			for _, item in ipairs(self.Items) do
+				itemheight = tonumber(item:GetAttribute("BlushRowHeight")) or math.max(rowheight, item.Size.Y.Offset)
+				maxheight = math.max(maxheight, itemheight)
+				totalheight += itemheight
+			end
+
 			if S.uis.TouchEnabled then
-				self.Frame.Size = UDim2.new(1, 0, 0, count * rowheight + gap * (count - 1))
+				self.Frame.Size = UDim2.new(1, 0, 0, totalheight + gap * (count - 1))
 
 				for index, item in ipairs(self.Items) do
+					itemheight = tonumber(item:GetAttribute("BlushRowHeight")) or rowheight
 					item.LayoutOrder = index
-					item.Size = UDim2.new(1, 0, 0, rowheight)
+					item.Size = UDim2.new(1, 0, 0, itemheight)
 				end
 
 				return
 			end
 
+			self.Frame.Size = UDim2.new(1, 0, 0, maxheight)
 			offset = -gap * (count - 1) / count
 
 			for index, item in ipairs(self.Items) do
+				itemheight = tonumber(item:GetAttribute("BlushRowHeight")) or rowheight
 				item.LayoutOrder = index
-				item.Size = UDim2.new(1 / count, offset, 0, rowheight)
+				item.Size = UDim2.new(1 / count, offset, 0, itemheight)
 			end
 		end
 
 		function row:AddButton(name, callback, button5)
 			button5 = section:AddButton(name, callback, holder)
+			button5:SetAttribute("BlushRowHeight", button5.Size.Y.Offset)
 
 			table.insert(self.Items, button5)
 			self:Refresh()
@@ -9193,6 +9233,7 @@ function S.createsection(
 
 		function row:AddToggle(name, default, callback, keybindable, badge, control)
 			control = section:AddToggle(name, default, callback, holder, keybindable, badge)
+			control.Object:SetAttribute("BlushRowHeight", control.Object.Size.Y.Offset)
 
 			table.insert(self.Items, control.Object)
 			self:Refresh()
@@ -9203,6 +9244,7 @@ function S.createsection(
 		function row:AddKeyPicker(name, defaultkey, callback, captureoptions, control)
 			control = section:AddKeyPicker(name, defaultkey, callback, holder, captureoptions)
 			if control.Object then
+				control.Object:SetAttribute("BlushRowHeight", control.Object.Size.Y.Offset)
 				table.insert(self.Items, control.Object)
 				self:Refresh()
 			end
@@ -9211,6 +9253,7 @@ function S.createsection(
 
 		function row:AddDropdown(name, options, default, callback, config, control)
 			control = section:AddDropdown(name, options, default, callback, holder, config)
+			control.Object:SetAttribute("BlushRowHeight", control.Object.Size.Y.Offset)
 			table.insert(self.Items, control.Object)
 			self:Refresh()
 			return control
@@ -9218,6 +9261,7 @@ function S.createsection(
 
 		function row:AddMultiDropdown(name, options, default, callback, config, control)
 			control = section:AddMultiDropdown(name, options, default, callback, holder, config)
+			control.Object:SetAttribute("BlushRowHeight", control.Object.Size.Y.Offset)
 			table.insert(self.Items, control.Object)
 			self:Refresh()
 			return control
@@ -9225,7 +9269,10 @@ function S.createsection(
 
 		function row:AddColorPicker(name, color, callback, control)
 			control = section:AddColorPicker(name, color, callback, holder)
-			if control.Object then table.insert(self.Items, control.Object) end
+			if control.Object then
+				control.Object:SetAttribute("BlushRowHeight", control.Object.Size.Y.Offset)
+				table.insert(self.Items, control.Object)
+			end
 			self:Refresh()
 			return control
 		end
@@ -12363,6 +12410,7 @@ function S.createsection(
 		parentobject,
 		compactpicker,
 		hidelabel,
+		fullwidth,
 		row,
 		title,
 		button9,
@@ -12399,6 +12447,7 @@ function S.createsection(
 		captureoptions = type(captureoptions) == "table" and captureoptions or {}
 		compactpicker = captureoptions.Compact == true or captureoptions.compact == true
 		hidelabel = captureoptions.HideLabel == true or captureoptions.hideLabel == true
+		fullwidth = captureoptions.FullWidth == true or captureoptions.fullWidth == true
 
 		row = S.new("Frame", {
 			Parent = parentobject,
@@ -12421,7 +12470,7 @@ function S.createsection(
 
 			Position = UDim2.new(1, 0, 0.5, 0),
 
-			Size = UDim2.fromOffset(56, 25),
+			Size = fullwidth and UDim2.new(1, 0, 0, 25) or UDim2.fromOffset(56, 25),
 
 			BackgroundColor3 = S.theme.input,
 			BackgroundTransparency = 0.08,
@@ -12466,10 +12515,10 @@ function S.createsection(
 				)
 
 			S.tween(button9, {
-				Size = UDim2.fromOffset(width, 25),
+				Size = fullwidth and UDim2.new(1, 0, 0, 25) or UDim2.fromOffset(width, 25),
 			}, S.fastti)
 
-			if hidelabel then
+			if hidelabel or fullwidth then
 				title.Size = UDim2.fromOffset(0, 0)
 			else
 				title.Size = UDim2.new(1, -width - 12, 1, 0)
@@ -12834,7 +12883,8 @@ function S.createsection(
 		isactive,
 		values,
 		render,
-		layout
+		layout,
+		cellwidth
 	)
 		options = options or {}
 		multiselect = multiselect == true
@@ -12859,6 +12909,9 @@ function S.createsection(
 			Parent = row,
 			CellPadding = UDim2.fromOffset(8, 6),
 			CellSize = UDim2.fromOffset(120, 28),
+			FillDirection = Enum.FillDirection.Horizontal,
+			FillDirectionMaxCells = 1,
+			HorizontalAlignment = Enum.HorizontalAlignment.Left,
 			SortOrder = Enum.SortOrder.LayoutOrder,
 		})
 		buttons = {}
@@ -12909,16 +12962,18 @@ function S.createsection(
 			end
 		end
 
-		layout = function(width, columns, rows, height)
-			width = math.max(1, row.AbsoluteSize.X, holder.AbsoluteSize.X)
-			if #options <= 3 then
-				columns = math.max(1, #options)
-			else
-				columns = math.max(1, math.min(#options, math.floor((width + 8) / (minwidth + 8))))
-			end
+		layout = function(width, columns, rows, height, available)
+			width = math.max(1, holder.AbsoluteSize.X)
+			columns = math.max(
+				1,
+				math.min(#options, math.floor((width + 8) / (minwidth + 8)))
+			)
 			rows = math.ceil(#options / columns)
 			height = math.max(0, rows * 34 - 6)
-			grid.CellSize = UDim2.new(1 / columns, -8 * (columns - 1) / columns, 0, 28)
+			available = math.max(1, width - 8 * (columns - 1))
+			cellwidth = math.max(1, math.floor(available / columns) - 1)
+			grid.FillDirectionMaxCells = columns
+			grid.CellSize = UDim2.fromOffset(cellwidth, 28)
 			row.Size = UDim2.new(1, 0, 0, height)
 			holder.Size = UDim2.new(1, 0, 0, 22 + height)
 		end
@@ -13021,7 +13076,7 @@ function S.createsection(
 				if callback then callback(values()) end
 			end)
 		end
-		S.connect(row:GetPropertyChangedSignal("AbsoluteSize"), layout)
+		S.connect(holder:GetPropertyChangedSignal("AbsoluteSize"), layout)
 		layout()
 		register(holder, name)
 		return {
@@ -16187,7 +16242,7 @@ function S.deletethemefile(name, path, ok)
 	return ok
 end
 
-S.settingssection = S.createsection(S.settings, "right", "Interface", S.icons.settings)
+S.settingssection = S.createsection(S.settings, "left", "Interface", S.icons.settings)
 
 S.interfaceflags = S.settingssection:AddRow(10, 24)
 
@@ -16358,7 +16413,7 @@ S.minimizebuttoncontrol = S.interfaceflags4:AddToggle(
 )
 S.setminimizebuttonvisible(S.savedsettings.minimizeButton ~= false, false)
 
-S.keybindssection = S.createsection(S.settings, "right", "Keybinds", S.icons.keyboard)
+S.keybindssection = S.createsection(S.settings, "left", "Keybinds", S.icons.keyboard)
 S.keybindsrow = S.keybindssection:AddRow(10, 29)
 
 S.menukeypicker = S.keybindsrow:AddKeyPicker("Close", S.menukey, function(key)
@@ -16367,8 +16422,7 @@ S.menukeypicker = S.keybindsrow:AddKeyPicker("Close", S.menukey, function(key)
 	S.saveuisettings()
 end)
 
-S.blacklistrow = S.keybindssection:AddRow(8, 56)
-S.keybindblacklistcontrol = S.blacklistrow:AddMultiDropdown(
+S.keybindblacklistcontrol = S.keybindssection:AddMultiDropdown(
 	"Blacklisted keys",
 	S.keybindblacklistoptions,
 	S.getkeybindblacklistlabels(),
@@ -16377,7 +16431,15 @@ S.keybindblacklistcontrol = S.blacklistrow:AddMultiDropdown(
 		S.saveuisettings()
 	end
 )
-S.keybindblacklistpicker = S.blacklistrow:AddKeyPicker(
+
+S.new("Frame", {
+	Parent = S.keybindssection.body,
+	Size = UDim2.new(1, 0, 0, 10),
+	BackgroundTransparency = 1,
+	BorderSizePixel = 0,
+})
+
+S.keybindblacklistpicker = S.keybindssection:AddKeyPicker(
 	"Add key",
 	false,
 	function(key, _5, labelvalue3, values)
@@ -16388,30 +16450,17 @@ S.keybindblacklistpicker = S.blacklistrow:AddKeyPicker(
 		S.keybindblacklistcontrol:SetOptions(table.clone(S.keybindblacklistoptions))
 		S.keybindblacklistcontrol:Set(values, true)
 	end,
+	nil,
 	{
 		AllowBlacklisted = true,
 		AllowEscape = true,
 		KeepDelete = true,
-		Compact = true,
 		HideLabel = true,
+		FullWidth = true,
 	}
 )
 
-if
-	S.keybindblacklistcontrol
-	and S.keybindblacklistcontrol.Object
-	and S.keybindblacklistpicker
-	and S.keybindblacklistpicker.Object
-then
-	S.keybindblacklistcontrol.Object.Size = UDim2.new(1, -48, 0, 57)
-	S.keybindblacklistpicker.Object.Size = UDim2.fromOffset(40, 29)
-	S.keybindblacklistpickerbutton = S.keybindblacklistpicker.Object:FindFirstChildWhichIsA("TextButton")
-	if S.keybindblacklistpickerbutton then
-		S.keybindblacklistpickerbutton.Position = UDim2.new(1, 0, 0.5, 3)
-	end
-end
-
-S.windowsection = S.createsection(S.settings, "right", "Window", S.icons.sliders)
+S.windowsection = S.createsection(S.settings, "left", "Window", S.icons.sliders)
 
 S.windowglowtoggle = S.windowsection:AddToggleColor(
 	"Window glow",
@@ -16485,7 +16534,7 @@ S.uitransparencycontrol = S.windowsection:AddSlider(
 
 S.applyuitransparency(S.initialtransparency)
 
-S.themessection = S.createsection(S.settings, "left", "Appearance", S.icons.palette)
+S.themessection = S.createsection(S.settings, "right", "Appearance", S.icons.palette)
 
 S.themepresets = {
 	Default = {
@@ -16759,7 +16808,7 @@ S.themessection:AddButton("Delete", function(name8, ok)
 end)
 
 S.backgroundimagesection =
-	S.createsection(S.settings, "left", "Background Image", S.icons.wallpaper)
+	S.createsection(S.settings, "right", "Background Image", S.icons.wallpaper)
 
 S.backgroundimageinput = S.backgroundimagesection:AddInput(
 	"Source",
@@ -16849,7 +16898,7 @@ S.backgroundimageactions:AddButton("Clear", function()
 	S.saveuisettings(true)
 end)
 
-S.savessection = S.createsection(S.settings, "left", "Configs", S.icons.wrench)
+S.savessection = S.createsection(S.settings, "right", "Configs", S.icons.wrench)
 
 S.configinput = S.savessection:AddInput(
 	"Config name",
@@ -20354,7 +20403,7 @@ function S.resolvecontrolroot(control, parentobject, holder, object17)
 	return nil
 end
 
-function S.applylockedoption(control, value, textvalue, root, state, overlay, locktext)
+function S.applylockedoption(control, value, root, state, overlay)
 	root = S.resolvecontrolroot(control)
 	if not root then return false end
 
@@ -20377,21 +20426,9 @@ function S.applylockedoption(control, value, textvalue, root, state, overlay, lo
 		})
 		S.corner(overlay, 6)
 
-		locktext = S.label(
-			overlay,
-			tostring(textvalue or "Locked feature"),
-			UDim2.new(1, -44, 1, 0),
-			S.medium,
-			S.theme.text3
-		)
-		locktext.Position = UDim2.fromOffset(42, 0)
-		locktext.TextSize = 15
-		locktext.ZIndex = 1001
-
 		state = {
 			root = root,
 			overlay = overlay,
-			text = locktext,
 			locked = false,
 		}
 		S.lockedcontrols[control] = state
@@ -20401,7 +20438,6 @@ function S.applylockedoption(control, value, textvalue, root, state, overlay, lo
 	state.locked = value == true
 	state.overlay.Visible = state.locked
 	state.overlay.Active = state.locked
-	state.text.Text = tostring(textvalue or state.text.Text or "Locked feature")
 	root:SetAttribute("BlushLocked", state.locked)
 
 	if state.locked then
@@ -20424,8 +20460,8 @@ function S.applylockedoption(control, value, textvalue, root, state, overlay, lo
 			end
 		end
 
-		control.SetLocked = function(_, enabled, labelvalue)
-			return S.applylockedoption(control, enabled, labelvalue)
+		control.SetLocked = function(_, enabled)
+			return S.applylockedoption(control, enabled)
 		end
 		control.IsLocked = function(current)
 			current = S.lockedcontrols[control]
@@ -20469,7 +20505,7 @@ function S.libraryenhancerow(
 			control =
 				addbutton(self, tostring(config.Name or config.Text or "Button"), config.Callback)
 			if config.Locked ~= nil then
-				S.applylockedoption(control, config.Locked, config.LockedText)
+				S.applylockedoption(control, config.Locked)
 			end
 			return control
 		end
@@ -20495,7 +20531,7 @@ function S.libraryenhancerow(
 					}
 			)
 			if config.Locked ~= nil then
-				S.applylockedoption(control, config.Locked, config.LockedText)
+				S.applylockedoption(control, config.Locked)
 			end
 			return control
 		end
@@ -20514,7 +20550,7 @@ function S.libraryenhancerow(
 				config
 			)
 			if config.Locked ~= nil then
-				S.applylockedoption(control, config.Locked, config.LockedText)
+				S.applylockedoption(control, config.Locked)
 			end
 			return control
 		end
@@ -20533,7 +20569,7 @@ function S.libraryenhancerow(
 				config
 			)
 			if config.Locked ~= nil then
-				S.applylockedoption(control, config.Locked, config.LockedText)
+				S.applylockedoption(control, config.Locked)
 			end
 			return control
 		end
@@ -20550,7 +20586,7 @@ function S.libraryenhancerow(
 				config.Callback
 			)
 			if config.Locked ~= nil then
-				S.applylockedoption(control, config.Locked, config.LockedText)
+				S.applylockedoption(control, config.Locked)
 			end
 			return control
 		end
@@ -20599,7 +20635,7 @@ function S.libraryenhancerow(
 		end
 
 		if sourceconfig and sourceconfig.Locked ~= nil then
-			S.applylockedoption(control, sourceconfig.Locked, sourceconfig.LockedText)
+			S.applylockedoption(control, sourceconfig.Locked)
 		end
 
 		return control
@@ -20706,7 +20742,7 @@ function S.libraryenhancesection(
 				config.Target
 			)
 			if config.Locked ~= nil then
-				S.applylockedoption(control, config.Locked, config.LockedText)
+				S.applylockedoption(control, config.Locked)
 			end
 			return control
 		end
@@ -21219,7 +21255,7 @@ function S.libraryenhancesection(
 				config.Target
 			)
 			if config.Locked ~= nil then
-				S.applylockedoption(control, config.Locked, config.LockedText)
+				S.applylockedoption(control, config.Locked)
 			end
 			return control
 		end
@@ -21246,7 +21282,7 @@ function S.libraryenhancesection(
 				config.Target
 			)
 			if config.Locked ~= nil then
-				S.applylockedoption(control, config.Locked, config.LockedText)
+				S.applylockedoption(control, config.Locked)
 			end
 			return control
 		end
@@ -21264,7 +21300,7 @@ function S.libraryenhancesection(
 				config.Target
 			)
 			if config.Locked ~= nil then
-				S.applylockedoption(control, config.Locked, config.LockedText)
+				S.applylockedoption(control, config.Locked)
 			end
 			return control
 		end
@@ -21389,7 +21425,7 @@ function S.libraryenhancesection(
 				)
 
 				if sourceconfig and sourceconfig.Locked ~= nil then
-					S.applylockedoption(control, sourceconfig.Locked, sourceconfig.LockedText)
+					S.applylockedoption(control, sourceconfig.Locked)
 				end
 
 				return control
@@ -21967,7 +22003,7 @@ function S.library:CreateWindow(
 		S.windowcorner.CornerRadius = UDim.new(0, math.max(0, tonumber(options.Roundness) or 12))
 	end
 
-	if options.Stroke ~= nil then S.windowstroke.Enabled = options.Stroke == true end
+	S.windowstroke.Enabled = false
 
 	if options.Shadow ~= nil then
 		S.windowshadowenabled = options.Shadow == true
@@ -22399,7 +22435,7 @@ function S.library:CreateWindow(
 		S.windowcorner.CornerRadius = UDim.new(0, math.max(0, tonumber(value) or 0))
 	end
 
-	function S.librarywindow:SetStrokeVisible(value) S.windowstroke.Enabled = value == true end
+	function S.librarywindow:SetStrokeVisible(value) S.windowstroke.Enabled = false end
 
 	function S.librarywindow:SetShadowVisible(value)
 		S.windowshadowenabled = value == true
@@ -22630,8 +22666,8 @@ function S.library:GetSettingsTab() return S.librarygetsettingstab() end
 
 function S.library:Notify(...) S.notify(...) end
 
-function S.library:SetLocked(element, value, textvalue)
-	return S.applylockedoption(element, value, textvalue)
+function S.library:SetLocked(element, value)
+	return S.applylockedoption(element, value)
 end
 
 function S.library:IsLocked(element, root, state)
