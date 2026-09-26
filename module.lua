@@ -17,6 +17,9 @@ m.ws    = game:GetService("Workspace")
 
 m.h  = m.run.Heartbeat
 m.pr = m.run.PreRender
+m.post  = m.run.PostSimulation
+m.pre = m.run.PreSimulation
+m.preanim = m.run.PreAnimation
 
 -- workspace
 
