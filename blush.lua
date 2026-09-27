@@ -17819,6 +17819,7 @@ function S.deletethemefile(name, path, ok)
 end
 
 S.settingssection = S.createsection(S.settings, "left", "Interface", S.icons.settings)
+S.watermarksettingssection = S.createsection(S.settings, "right", "Watermark", S.icons.tag)
 
 S.watermarktoggle = S.watermarksettingssection:AddToggle(
 	"Enabled",
@@ -17853,7 +17854,7 @@ for _, item in ipairs({ "Player", "Fps", "Ping", "Time", "Game" }) do
 	if S.enabled then table.insert(S.watermarkinfodefault, item) end
 end
 
-S.watermarksettingssection = S.createsection(S.settings, "right", "Watermark", S.icons.tag)
+
 S.watermarkinfocontrol = S.watermarksettingssection:AddMultiDropdown(
 	"Watermark info",
 	{
