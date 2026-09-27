@@ -17952,6 +17952,8 @@ S.notificationtoggle = S.interfaceflags2:AddToggle(
 	end
 )
 
+S.keybindssection = S.createsection(S.settings, "left", "Keybinds", S.icons.keyboard)
+
 S.keybindssection:AddDivider("Panel")
 
 S.hotkeylisttoggle = S.keybindssection:AddToggle(
@@ -17988,7 +17990,7 @@ S.secondarytextpicker = S.settingssection:AddColorPicker(
 	end
 )
 
-S.keybindssection = S.createsection(S.settings, "left", "Keybinds", S.icons.keyboard)
+
 
 S.menukeypicker = S.settingssection:AddKeyPicker("Window Open/Close", S.menukey, function(key)
 	S.menukey = key
