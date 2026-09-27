@@ -114,7 +114,6 @@ S.__blush_cleanup = function(autosavetask, settingstask)
 	end
 	S.__blush_save_task = nil
 
-
 	if S.destroybackgroundeditable then S.destroybackgroundeditable() end
 
 	if S.closemodal then S.closemodal(true) end
@@ -126,7 +125,6 @@ S.__blush_cleanup = function(autosavetask, settingstask)
 	table.clear(S.connections)
 
 	if S.gui and S.gui.Parent then S.gui:Destroy() end
-
 
 	if S.reopengui and S.reopengui.Parent then S.reopengui:Destroy() end
 
@@ -143,7 +141,6 @@ table.insert(S.connections, S.runtimebridge.Event:Connect(S.__blush_cleanup))
 S.old = S.parent:FindFirstChild("blush")
 
 if S.old then S.old:Destroy() end
-
 
 S.oldreopen = S.parent:FindFirstChild("blush_reopen")
 if S.oldreopen then S.oldreopen:Destroy() end
@@ -1951,7 +1948,13 @@ function S.librarynormalizeicon(value)
 	value = tostring(value)
 	if S.icons[value] then return S.icons[value] end
 	if value:match("^%d+$") then return "rbxassetid://" .. value end
-	if value:match("^rbxassetid://%d+$") or value:match("^rbxthumb://") or value:match("^rbxasset://") then return value end
+	if
+		value:match("^rbxassetid://%d+$")
+		or value:match("^rbxthumb://")
+		or value:match("^rbxasset://")
+	then
+		return value
+	end
 	return nil
 end
 
@@ -1975,7 +1978,7 @@ S.hoverti = TweenInfo.new(0.18, Enum.EasingStyle.Quart, Enum.EasingDirection.Out
 S.checkti = S.fastti
 S.tabti = S.ti
 S.sectionti = TweenInfo.new(0.24, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
-S.sectionattachti = TweenInfo.new(0.10, Enum.EasingStyle.Quart, Enum.EasingDirection.In)
+S.sectionattachti = TweenInfo.new(0.24, Enum.EasingStyle.Quart, Enum.EasingDirection.InOut)
 S.dropti = TweenInfo.new(0.18, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
 S.quart20 = TweenInfo.new(0.20, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
 S.quart24 = TweenInfo.new(0.24, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
@@ -2027,6 +2030,28 @@ S.panelthemes = {}
 
 function S.panelcolor(object, role, fallback, panel)
 	panel = S.panelowners[object]
+	if panel and object == panel.glowshadow and panel.glow then return panel.glow.color end
+	if object == S.__blush_watermark_title then
+		return S.brand and S.theme[S.textgradientrole(S.brand) or "text"] or fallback
+	end
+	if
+		panel
+		and panel.name == "Keybinds"
+		and (role == "white" or role == "text2" or role == "highlight")
+	then
+		role = "text"
+		fallback = S.theme.text
+	end
+	if panel and panel.name == "Keybinds" and role == "black" then
+		return (
+			(panel.overrides.text or S.theme.text).R * 0.2126
+			+ (panel.overrides.text or S.theme.text).G * 0.7152
+			+ (panel.overrides.text or S.theme.text).B * 0.0722
+		)
+					> 0.55
+				and Color3.fromRGB(14, 14, 15)
+			or Color3.fromRGB(245, 245, 247)
+	end
 	return panel and panel.overrides[role] or fallback
 end
 
@@ -2072,7 +2097,9 @@ function S.bindtheme(
 	panel = S.panelowners[object] or S.panelowners[object.Parent]
 	if panel then
 		S.panelowners[object] = panel
-		if previous and panel.bindings[previous] and panel.bindings[previous][object] then panel.bindings[previous][object][property] = nil end
+		if previous and panel.bindings[previous] and panel.bindings[previous][object] then
+			panel.bindings[previous][object][property] = nil
+		end
 		panel.bindings[role] = panel.bindings[role] or setmetatable({}, { __mode = "k" })
 		panel.bindings[role][object] = panel.bindings[role][object] or {}
 		panel.bindings[role][object][property] = true
@@ -2189,6 +2216,18 @@ function S.applythemerole(role, animate, bindings, target, objecttweens, value)
 					end
 				end
 			end
+		end
+	end
+	for _, panel in pairs(S.panelthemes) do
+		if role == "text" and panel.name == "Keybinds" then
+			for _, dependent in ipairs({ "white", "text2", "highlight", "black" }) do
+				if panel.bindings[dependent] then
+					S.applythemerole(dependent, animate, panel.bindings[dependent])
+				end
+			end
+		end
+		if panel.pickers and panel.pickers[role] and not panel.overrides[role] then
+			panel.pickers[role]:Set(S.theme[role], 1, false)
 		end
 	end
 end
@@ -2340,7 +2379,11 @@ function S.registermainalpha(object, colorproperty, role, property, entries, ok,
 	property = S.alphaproperty(object, colorproperty)
 	if not property then return end
 
-	if colorproperty == "BackgroundColor3" and S.transparencyroles and S.transparencyroles[role] then
+	if
+		colorproperty == "BackgroundColor3"
+		and S.transparencyroles
+		and S.transparencyroles[role]
+	then
 		return
 	end
 
@@ -2435,7 +2478,12 @@ function S.applyhighlight(color, alpha, animate)
 		S.indexthemecolors()
 	end
 	if alpha ~= nil then S.applyhighlightalpha(alpha) end
-	if S.highlightpicker and not S.highlightpicker.dragging and not S.highlightpicker.rainbow and not S.highlightpicker.fading then
+	if
+		S.highlightpicker
+		and not S.highlightpicker.dragging
+		and not S.highlightpicker.rainbow
+		and not S.highlightpicker.fading
+	then
 		S.highlightpicker:Set(S.theme.highlight, S.theme.highlightAlpha, false)
 	end
 end
@@ -2457,15 +2505,22 @@ S.transparencybase = setmetatable({}, {
 
 S.__blush_background_visibility = S.__blush_background_visibility or 0
 
-function S.effectivetransparency(value, role, object, basealpha, themealpha, globalalpha, mainalpha, panel)
+function S.effectivetransparency(
+	value,
+	role,
+	object,
+	basealpha,
+	themealpha,
+	globalalpha,
+	mainalpha,
+	panel
+)
 	basealpha = 1 - math.clamp(value or 0, 0, 1)
 	panel = object and S.panelowners[object]
 	if panel then return 1 - basealpha * (object == panel.root and panel.opacity or 1) end
 	themealpha = math.clamp(S.theme.backgroundAlpha or 1, 0, 1)
 	globalalpha = 1 - math.clamp(S.uitransparency or 0, 0, 0.90)
-	mainalpha = S.mainroles and S.mainroles[role]
-			and math.clamp(S.theme.mainAlpha or 1, 0, 1)
-		or 1
+	mainalpha = S.mainroles and S.mainroles[role] and math.clamp(S.theme.mainAlpha or 1, 0, 1) or 1
 	return 1 - basealpha * themealpha * globalalpha * mainalpha
 end
 
@@ -2480,9 +2535,6 @@ function S.applyuitransparency(value)
 
 	-- Global transparency is already folded into every themed surface above.
 	-- Keep root CanvasGroups neutral so nested content is not faded a second time.
-	if S.window and S.window.Parent then S.window.GroupTransparency = 0 end
-
-	if S.draglayer and S.draglayer.Parent then S.draglayer.GroupTransparency = 0 end
 end
 
 function S.rawnew(class, properties, object2)
@@ -2521,7 +2573,11 @@ function S.new(class, properties, roles, object3, backgroundrole, base)
 			or (class == "UIStroke" and property == "Color")
 		then
 			S.bindtheme(object3, property, value, roles and roles[property])
-			object3[property] = S.panelcolor(object3, S.objectbindings[object3] and S.objectbindings[object3][property], value)
+			object3[property] = S.panelcolor(
+				object3,
+				S.objectbindings[object3] and S.objectbindings[object3][property],
+				value
+			)
 		end
 	end
 
@@ -2545,6 +2601,8 @@ function S.new(class, properties, roles, object3, backgroundrole, base)
 	return object3
 end
 
+S.activetweens = setmetatable({}, { __mode = "k" })
+
 function S.tween(
 	object,
 	properties,
@@ -2557,7 +2615,9 @@ function S.tween(
 	base,
 	tweeninfo,
 	animation,
-	shadowanimation
+	shadowanimation,
+	tracked,
+	previous
 )
 	if not object or not object.Parent then return end
 
@@ -2575,12 +2635,17 @@ function S.tween(
 				or (object:IsA("UIStroke") and property == "Color")
 			then
 				S.syncbinding(object, property, value, roles and roles[property])
-				value = S.panelcolor(object, S.objectbindings[object] and S.objectbindings[object][property], value)
+				value = S.panelcolor(
+					object,
+					S.objectbindings[object] and S.objectbindings[object][property],
+					value
+				)
 			end
 
 			if property == "BackgroundTransparency" and S.transparencybase[object] ~= nil then
 				S.transparencybase[object].base = value
-				goals[property] = S.effectivetransparency(value, S.transparencybase[object].role, object)
+				goals[property] =
+					S.effectivetransparency(value, S.transparencybase[object].role, object)
 			elseif S.setaccentalphabase(object, property, value) then
 				goals[property] = S.effectiveaccentalpha(value)
 			elseif S.sethighlightalphabase(object, property, value) then
@@ -2595,6 +2660,28 @@ function S.tween(
 		end
 	end
 
+	for property, value in pairs(goals) do
+		if property == "TextColor3" and S.__blush_gradientstates[object] then
+			goals[property] = Color3.new(1, 1, 1)
+		elseif typeof(value) == "Color3" then
+			goals[property] = S.panelcolor(
+				object,
+				(roles and roles[property])
+					or (S.objectbindings[object] and S.objectbindings[object][property]),
+				value
+			)
+		end
+		if goals[property] == object[property] then goals[property] = nil end
+	end
+	tracked = S.activetweens[object] or {}
+	S.activetweens[object] = tracked
+	for property in pairs(properties) do
+		previous = tracked[property]
+		if previous then
+			previous:Cancel()
+			tracked[property] = nil
+		end
+	end
 	groupshadows = nil
 
 	if object:IsA("CanvasGroup") and goals.GroupTransparency ~= nil then
@@ -2630,8 +2717,17 @@ function S.tween(
 		return nil
 	end
 
+	if next(goals) == nil then return nil end
 	tweeninfo = info or S.ti
 	animation = S.tweenservice:Create(object, tweeninfo, goals)
+	for property in pairs(goals) do
+		tracked[property] = animation
+	end
+	animation.Completed:Once(function()
+		for property in pairs(goals) do
+			if tracked[property] == animation then tracked[property] = nil end
+		end
+	end)
 
 	for _, shadow in ipairs(groupshadows or {}) do
 		shadowanimation =
@@ -2714,7 +2810,7 @@ function S.buildtheme(
 
 		text = primarytext,
 		text2 = background:Lerp(primarytext, 0.72),
-		text3 = background:Lerp(primarytext, 0.45),
+		text3 = S.secondarytextoverride or background:Lerp(primarytext, 0.45),
 		white = accent,
 		black = accentluminance > 0.55 and Color3.fromRGB(14, 14, 15)
 			or Color3.fromRGB(245, 245, 247),
@@ -2876,7 +2972,12 @@ end
 
 function S.setmaincoloralpha(value)
 	S.applymainalpha(value)
-	if S.maincolorpicker and not S.maincolorpicker.dragging and not S.maincolorpicker.rainbow and not S.maincolorpicker.fading then
+	if
+		S.maincolorpicker
+		and not S.maincolorpicker.dragging
+		and not S.maincolorpicker.rainbow
+		and not S.maincolorpicker.fading
+	then
 		S.maincolorpicker:Set(S.theme.main, S.theme.mainAlpha, false)
 	end
 end
@@ -3255,7 +3356,17 @@ end
 
 function S.addglow(object, preset, shadow)
 	if preset ~= "active" then return nil end
-	shadow = S.addshadow(object, "ActiveGlow", 0.76, 9, 1, -1, S.theme.highlight, UDim2.fromOffset(0, 0), false)
+	shadow = S.addshadow(
+		object,
+		"ActiveGlow",
+		0.76,
+		9,
+		1,
+		-1,
+		S.theme.highlight,
+		UDim2.fromOffset(0, 0),
+		false
+	)
 	if shadow then S.bindtheme(shadow, "Color", S.theme.highlight, "highlight") end
 	return shadow
 end
@@ -3383,8 +3494,6 @@ S.modalguard = S.new("TextButton", {
 	ZIndex = 1,
 })
 
-
-
 S.window = S.new("CanvasGroup", {
 	Parent = S.shell,
 
@@ -3403,15 +3512,27 @@ S.windowcorner = S.corner(S.window, 12)
 S.windowstroke = S.stroke(S.window, 1, S.theme.border, 1)
 S.windowstroke.Enabled = false
 S.windowshadow = S.adddepthshadow(S.window, "window")
-S.windowglow =
-	S.addshadow(S.window, "WindowGlow", 0.88, 18, 2, -2, S.theme.white, UDim2.fromOffset(0, 0))
+S.windowglow = S.addshadow(
+	S.window,
+	"WindowGlow",
+	0.88,
+	18,
+	2,
+	-2,
+	S.theme.white,
+	UDim2.fromOffset(0, 0),
+	false
+)
 
 -- Clip window effects to exterior bands so they cannot tint translucent image pixels.
 S.windoweffectsbands = {}
 for index = 1, 4 do
 	S.windoweffectsbands[index] = S.rawnew("Frame", {
-		Parent = S.shell, BackgroundTransparency = 1, BorderSizePixel = 0,
-		ClipsDescendants = true, ZIndex = 9,
+		Parent = S.shell,
+		BackgroundTransparency = 1,
+		BorderSizePixel = 0,
+		ClipsDescendants = true,
+		ZIndex = 9,
 	})
 end
 function S.exteriorwindowshadow(shadow, carrier, copies, sync)
@@ -3420,7 +3541,10 @@ function S.exteriorwindowshadow(shadow, carrier, copies, sync)
 	shadow.Parent = carrier
 	copies = {}
 	for index, band in ipairs(S.windoweffectsbands) do
-		copies[index] = S.rawnew("Frame", { Parent = band, BackgroundTransparency = 1, BorderSizePixel = 0, ZIndex = 9 })
+		copies[index] = S.rawnew(
+			"Frame",
+			{ Parent = band, BackgroundTransparency = 1, BorderSizePixel = 0, ZIndex = 9 }
+		)
 		S.corner(copies[index], S.windowcorner.CornerRadius.Offset)
 		shadow:Clone().Parent = copies[index]
 	end
@@ -3429,7 +3553,14 @@ function S.exteriorwindowshadow(shadow, carrier, copies, sync)
 			surface:FindFirstChildOfClass("UIShadow")[property] = shadow[property]
 		end
 	end
-	for _, property in ipairs({ "Color", "Transparency", "BlurRadius", "Spread", "Offset", "Enabled" }) do
+	for _, property in ipairs({
+		"Color",
+		"Transparency",
+		"BlurRadius",
+		"Spread",
+		"Offset",
+		"Enabled",
+	}) do
 		shadow:GetPropertyChangedSignal(property):Connect(function() sync(property) end)
 	end
 	return copies
@@ -3439,8 +3570,10 @@ S.windowglowcopies = S.exteriorwindowshadow(S.windowglow)
 function S.layoutwindoweffects(width, height, regions, region, surface)
 	width, height = S.shell.AbsoluteSize.X, S.shell.AbsoluteSize.Y
 	regions = {
-		{ -128, -128, width + 256, 128 }, { -128, height, width + 256, 128 },
-		{ -128, 0, 128, height }, { width, 0, 128, height },
+		{ -128, -128, width + 256, 128 },
+		{ -128, height, width + 256, 128 },
+		{ -128, 0, 128, height },
+		{ width, 0, 128, height },
 	}
 	for index, band in ipairs(S.windoweffectsbands) do
 		region = regions[index]
@@ -3462,7 +3595,6 @@ S.layoutwindoweffects()
 
 S.windowresizeenabled = true
 S.windowdragenabled = true
-S.windowminimizebuttonenabled = true
 S.windowminsize = Vector2.new(620, 440)
 S.windowmaxsize = nil
 
@@ -3487,31 +3619,40 @@ function S.applywindowshadow(base)
 	S.windowshadow.Transparency = base
 end
 
-function S.applywindowglow(strength, size, alpha, opacity, transparency)
-	if not S.windowglow then return end
+function S.applyglow(shadow, enabled, color, intensity, size, alpha, opacity)
+	if not shadow then return end
+	S.__blush_accent_alpha[shadow] = nil
+	S.__blush_main_alpha[shadow] = nil
+	S.__blush_highlight_alpha[shadow] = nil
+	size = math.clamp(tonumber(size) or 10, 0, 64)
+	opacity = math.clamp(
+		(tonumber(intensity) or 16) / 100 * 0.58 * math.clamp(tonumber(alpha) or 1, 0, 1),
+		0,
+		1
+	)
+	shadow.Color = color or S.theme.white
+	shadow.BlurRadius = UDim.new(0, size)
+	shadow.Spread = UDim2.fromOffset(size * 0.06, size * 0.06)
+	shadow.Transparency = enabled and 1 - opacity or 1
+	shadow:SetAttribute("BlushBaseTransparency", shadow.Transparency)
+end
 
-	strength = math.clamp(tonumber(S.windowglowintensity) or 16, 0, S.windowglowintensitymax)
-
-	size = math.clamp(tonumber(S.windowglowsize) or 10, 0, S.windowglowsizemax)
-
-	alpha = math.clamp(tonumber(S.windowglowrenderalpha) or S.windowglowalpha or 1, 0, 1)
-
-	opacity = (strength / 100) * 0.58 * alpha
-
-	transparency = 1 - math.clamp(opacity, 0, 1)
-
-	S.windowglow:SetAttribute("BlushBaseTransparency", transparency)
-
-	S.windowglow.Color = S.windowglowcolor
-
-	S.windowglow.Transparency = S.windowglowenabled and transparency or 1
-
-	S.windowglow.BlurRadius = UDim.new(0, size)
-
-	S.windowglow.Spread = UDim2.fromOffset(size >= 14 and 1 or 0, size >= 14 and 1 or 0)
+function S.applywindowglow()
+	S.applyglow(
+		S.windowglow,
+		S.windowglowenabled,
+		S.windowglowcolor,
+		S.windowglowintensity,
+		S.windowglowsize,
+		S.windowglowrenderalpha or S.windowglowalpha
+	)
 end
 
 function S.syncwindowglowcolor(animate)
+	if S.windowglowcustom then
+		S.applywindowglow()
+		return
+	end
 	S.windowglowcolor = S.theme.white
 
 	if S.windowglowcolorpicker then
@@ -3572,7 +3713,6 @@ S.backgroundblurbasewidth = 0
 S.backgroundblurbaseheight = 0
 S.backgroundblurlastsignature = nil
 S.backgroundblurtoken = 0
-S.backgroundblurdebounce = 0
 S.backgroundblurtask = nil
 S.backgroundsectionframes = setmetatable({}, { __mode = "k" })
 
@@ -3595,6 +3735,7 @@ function S.destroybackgroundeditable()
 	S.backgroundblurtoken += 1
 	S.backgroundsourcegeneration = (S.backgroundsourcegeneration or 0) + 1
 	S.backgroundblurloading = nil
+	S.backgroundblurfailedasset = nil
 	if S.stopbackgroundblurjob then S.stopbackgroundblurjob() end
 
 	if S.backgroundblurtask and coroutine.status(S.backgroundblurtask) == "suspended" then
@@ -3819,7 +3960,11 @@ function S.updatebackgroundsurfaces(
 
 	-- Surface transparency follows the actual image visibility/opacity.
 	wallpaperbase = visible
-			and (lighttheme and 0.68 or 0.74) * math.clamp(S.__blush_background_visibility or 0, 0, 1)
+			and (lighttheme and 0.68 or 0.74) * math.clamp(
+				S.__blush_background_visibility or 0,
+				0,
+				1
+			)
 		or 0
 	mainbase = wallpaperbase
 	sidebarbase = visible and not S.backgroundexcludesidebar and wallpaperbase or 0
@@ -3836,7 +3981,8 @@ function S.updatebackgroundsurfaces(
 	sidebardata = S.transparencybase[S.sidebar]
 	if sidebardata then
 		sidebardata.base = sidebarbase
-		S.sidebar.BackgroundTransparency = S.effectivetransparency(sidebarbase, sidebardata.role, S.sidebar)
+		S.sidebar.BackgroundTransparency =
+			S.effectivetransparency(sidebarbase, sidebardata.role, S.sidebar)
 	else
 		S.sidebar.BackgroundTransparency = sidebarbase
 	end
@@ -3844,7 +3990,9 @@ function S.updatebackgroundsurfaces(
 	for frame in pairs(S.backgroundsectionframes) do
 		if frame and frame.Parent then
 			data = S.transparencybase[frame]
-			if data then frame.BackgroundTransparency = S.effectivetransparency(data.base, data.role, frame) end
+			if data then
+				frame.BackgroundTransparency = S.effectivetransparency(data.base, data.role, frame)
+			end
 		else
 			S.backgroundsectionframes[frame] = nil
 		end
@@ -4235,7 +4383,9 @@ end
 S.updatewatermarklayout()
 
 task.spawn(function(ok, info)
-	ok, info = pcall(function() return game:GetService("MarketplaceService"):GetProductInfoAsync(game.PlaceId) end)
+	ok, info = pcall(
+		function() return game:GetService("MarketplaceService"):GetProductInfoAsync(game.PlaceId) end
+	)
 	if ok and info and info.Name then
 		S.watermarkgamename = tostring(info.Name)
 		if S.__blush_watermark_game.Parent then S.updatewatermarklayout() end
@@ -4664,92 +4814,6 @@ S.titlesecondary.LayoutOrder = 3
 S.titlesecondary.TextSize = 18
 S.titlesecondary.ZIndex = 14
 
-S.closebutton = S.new("TextButton", {
-	Parent = S.header,
-	AnchorPoint = Vector2.new(1, 0.5),
-	Position = UDim2.new(1, -14, 0.5, 0),
-	Size = UDim2.fromOffset(34, 34),
-	BackgroundColor3 = S.theme.hover,
-	BackgroundTransparency = 1,
-	BorderSizePixel = 0,
-	Text = "",
-	AutoButtonColor = false,
-	Active = false,
-	Visible = false,
-	ZIndex = 16,
-}, { BackgroundColor3 = "hover" })
-S.corner(S.closebutton, 7)
-
-S.closeline1 = S.new("Frame", {
-	Parent = S.closebutton,
-	AnchorPoint = Vector2.new(0.5, 0.5),
-	Position = UDim2.fromScale(0.5, 0.5),
-	Size = UDim2.fromOffset(21, 2),
-	Rotation = 45,
-	BackgroundColor3 = S.theme.text3,
-	BackgroundTransparency = 0.08,
-	BorderSizePixel = 0,
-	ZIndex = 17,
-}, { BackgroundColor3 = "text3" })
-S.corner(S.closeline1, 999)
-
-S.closeline2 = S.new("Frame", {
-	Parent = S.closebutton,
-	AnchorPoint = Vector2.new(0.5, 0.5),
-	Position = UDim2.fromScale(0.5, 0.5),
-	Size = UDim2.fromOffset(21, 2),
-	Rotation = -45,
-	BackgroundColor3 = S.theme.text3,
-	BackgroundTransparency = 0.08,
-	BorderSizePixel = 0,
-	ZIndex = 17,
-}, { BackgroundColor3 = "text3" })
-S.corner(S.closeline2, 999)
-
-S.closebutton.MouseEnter:Connect(function()
-	if not S.windowminimizebuttonenabled then return end
-
-	S.closeline1.BackgroundTransparency = 0
-	S.closeline2.BackgroundTransparency = 0
-	S.tween(
-		S.closeline1,
-		{ BackgroundColor3 = S.theme.text },
-		S.hoverti,
-		nil,
-		{ BackgroundColor3 = "text" }
-	)
-	S.tween(
-		S.closeline2,
-		{ BackgroundColor3 = S.theme.text },
-		S.hoverti,
-		nil,
-		{ BackgroundColor3 = "text" }
-	)
-end)
-
-S.closebutton.MouseLeave:Connect(function()
-	if not S.windowminimizebuttonenabled then return end
-
-	S.closeline1.BackgroundTransparency = 0.08
-	S.closeline2.BackgroundTransparency = 0.08
-	S.tween(
-		S.closeline1,
-		{ BackgroundColor3 = S.theme.text3 },
-		S.hoverti,
-		nil,
-		{ BackgroundColor3 = "text3" }
-	)
-	S.tween(
-		S.closeline2,
-		{ BackgroundColor3 = S.theme.text3 },
-		S.hoverti,
-		nil,
-		{ BackgroundColor3 = "text3" }
-	)
-end)
-
-S.closebutton.Activated:Connect(function() S.requestvisibilitytoggle() end)
-
 S.searchholder = S.new("Frame", {
 	Parent = S.header,
 
@@ -4770,8 +4834,6 @@ S.searchholder = S.new("Frame", {
 
 S.searchfadetoken = 0
 S.searchfadeanimations = {}
-S.minimizelineanimation1 = nil
-S.minimizelineanimation2 = nil
 
 S.corner(S.searchholder, 9)
 S.searchshadow = S.addshadow(
@@ -4788,7 +4850,6 @@ S.searchshadow = S.addshadow(
 
 function S.updatebreadcrumblayout(
 	width,
-	closevisible,
 	rightinset,
 	searchvisible,
 	searchwidth,
@@ -4805,8 +4866,7 @@ function S.updatebreadcrumblayout(
 	if not S.header or not S.header.Parent then return end
 
 	width = math.max(1, S.header.AbsoluteSize.X)
-	closevisible = S.windowminimizebuttonenabled == true
-	rightinset = closevisible and 56 or 14
+	rightinset = 14
 	searchvisible = S.searchenabled and true
 	searchwidth = searchvisible and S.searchholder.AbsoluteSize.X or 0
 	left = 14
@@ -4856,18 +4916,15 @@ function S.updatebreadcrumblayout(
 	S.breadcrumb.Size = UDim2.fromOffset(math.max(1, contentwidth), 28)
 end
 
-function S.updateheadercontrols(width, closevisible, rightinset, searchwidth)
+function S.updateheadercontrols(width, rightinset, searchwidth)
 	if not S.header or not S.header.Parent then return end
 
 	width = math.max(0, S.header.AbsoluteSize.X)
-	closevisible = S.windowminimizebuttonenabled == true
-	rightinset = closevisible and 56 or 14
+	rightinset = 14
 	searchwidth = math.clamp(width - 190, 96, 150)
 
 	S.searchholder.Size = UDim2.fromOffset(searchwidth, 38)
 	S.searchholder.Position = UDim2.new(1, -rightinset, 0.5, 0)
-	S.closebutton.Size = UDim2.fromOffset(34, 34)
-	S.closebutton.Position = UDim2.new(1, -14, 0.5, 0)
 	S.updatebreadcrumblayout()
 end
 
@@ -4880,58 +4937,6 @@ for _, object in ipairs({ S.titleprimary, S.titlesecondary }) do
 	S.connect(object:GetPropertyChangedSignal("TextSize"), S.updatebreadcrumblayout)
 	S.connect(object:GetPropertyChangedSignal("Font"), S.updatebreadcrumblayout)
 	S.connect(object:GetPropertyChangedSignal("Visible"), S.updatebreadcrumblayout)
-end
-
-function S.setminimizebuttonvisible(value, animate, changed, target, info, animation3)
-	value = value == true
-	changed = S.windowminimizebuttonenabled ~= value
-	S.windowminimizebuttonenabled = value
-
-	for _, animation in ipairs({ S.minimizelineanimation1, S.minimizelineanimation2 }) do
-		if animation then animation:Cancel() end
-	end
-
-	S.minimizelineanimation1 = nil
-	S.minimizelineanimation2 = nil
-	S.closebutton.Active = value
-
-	if value then S.closebutton.Visible = true end
-
-	S.updateheadercontrols()
-	if S.topnavigationenabled and S.updatetopnavigationlayout then S.updatetopnavigationlayout() end
-
-	if not animate or not S.animationsenabled or not changed then
-		S.closebutton.Visible = value
-		S.closeline1.BackgroundTransparency = value and 0.08 or 1
-		S.closeline2.BackgroundTransparency = value and 0.08 or 1
-		return
-	end
-
-	target = value and 0.08 or 1
-	if value then
-		S.closeline1.BackgroundTransparency = 1
-		S.closeline2.BackgroundTransparency = 1
-	end
-
-	info = S.hoverti
-	S.minimizelineanimation1 = S.tween(S.closeline1, { BackgroundTransparency = target }, info)
-	S.minimizelineanimation2 = S.tween(S.closeline2, { BackgroundTransparency = target }, info)
-
-	animation3 = S.minimizelineanimation2 or S.minimizelineanimation1
-	if animation3 then
-		animation3.Completed:Connect(function()
-			if
-				S.minimizelineanimation2 ~= animation3
-				and S.minimizelineanimation1 ~= animation3
-			then
-				return
-			end
-
-			S.minimizelineanimation1 = nil
-			S.minimizelineanimation2 = nil
-			if not S.windowminimizebuttonenabled then S.closebutton.Visible = false end
-		end)
-	end
 end
 
 function S.setsearchvisible(
@@ -5629,8 +5634,9 @@ function S.fadepopup(popup, target, objects, properties2, primary, goals, animat
 	if popup.panel:IsA("CanvasGroup") then
 		return S.tween(popup.panel, { GroupTransparency = target }, S.dropti)
 	end
-	if not popup.fadeentries then
-		popup.fadeentries = {}
+	if not popup.fadeentries or popup.fadedirty then
+		popup.fadedirty = false
+		popup.fadeentries = popup.fadeentries or {}
 		objects = popup.panel:GetDescendants()
 		objects[#objects + 1] = popup.panel
 		for _, object in ipairs(objects) do
@@ -5809,8 +5815,6 @@ function S.createpopup(
 	task.defer(function()
 		if S.activepopup == popup and popup.panel.Parent then S.fadepopup(popup, 0) end
 	end)
-
-	
 
 	return panel, popup
 end
@@ -5992,7 +5996,6 @@ function S.attachcontextmenu(object, entries)
 		end
 	end)
 
-
 	return object
 end
 
@@ -6006,11 +6009,18 @@ function S.closemodal(instant, modal, finish, animation)
 		if S.__blush_closingmodal == modal then S.__blush_closingmodal = nil end
 		if modal.root.Parent then modal.root:Destroy() end
 	end
-	if instant == true or not modal.root.Parent then finish() return end
-	S.tween(modal.blocker, {BackgroundTransparency = 1}, S.quart20, true)
-	animation = S.tween(modal.card, {Position = UDim2.new(.5, 0, .5, 10)}, S.quart20)
+	if instant == true or not modal.root.Parent then
+		finish()
+		return
+	end
+	S.tween(modal.blocker, { BackgroundTransparency = 1 }, S.dropti, true)
+	animation = S.fadepopup(modal, 1)
 	modal.cardtween = animation
-	if animation then animation.Completed:Once(finish) else finish() end
+	if animation then
+		animation.Completed:Once(finish)
+	else
+		finish()
+	end
 end
 
 function S.showmodal(
@@ -6031,7 +6041,6 @@ function S.showmodal(
 )
 	S.closepopup()
 	S.closemodal(true)
-
 
 	root = S.new("Frame", {
 		Parent = S.popuplayer,
@@ -6060,7 +6069,7 @@ function S.showmodal(
 	card = S.new("Frame", {
 		Parent = root,
 		AnchorPoint = Vector2.new(0.5, 0.5),
-		Position = UDim2.new(.5, 0, .5, 10),
+		Position = UDim2.fromScale(0.5, 0.5),
 		Size = UDim2.fromOffset(modalwidth, modalheight),
 		BackgroundColor3 = S.theme.popup,
 		BackgroundTransparency = 0,
@@ -6069,6 +6078,7 @@ function S.showmodal(
 	}, { BackgroundColor3 = "popup" })
 	S.corner(card, 10)
 	S.transparencybase[card] = nil
+	S.__blush_main_alpha[card] = nil
 	card.BackgroundTransparency = 0
 	S.addshadow(
 		card,
@@ -6174,12 +6184,13 @@ function S.showmodal(
 		root = root,
 		blocker = blocker,
 		card = card,
+		panel = card,
 	}
 
-	modalinfo = S.quart20
+	modalinfo = S.dropti
 
-	S.tween(blocker, { BackgroundTransparency = 0.72 }, modalinfo, true)
-	S.__blush_modal.cardtween = S.tween(card, { Position = UDim2.fromScale(.5, .5) }, modalinfo)
+	S.tween(blocker, { BackgroundTransparency = 0.60 }, modalinfo, true)
+	S.__blush_modal.cardtween = S.fadepopup(S.__blush_modal, 0)
 
 	return root
 end
@@ -6214,7 +6225,7 @@ S.registerpanel(S.hotkeylist, "Keybinds")
 S.corner(S.hotkeylist, 8)
 S.stroke(S.hotkeylist, 0.62, S.theme.border, 0.55)
 S.adddepthshadow(S.hotkeylist, "floating")
-S.addshadow(
+S.hotkeyglow = S.addshadow(
 	S.hotkeylist,
 	"HotkeyPanelGlow",
 	0.965,
@@ -6770,11 +6781,23 @@ function S.updatehotkeyrow(
 	changed = data.active ~= active
 	if data.rendercheckbox then data.rendercheckbox(active) end
 	data.active = active
-	color = active and S.theme.text2 or S.theme.text3
+	color = S.panelcolor(
+		data.nametext,
+		active and "text" or "text3",
+		active and S.theme.text or S.theme.text3
+	)
+	S.bindtheme(data.nametext, "TextColor3", color, active and "text" or "text3")
+	S.bindtheme(data.keytext, "TextColor3", S.theme.text3, "text3")
 
 	if changed and animate then
 		S.tween(data.nametext, { TextColor3 = color }, S.hotkeyanimti)
-		S.tween(data.keytext, { TextColor3 = color }, S.hotkeyanimti)
+		S.tween(
+			data.keytext,
+			{ TextColor3 = S.theme.text3 },
+			S.hotkeyanimti,
+			nil,
+			{ TextColor3 = "text3" }
+		)
 		S.tween(
 			data.keyholder,
 			{ BackgroundTransparency = active and 0.18 or 0.34 },
@@ -6782,7 +6805,7 @@ function S.updatehotkeyrow(
 		)
 	else
 		data.nametext.TextColor3 = color
-		data.keytext.TextColor3 = color
+		data.keytext.TextColor3 = S.panelcolor(data.keytext, "text3", S.theme.text3)
 		data.keyholder.BackgroundTransparency = active and 0.18 or 0.34
 	end
 end
@@ -7256,7 +7279,6 @@ function S.opentoggleconfig(
 	anchorpos,
 	anchorsize,
 	width,
-	hasinlinekey,
 	collapsedheight,
 	expandedheight,
 	popuporigin,
@@ -7302,9 +7324,8 @@ function S.opentoggleconfig(
 	anchorsize = anchor.AbsoluteSize
 
 	width = 228
-	hasinlinekey = false
-	collapsedheight = hasinlinekey and 72 or 103
-	expandedheight = hasinlinekey and 166 or 197
+	collapsedheight = 103
+	expandedheight = 197
 
 	popuporigin = nil
 
@@ -7344,14 +7365,14 @@ function S.opentoggleconfig(
 	keylabel = S.label(panel, "Key", UDim2.fromOffset(90, 28), S.font, S.theme.text2)
 
 	keylabel.Position = UDim2.fromOffset(10, 37)
-	keylabel.Visible = not hasinlinekey
+	keylabel.Visible = true
 
 	keylabel.TextSize = 15
 	keylabel.ZIndex = 544
 
 	keybutton = S.new("TextButton", {
 		Parent = panel,
-		Visible = not hasinlinekey,
+		Visible = true,
 
 		AnchorPoint = Vector2.new(1, 0),
 
@@ -7381,7 +7402,7 @@ function S.opentoggleconfig(
 
 	modelabel = S.label(panel, "Mode", UDim2.fromOffset(90, 28), S.font, S.theme.text2)
 
-	modelabel.Position = UDim2.fromOffset(10, hasinlinekey and 37 or 68)
+	modelabel.Position = UDim2.fromOffset(10, 68)
 
 	modelabel.TextSize = 15
 	modelabel.ZIndex = 544
@@ -7391,7 +7412,7 @@ function S.opentoggleconfig(
 
 		AnchorPoint = Vector2.new(1, 0),
 
-		Position = UDim2.new(1, -10, 0, hasinlinekey and 37 or 68),
+		Position = UDim2.new(1, -10, 0, 68),
 
 		Size = UDim2.fromOffset(108, 27),
 
@@ -7423,7 +7444,7 @@ function S.opentoggleconfig(
 	options = S.new("Frame", {
 		Parent = panel,
 
-		Position = UDim2.fromOffset(10, hasinlinekey and 73 or 104),
+		Position = UDim2.fromOffset(10, 104),
 
 		Size = UDim2.new(1, -20, 0, 88),
 
@@ -7593,41 +7614,31 @@ function S.opentoggleconfig(
 
 	modebutton.Activated:Connect(function() setmodeopen(not modeopen) end)
 
-	if not hasinlinekey then
-		keybutton.Activated:Connect(function()
-			if listening then
-				listening = false
-				S.endkeycapture(popup, nil)
-				renderkey()
-				return
-			end
-
-			listening = true
-
-			if
-				not S.beginkeycapture(
-					popup,
-					function()
-						listening = false
-						renderkey()
-					end,
-					function(selectedkey)
-						listening = false
-						S.setbindingkey(binding, selectedkey)
-						renderkey()
-					end,
-					function(input)
-						return input.UserInputType == Enum.UserInputType.MouseButton1
-							and S.inside(keybutton, S.point(input))
-					end
-				)
-			then
-				listening = false
-			end
-
+	keybutton.Activated:Connect(function()
+		if listening then
+			listening = false
+			S.endkeycapture(popup, nil)
 			renderkey()
-		end)
-	end
+			return
+		end
+
+		listening = true
+
+		if
+			not S.beginkeycapture(popup, function()
+				listening = false
+				renderkey()
+			end, function(selectedkey)
+				listening = false
+				S.setbindingkey(binding, selectedkey)
+				renderkey()
+			end, nil)
+		then
+			listening = false
+		end
+
+		renderkey()
+	end)
 
 	popup.onclose = function()
 		listening = false
@@ -7748,8 +7759,6 @@ function S.attachtoggleconfig(anchor, binding, destroying)
 			binding.suppressclick = false
 		end
 	end)
-
-
 end
 
 function S.addtoggleconfigicon(
@@ -7828,9 +7837,19 @@ end
 
 S.connect(
 	S.uis.InputBegan,
-	function(input, capture, physical, captureoptions, cancel, selected, selectcallback, physical2)
-		
-
+	function(
+		input,
+		capture,
+		physical,
+		captureoptions,
+		cancel,
+		selected,
+		selectcallback,
+		physical2,
+		root,
+		ancestor,
+		visible
+	)
 		capture = S.keycaptureowner
 		if capture then
 			if capture.ignore and capture.ignore(input) then return end
@@ -7863,6 +7882,32 @@ S.connect(
 			return
 		end
 
+		if input.UserInputType == Enum.UserInputType.MouseButton2 then
+			if S.activepopup and S.inside(S.activepopup.panel, S.point(input)) then return end
+			for _, binding in ipairs(S.__blush_togglebindings) do
+				root = binding.configroot or binding.anchor
+				if
+					binding.configattached
+					and not binding.locked
+					and root
+					and root.Parent
+					and S.inside(root, S.point(input))
+				then
+					visible, ancestor = true, root
+					while ancestor do
+						if ancestor:IsA("GuiObject") and not ancestor.Visible then
+							visible = false
+							break
+						end
+						ancestor = ancestor.Parent
+					end
+					if visible then
+						S.opentoggleconfig(root, binding, S.point(input), false)
+						return
+					end
+				end
+			end
+		end
 		if S.bindingmatchesinput(S.keypickersuppress, input) or S.iskeyeditclick(input) then
 			return
 		end
@@ -7879,8 +7924,6 @@ S.connect(S.uis.InputEnded, function(input, physical)
 		S.keypickersuppress = nil
 		return
 	end
-
-	
 
 	physical = S.capturephysicalkey(input)
 	if physical and physical ~= Enum.KeyCode.Unknown then
@@ -7987,23 +8030,18 @@ function S.attachinlinekeypicker(
 		state.listening = true
 
 		if
-			not S.beginkeycapture(
-				state,
-				function()
-					if S.inlinekeycapture == state then S.inlinekeycapture = nil end
-					state.listening = false
-					renderkey()
-				end,
-				function(selectedkey)
-					S.inlinekeycapture = nil
-					state.listening = false
-					S.setbindingkey(binding, selectedkey)
-					renderkey()
+			not S.beginkeycapture(state, function()
+				if S.inlinekeycapture == state then S.inlinekeycapture = nil end
+				state.listening = false
+				renderkey()
+			end, function(selectedkey)
+				S.inlinekeycapture = nil
+				state.listening = false
+				S.setbindingkey(binding, selectedkey)
+				renderkey()
 
-					if state.callback then state.callback(binding.key) end
-				end,
-				nil
-			)
+				if state.callback then state.callback(binding.key) end
+			end, nil)
 		then
 			S.inlinekeycapture = nil
 			state.listening = false
@@ -8143,7 +8181,8 @@ end
 function S.queuepagelayout(page, column, animate)
 	if not S.gui or not S.gui.Parent then return end
 	S.pendingpagelayouts[page] = S.pendingpagelayouts[page] or {}
-	S.pendingpagelayouts[page][column] = S.pendingpagelayouts[page][column] == true or animate == true
+	S.pendingpagelayouts[page][column] = S.pendingpagelayouts[page][column] == true
+		or animate == true
 	if not S.constructing and not S.pagelayoutconnection then
 		S.pagelayoutconnection = S.runservice.PreRender:Connect(S.flushpagelayouts)
 	end
@@ -8225,12 +8264,14 @@ function S.createpage(name, primary, secondary, pageframe, left, right, page, se
 	page.scrollupdates.right = S.createscrollbar(pageframe, right, "right")
 
 	sectionvisible = function(section)
-		return not section.floating and (section.dragging or section.frame.Visible)
+		return not section.dragpreview
+			and not section.floating
+			and (section.dragging or section.frame.Visible)
 	end
 
 	function page:invalidateorder() self.ordercache = nil end
 
-	function page:sorted(column, excluded, result, filtered)
+	function page:sorted(column, excluded, result, filtered, visibleindex, inserted)
 		if not self.ordercache then self.ordercache = {} end
 		result = self.ordercache[column]
 		if not result then
@@ -8242,6 +8283,23 @@ function S.createpage(name, primary, secondary, pageframe, left, right, page, se
 			end
 			table.sort(result, S.sectionorderless)
 			self.ordercache[column] = result
+		end
+		if not excluded and self.previewslot and self.previewslot.column == column then
+			filtered = {}
+			visibleindex = 0
+			inserted = false
+			for _, section in ipairs(result) do
+				if sectionvisible(section) then
+					visibleindex += 1
+					if visibleindex == self.previewslot.index then
+						table.insert(filtered, self.previewslot)
+						inserted = true
+					end
+				end
+				table.insert(filtered, section)
+			end
+			if not inserted then table.insert(filtered, self.previewslot) end
+			return filtered
 		end
 		if not excluded then return result end
 		filtered = {}
@@ -8264,14 +8322,23 @@ function S.createpage(name, primary, secondary, pageframe, left, right, page, se
 	S.__blush_section_reflow_tweens = S.__blush_section_reflow_tweens
 		or setmetatable({}, { __mode = "k" })
 
-	function page:reflow(column, animate, immediate, y, scroll, bottompadding, target, previous, animation)
+	function page:reflow(
+		column,
+		animate,
+		immediate,
+		y,
+		scroll,
+		bottompadding,
+		target,
+		previous,
+		animation
+	)
 		if not immediate then
 			S.queuepagelayout(self, column, animate)
 			return
 		end
 		if S.pendingpagelayouts[self] then S.pendingpagelayouts[self][column] = nil end
 		animate = animate and not S.windowresize and not S.sidebarresize and not S.constructing
-		
 
 		y = 0
 
@@ -8293,8 +8360,7 @@ function S.createpage(name, primary, secondary, pageframe, left, right, page, se
 					and not section.dragging
 					and section.frame.Visible
 				then
-					animation =
-						S.tween(section.frame, { Position = target }, S.sectionti)
+					animation = S.tween(section.frame, { Position = target }, S.sectionti)
 					S.__blush_section_reflow_tweens[section] = animation
 				else
 					if section.frame.Position ~= target then section.frame.Position = target end
@@ -8312,13 +8378,14 @@ function S.createpage(name, primary, secondary, pageframe, left, right, page, se
 
 		bottompadding = 0
 
-		if animate then
+		if animate or self.previewslot or self.attaching then
 			scroll.CanvasSize = UDim2.fromOffset(
 				0,
 				math.max(scroll.CanvasSize.Y.Offset, y + bottompadding, scroll.AbsoluteSize.Y)
 			)
 		else
-			scroll.CanvasSize = UDim2.fromOffset(0, math.max(y + bottompadding, scroll.AbsoluteSize.Y))
+			scroll.CanvasSize =
+				UDim2.fromOffset(0, math.max(y + bottompadding, scroll.AbsoluteSize.Y))
 		end
 
 		-- CanvasSize and AbsoluteSize signals own scrollbar refreshes.
@@ -8331,14 +8398,14 @@ function S.createpage(name, primary, secondary, pageframe, left, right, page, se
 
 	left:GetPropertyChangedSignal("AbsoluteSize"):Connect(function()
 		if left.Parent and true and not S.windowresize and not S.sidebarresize then
-page:reflow("left", false)
-end
+			page:reflow("left", false)
+		end
 	end)
 
 	right:GetPropertyChangedSignal("AbsoluteSize"):Connect(function()
 		if right.Parent and true and not S.windowresize and not S.sidebarresize then
-page:reflow("right", false)
-end
+			page:reflow("right", false)
+		end
 	end)
 
 	S.pages[name] = page
@@ -8447,7 +8514,8 @@ function S.refreshcheckboxcolors(
 						Transparency = checked and S.effectiveaccentalpha(strokebase) or strokebase,
 					}, info, true)
 				else
-					data.stroke.Color = strokecolor
+					data.stroke.Color =
+						S.panelcolor(data.stroke, checked and "white" or "border", strokecolor)
 					data.stroke.Transparency = checked and S.effectiveaccentalpha(strokebase)
 						or strokebase
 				end
@@ -8464,7 +8532,7 @@ function S.refreshcheckboxcolors(
 						BackgroundTransparency = S.effectiveaccentalpha(fillbase),
 					}, info, true, { BackgroundColor3 = "white" })
 				else
-					data.fill.BackgroundColor3 = S.theme.white
+					data.fill.BackgroundColor3 = S.panelcolor(data.fill, "white", S.theme.white)
 					data.fill.BackgroundTransparency = S.effectiveaccentalpha(fillbase)
 				end
 			end
@@ -8625,14 +8693,15 @@ function S.makecheckbox(
 
 		if not changed or not S.animationsenabled then
 			if boxstroke then
-				boxstroke.Color = strokecolor
+				boxstroke.Color =
+					S.panelcolor(boxstroke, checked and "white" or "border", strokecolor)
 				boxstroke.Transparency = stroketarget
 			end
 			if checkedglow then
-				checkedglow.Color = S.theme.white
+				checkedglow.Color = S.panelcolor(checkedglow, "white", S.theme.white)
 				checkedglow.Transparency = glowbase
 			end
-			fill.BackgroundColor3 = S.theme.white
+			fill.BackgroundColor3 = S.panelcolor(fill, "white", S.theme.white)
 			fill.BackgroundTransparency = filltarget
 			check.ImageColor3 = S.theme.black
 			check.ImageTransparency = checktarget
@@ -9693,8 +9762,6 @@ function S.beginsectiondrag(
 
 	drag.wasfloating = section.floating == true
 
-	drag.reopen = not section.collapsed and not drag.wasfloating
-
 	absolute = section.frame.AbsolutePosition - S.draglayer.AbsolutePosition
 
 	originalsize = section.frame.AbsoluteSize
@@ -9749,41 +9816,8 @@ function S.beginsectiondrag(
 
 	drag.previewindex = -1
 
-	if drag.reopen then
-		section:SetCollapsed(true, false, true)
-
-		clonedcollapse = clone:FindFirstChild("SectionCollapse", true)
-
-		cloneddivider = clone:FindFirstChild("SectionDivider")
-
-		clonedclip = clone:FindFirstChild("SectionClip")
-
-		if clonedcollapse then
-			drag.cloneanimations[#drag.cloneanimations + 1] = S.tween(clonedcollapse, {
-				Rotation = -90,
-			}, S.tabti)
-		end
-
-		if cloneddivider then
-			drag.cloneanimations[#drag.cloneanimations + 1] = S.tween(cloneddivider, {
-				BackgroundTransparency = 1,
-			}, S.tabti)
-		end
-
-		if clonedclip then
-			clonedclip.ClipsDescendants = true
-			drag.cloneanimations[#drag.cloneanimations + 1] = S.tween(clonedclip, {
-				Size = UDim2.new(1, 0, 0, 0),
-			}, S.tabti)
-		end
-
-		drag.cloneanimations[#drag.cloneanimations + 1] = S.tween(clone, {
-			Size = UDim2.fromOffset(originalsize.X, 43),
-		}, S.tabti)
-
-		drag.ghostsizeanimation =
-			S.tween(ghost, { Size = UDim2.fromOffset(originalsize.X, 43) }, S.sectionti)
-	end
+	section.dragpreview = true
+	S.updatesectiondrag(drag)
 
 	section.page:reflow(section.column, true)
 end
@@ -9794,69 +9828,64 @@ function S.updatesectiondrag(
 	position,
 	canattach,
 	page,
-	centerx,
-	centery,
 	split,
 	column,
-	index
+	index,
+	oldpage,
+	slot
 )
 	section = drag.section
-
 	position = drag.current - drag.grab - S.draglayer.AbsolutePosition
-
 	drag.ghost.Position = UDim2.fromOffset(position.X, position.Y)
-
-	canattach = S.currentpage ~= nil and S.inside(S.window, drag.current)
-
+	canattach = S.currentpage
+		and S.__blush_windowvisible ~= false
+		and S.shell.Visible
+		and S.inside(S.window, drag.current)
 	drag.outside = not canattach
-
-	if drag.outside then
-		if not section.floating then
-			section.floating = true
-
-			if section.frame.Parent ~= S.draglayer then section.frame.Parent = S.draglayer end
-
-			section.page:reflow(section.column, true)
-		end
-
+	page = canattach and S.currentpage or nil
+	oldpage = drag.previewpage
+	if oldpage and oldpage ~= page then
+		if oldpage.previewslot then oldpage.previewslot.frame:Destroy() end
+		oldpage.previewslot = nil
+		oldpage:reflowall(true)
+		drag.previewpage = nil
+	end
+	if not page then
+		drag.mode = "detached"
 		return
 	end
-
-	if S.currentpage ~= section.page then S.transfersectionpage(section, S.currentpage) end
-
-	page = section.page
-
-	if section.floating then
-		section.floating = false
-		section.frame:SetAttribute("BlushDetachedSection", false)
-		section.floatingwidth = nil
-
-		if section.shadow then section.shadow.Enabled = false end
-	end
-
-	centerx = drag.current.X
-	centery = drag.current.Y
-
+	drag.mode = "attached-preview"
 	split = (
 		page.left.AbsolutePosition.X
 		+ page.left.AbsoluteSize.X
 		+ page.right.AbsolutePosition.X
-	) / 2
-
-	column = centerx < split and "left" or "right"
-
-	index = S.sectiontargetindex(page, column, section, centery)
-
-	if
-		column ~= drag.previewcolumn
-		or index ~= drag.previewindex
-		or section.frame.Parent ~= page[column]
-	then
-		drag.previewcolumn = column
-		drag.previewindex = index
-
-		S.movesection(section, column, index)
+	) * 0.5
+	column = drag.current.X < split and "left" or "right"
+	index = S.sectiontargetindex(page, column, section, drag.current.Y)
+	slot = page.previewslot
+	if not slot then
+		slot = {
+			frame = S.new("Frame", {
+				Parent = page[column],
+				BackgroundColor3 = S.theme.highlight,
+				BackgroundTransparency = 0.90,
+				BorderSizePixel = 0,
+				Size = UDim2.new(1, -7, 0, drag.expandedheight),
+				ZIndex = 12,
+			}, { BackgroundColor3 = "highlight" }),
+			targetheight = drag.expandedheight,
+			dragging = true,
+			floating = false,
+		}
+		S.corner(slot.frame, 8)
+		page.previewslot = slot
 	end
+	if slot.column ~= column or slot.index ~= index then
+		slot.column, slot.index = column, index
+		slot.frame.Parent = page[column]
+		page:reflowall(true)
+	end
+	drag.previewpage, drag.previewcolumn, drag.previewindex = page, column, index
 end
 
 function S.attachsectiontransition(
@@ -9879,6 +9908,7 @@ function S.attachsectiontransition(
 )
 	section = drag.section
 	ghost = drag.ghost
+	section.page.attaching = true
 
 	if drag.ghostsizeanimation then
 		drag.ghostsizeanimation:Cancel()
@@ -9915,9 +9945,11 @@ function S.attachsectiontransition(
 	section.page:reflow(section.column, false, true)
 	S.applyuitransparency(S.uitransparency * 100)
 
-	target = section.frame.AbsolutePosition - S.draglayer.AbsolutePosition
+	target = targetparent.AbsolutePosition
+		- S.draglayer.AbsolutePosition
+		+ Vector2.new(0, section.targety - targetparent.CanvasPosition.Y)
 	targetheight = preservedheight
-	targetsize = UDim2.fromOffset(section.frame.AbsoluteSize.X, targetheight)
+	targetsize = UDim2.fromOffset(math.max(1, targetparent.AbsoluteSize.X - 7), targetheight)
 	clone = drag.clone
 
 	if clone and clone.Parent then
@@ -9932,7 +9964,11 @@ function S.attachsectiontransition(
 			S.tween(clonedclip, { Size = UDim2.new(1, 0, 0, visibleheight) }, S.sectionattachti)
 		end
 		if clonedcollapse then
-			S.tween(clonedcollapse, { Rotation = drag.wascollapsed and -90 or 0 }, S.sectionattachti)
+			S.tween(
+				clonedcollapse,
+				{ Rotation = drag.wascollapsed and -90 or 0 },
+				S.sectionattachti
+			)
 		end
 		if cloneddivider then
 			S.tween(
@@ -9948,6 +9984,7 @@ function S.attachsectiontransition(
 		if finished then return end
 
 		finished = true
+		section.page.attaching = nil
 		section.dragging = false
 		section.frame.Visible = true
 
@@ -9958,7 +9995,6 @@ function S.attachsectiontransition(
 		S.applyuitransparency(S.uitransparency * 100)
 
 		if ghost and ghost.Parent then ghost:Destroy() end
-
 	end
 
 	if not ghost or not ghost.Parent then
@@ -9990,6 +10026,18 @@ function S.finishsectiondrag(drag, section, floatingposition, viewport, detached
 	if not drag or not drag.started then return end
 
 	section = drag.section
+	section.dragpreview = nil
+	if drag.previewpage then
+		if drag.previewpage.previewslot then drag.previewpage.previewslot.frame:Destroy() end
+		drag.previewpage.previewslot = nil
+		if not drag.outside then
+			if section.page ~= drag.previewpage then
+				S.transfersectionpage(section, drag.previewpage)
+			end
+			section.floating = false
+			S.movesection(section, drag.previewcolumn, drag.previewindex)
+		end
+	end
 
 	section.lastdragend = os.clock()
 	section.headerdragged = false
@@ -10015,9 +10063,7 @@ function S.finishsectiondrag(drag, section, floatingposition, viewport, detached
 
 		section.frame.Position = UDim2.fromOffset(floatingposition.X, floatingposition.Y)
 
-		keepheight = drag.wasfloating
-				and (drag.wascollapsed and 43 or math.max(43, drag.expandedheight or detachedheight))
-			or 43
+		keepheight = drag.wascollapsed and 43 or math.max(43, drag.expandedheight or detachedheight)
 
 		section.frame.Size = UDim2.fromOffset(drag.width, keepheight)
 
@@ -10310,8 +10356,6 @@ function S.createsection(
 		clipsize,
 		clipanimation
 	)
-		
-
 		bodyheight2 = bodylayout.AbsoluteContentSize.Y + 21
 
 		body.Size = UDim2.new(1, 0, 0, bodyheight2)
@@ -10349,7 +10393,9 @@ function S.createsection(
 		if clipanimation then
 			clipanimation.Completed:Connect(function()
 				if not section.collapsed and clip.Parent then clip.ClipsDescendants = false end
-				if not section.floating and page and page.frame and page.frame.Parent then page:reflow(section.column, false) end
+				if not section.floating and page and page.frame and page.frame.Parent then
+					page:reflow(section.column, false)
+				end
 			end)
 		end
 
@@ -10407,8 +10453,6 @@ function S.createsection(
 	function section:SetCollapsed(value, animate, layoutanimate)
 		self.collapsed = value == true
 
-		
-
 		-- The body clip handles the collapse. Keep the outer section unclipped so
 		-- shadows/glows do not change appearance during the animation.
 		frame.ClipsDescendants = false
@@ -10423,13 +10467,9 @@ function S.createsection(
 		resize(animate, layoutanimate)
 	end
 
-
-
-	bodylayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
-		resize(section.ready and true, section.ready and true)
-
-		
-	end)
+	bodylayout
+		:GetPropertyChangedSignal("AbsoluteContentSize")
+		:Connect(function() resize(section.ready and true, section.ready and true) end)
 
 	section.ready = true
 	resize(false, false)
@@ -10448,8 +10488,6 @@ function S.createsection(
 	end)
 
 	draghandle.InputBegan:Connect(function(input)
-		
-
 		if
 			input.UserInputType ~= Enum.UserInputType.MouseButton1
 			and input.UserInputType ~= Enum.UserInputType.Touch
@@ -10515,7 +10553,8 @@ function S.createsection(
 		object10.TextSize = 16
 		object10.TextWrapped = wrap ~= false
 		object10.TextTruncate = Enum.TextTruncate.None
-		object10.TextYAlignment = wrap ~= false and Enum.TextYAlignment.Top or Enum.TextYAlignment.Center
+		object10.TextYAlignment = wrap ~= false and Enum.TextYAlignment.Top
+			or Enum.TextYAlignment.Center
 		object10.AutomaticSize = Enum.AutomaticSize.None
 
 		if wrap ~= false then
@@ -10594,15 +10633,15 @@ function S.createsection(
 			end
 		)
 
-		button4.MouseButton1Down:Connect(function()
-			S.tween(button4, { TextTransparency = 0.22 }, S.fastti)
-		end)
-		button4.MouseButton1Up:Connect(function()
-			S.tween(button4, { TextTransparency = 0 }, S.fastti)
-		end)
-		button4.MouseLeave:Connect(function()
-			S.tween(button4, { TextTransparency = 0 }, S.fastti)
-		end)
+		button4.MouseButton1Down:Connect(
+			function() S.tween(button4, { TextTransparency = 0.22 }, S.fastti) end
+		)
+		button4.MouseButton1Up:Connect(
+			function() S.tween(button4, { TextTransparency = 0 }, S.fastti) end
+		)
+		button4.MouseLeave:Connect(
+			function() S.tween(button4, { TextTransparency = 0 }, S.fastti) end
+		)
 		button4.Activated:Connect(function()
 			S.tween(button4, { TextTransparency = 0 }, S.fastti)
 			if callback then callback() end
@@ -10660,12 +10699,11 @@ function S.createsection(
 			maxheight = rowheight
 			totalheight = 0
 			for _, item in ipairs(self.Items) do
-				itemheight = tonumber(item:GetAttribute("BlushRowHeight")) or math.max(rowheight, item.Size.Y.Offset)
+				itemheight = tonumber(item:GetAttribute("BlushRowHeight"))
+					or math.max(rowheight, item.Size.Y.Offset)
 				maxheight = math.max(maxheight, itemheight)
 				totalheight += itemheight
 			end
-
-			
 
 			self.Frame.Size = UDim2.new(1, 0, 0, maxheight)
 			offset = -gap * (count - 1) / count
@@ -10927,8 +10965,6 @@ function S.createsection(
 	)
 		control = self:AddToggle(name, default, callback, target, false, badge)
 
-		
-
 		keybutton = S.attachinlinekeypicker(
 			control.Object,
 			control.Binding,
@@ -11108,7 +11144,8 @@ function S.createsection(
 		colorstate.hotkeybinding = binding
 		S.registertogglebinding(binding)
 
-		S.attachtoggleconfig(togglebutton, binding)
+		if hasbinding then S.attachtoggleconfig(row, binding) end
+		row.Destroying:Connect(function() S.unregistertogglebinding(binding) end)
 
 		if hasbinding then
 			S.addtoggleconfigicon(togglebutton, binding, row, 0)
@@ -11173,8 +11210,6 @@ function S.createsection(
 	)
 		control =
 			self:AddToggleColor(name, default, color, togglecallback, colorcallback, target, false)
-
-		
 
 		row = control.Object
 		togglebutton = control.ToggleObject
@@ -11251,24 +11286,16 @@ function S.createsection(
 			listening = true
 
 			if
-				not S.beginkeycapture(
-					row,
-					function()
-						listening = false
-						renderkey()
-					end,
-					function(selectedkey)
-						listening = false
-						S.setbindingkey(binding, selectedkey)
-						renderkey()
+				not S.beginkeycapture(row, function()
+					listening = false
+					renderkey()
+				end, function(selectedkey)
+					listening = false
+					S.setbindingkey(binding, selectedkey)
+					renderkey()
 
-						if keycallback then keycallback(binding.key) end
-					end,
-					function(input)
-						return input.UserInputType == Enum.UserInputType.MouseButton1
-							and S.inside(keybutton, S.point(input))
-					end
-				)
+					if keycallback then keycallback(binding.key) end
+				end, nil)
 			then
 				listening = false
 			end
@@ -11703,7 +11730,11 @@ function S.createsection(
 
 		high = S.roundslider(math.max(defaultmin, defaultmax), minimum, maximum, round)
 
-		minimumdistance = math.clamp(math.ceil((tonumber(mindistance) or 0) * 10 ^ round) / 10 ^ round, 0, maximum - minimum)
+		minimumdistance = math.clamp(
+			math.ceil((tonumber(mindistance) or 0) * 10 ^ round) / 10 ^ round,
+			0,
+			maximum - minimum
+		)
 
 		enforcegap = function(preferred)
 			if high - low >= minimumdistance then return end
@@ -11815,8 +11846,11 @@ function S.createsection(
 				render(fire ~= false)
 			end,
 			SetMinimumDistance = function(_, value, fire)
-				minimumdistance =
-					math.clamp(math.ceil((tonumber(value) or 0) * 10 ^ round) / 10 ^ round, 0, maximum - minimum)
+				minimumdistance = math.clamp(
+					math.ceil((tonumber(value) or 0) * 10 ^ round) / 10 ^ round,
+					0,
+					maximum - minimum
+				)
 				enforcegap()
 				render(fire ~= false)
 			end,
@@ -12023,7 +12057,7 @@ function S.createsection(
 
 					previewicon.ScaleType = Enum.ScaleType.Fit
 				else
-					previewicon.Image = tostring(asset2)
+					previewicon.Image = S.librarynormalizeicon(asset2) or ""
 				end
 			elseif previewicon then
 				previewicon:Destroy()
@@ -12446,7 +12480,7 @@ function S.createsection(
 				end
 
 				if searchbox then
-searchbox:GetPropertyChangedSignal("Text"):Connect(function(query, value2)
+					searchbox:GetPropertyChangedSignal("Text"):Connect(function(query, value2)
 						query = string.lower(S.plaintext(searchbox.Text))
 
 						for _, data in ipairs(optionrows) do
@@ -12460,10 +12494,8 @@ searchbox:GetPropertyChangedSignal("Text"):Connect(function(query, value2)
 						end
 					end)
 
-					if searchbox and searchbox.Parent then
-searchbox:CaptureFocus()
-end
-end
+					if searchbox and searchbox.Parent then searchbox:CaptureFocus() end
+				end
 			end
 		)
 
@@ -12539,7 +12571,8 @@ end
 		layoutpreview,
 		fireselection,
 		issel,
-		selectvalue
+		selectvalue,
+		previewcache
 	)
 		if type(options) ~= "table" then
 			config = target or {}
@@ -12660,7 +12693,23 @@ end
 
 		layoutpreview = function(width, measured, height)
 			width = math.max(1, display.AbsoluteSize.X)
-			measured = S.measuretext(display.Text, display.TextSize, display.Font, Vector2.new(width, 10000))
+			if
+				previewcache
+				and previewcache.width == width
+				and previewcache.text == display.Text
+				and previewcache.font == display.Font
+				and previewcache.size == display.TextSize
+			then
+				return
+			end
+			previewcache =
+				{ width = width, text = display.Text, font = display.Font, size = display.TextSize }
+			measured = S.measuretext(
+				display.Text,
+				display.TextSize,
+				display.Font,
+				Vector2.new(width, 10000)
+			)
 			height = math.max(32, math.ceil(measured.Y) + 12)
 			button7.Size = UDim2.new(1, 0, 0, height)
 			holder.Size = UDim2.new(1, 0, 0, 25 + height)
@@ -12676,7 +12725,7 @@ end
 				if #values == 0 then
 					display.Text = "Select players"
 					S.bindtheme(display, "TextColor3", S.theme.text2, "text2")
-				display.TextColor3 = S.theme.text2
+					display.TextColor3 = S.theme.text2
 					return
 				end
 
@@ -12822,13 +12871,13 @@ end
 				size = button7.AbsoluteSize
 				popupy = position.Y + size.Y + 6
 				dividerheight = ((#options > 0 or includeeveryone) and #currentplayers > 0)
-						and ((playersdivider and playersdivider ~= "") and 18 or 10)
+						and ((playersdivider and playersdivider ~= "") and 14 or 6)
 					or 0
 				wanted = math.max(
 					70,
 					#options * 34
-						+ #currentplayers * (44)
-						+ (includeeveryone and (38) or 0)
+						+ #currentplayers * 44
+						+ (includeeveryone and 38 or 0)
 						+ dividerheight
 						+ (usesearch and 38 or 0)
 						+ 8
@@ -12917,11 +12966,7 @@ end
 					renderselected
 				)
 					iseveryone = value == everyonevalue
-					rowheight = playerrow and (42)
-						or (
-							iseveryone and (36)
-							or (32)
-						)
+					rowheight = playerrow and 42 or (iseveryone and 36 or 32)
 					row = S.new("TextButton", {
 						Parent = scroll,
 						Size = UDim2.new(1, 0, 0, rowheight),
@@ -12935,14 +12980,11 @@ end
 					left = 9
 					playericon = nil
 					if playerrow and typeof(value) == "Instance" and value:IsA("Player") then
-playericon = S.rawnew("ImageLabel", {
+						playericon = S.rawnew("ImageLabel", {
 							Parent = row,
 							AnchorPoint = Vector2.new(0, 0.5),
 							Position = UDim2.fromOffset(7, rowheight * 0.5),
-							Size = UDim2.fromOffset(
-								30,
-								30
-							),
+							Size = UDim2.fromOffset(30, 30),
 							BackgroundTransparency = 1,
 							BorderSizePixel = 0,
 							Image = S.getplayerthumbnail(value),
@@ -12951,13 +12993,13 @@ playericon = S.rawnew("ImageLabel", {
 						})
 						S.corner(playericon, 999)
 						left = 43
-elseif rowicon then
-playericon = S.image(row, rowicon, 15, S.theme.text3, 515)
+					elseif rowicon then
+						playericon = S.image(row, rowicon, 15, S.theme.text3, 515)
 						playericon.AnchorPoint = Vector2.new(0, 0.5)
 						playericon.Position = UDim2.fromOffset(8, rowheight * 0.5)
 						playericon.ImageTransparency = 0.08
 						left = 31
-end
+					end
 
 					rowlabel = S.label(
 						row,
@@ -12966,37 +13008,40 @@ end
 						playerrow and S.medium or S.font,
 						issel(value) and S.theme.text or S.theme.text2
 					)
-					rowlabel.Position =
-						UDim2.fromOffset(left, playerrow and (4) or 0)
-					rowlabel.TextSize = playerrow and (14)
-						or (iseveryone and 16 or 16)
+					rowlabel.Position = UDim2.fromOffset(left, playerrow and 4 or 0)
+					rowlabel.TextSize = playerrow and 14 or (iseveryone and 16 or 16)
 					rowlabel.TextTruncate = Enum.TextTruncate.AtEnd
 					rowlabel.ZIndex = 515
 
 					usernamelabel = nil
 					if playerrow then
-usernamelabel = S.label(
+						usernamelabel = S.label(
 							row,
 							"@" .. tostring(usernamevalue or ""),
 							UDim2.new(1, -(left + 31), 0, 17),
 							S.font,
 							S.theme.text3
 						)
-						usernamelabel.Position =
-							UDim2.fromOffset(left, 21)
+						usernamelabel.Position = UDim2.fromOffset(left, 21)
 						usernamelabel.TextSize = 11
 						usernamelabel.TextTruncate = Enum.TextTruncate.AtEnd
 						usernamelabel.ZIndex = 515
-end
+					end
 
 					selectedicon = S.image(row, S.icons.check, 14, S.theme.highlight, 516)
-					selectedicon.Size = UDim2.fromOffset(13, 14)
+					selectedicon.Size = UDim2.fromOffset(11, 14)
+					selectedicon.ScaleType = Enum.ScaleType.Stretch
 					selectedicon.AnchorPoint = Vector2.new(1, 0.5)
 					selectedicon.Position = UDim2.new(1, -8, 0.5, 0)
 					selectedicon.ImageTransparency = issel(value) and 0 or 1
 					S.bindtheme(selectedicon, "ImageColor3", S.theme.highlight, "highlight")
-					S.sethighlightalphabase(selectedicon, "ImageTransparency", issel(value) and 0 or 1)
-					selectedicon.ImageTransparency = S.effectivehighlightalpha(issel(value) and 0 or 1)
+					S.sethighlightalphabase(
+						selectedicon,
+						"ImageTransparency",
+						issel(value) and 0 or 1
+					)
+					selectedicon.ImageTransparency =
+						S.effectivehighlightalpha(issel(value) and 0 or 1)
 
 					data = {
 						value = value,
@@ -13014,11 +13059,20 @@ end
 						labelcolor = selectednow and S.theme.text or S.theme.text2
 						if animate then
 							S.tween(rowlabel, { TextColor3 = labelcolor }, S.hoverti)
-							S.tween(selectedicon, { ImageTransparency = selectednow and 0 or 1 }, S.hoverti)
+							S.tween(
+								selectedicon,
+								{ ImageTransparency = selectednow and 0 or 1 },
+								S.hoverti
+							)
 						else
 							rowlabel.TextColor3 = labelcolor
-							S.sethighlightalphabase(selectedicon, "ImageTransparency", selectednow and 0 or 1)
-							selectedicon.ImageTransparency = S.effectivehighlightalpha(selectednow and 0 or 1)
+							S.sethighlightalphabase(
+								selectedicon,
+								"ImageTransparency",
+								selectednow and 0 or 1
+							)
+							selectedicon.ImageTransparency =
+								S.effectivehighlightalpha(selectednow and 0 or 1)
 						end
 					end
 
@@ -13062,7 +13116,11 @@ end
 								TextColor3 = selectednow and S.theme.text or S.theme.text2,
 							}, S.hoverti)
 							if rowdata.selectedicon then
-								S.tween(rowdata.selectedicon, { ImageTransparency = selectednow and 0 or 1 }, S.hoverti)
+								S.tween(
+									rowdata.selectedicon,
+									{ ImageTransparency = selectednow and 0 or 1 },
+									S.hoverti
+								)
 							end
 						end
 						if not multiselect then S.closepopup() end
@@ -13131,7 +13189,7 @@ end
 							1,
 							0,
 							0,
-							(playersdivider and playersdivider ~= "") and 18 or 10
+							(playersdivider and playersdivider ~= "") and 14 or 6
 						),
 						BackgroundTransparency = 1,
 						BorderSizePixel = 0,
@@ -13213,7 +13271,7 @@ end
 				end
 
 				if playersearch then
-playersearch:GetPropertyChangedSignal("Text"):Connect(function(query)
+					playersearch:GetPropertyChangedSignal("Text"):Connect(function(query)
 						query = string.lower(S.plaintext(playersearch.Text))
 						for _, data in ipairs(rows) do
 							data.button.Visible = query == ""
@@ -13222,10 +13280,8 @@ playersearch:GetPropertyChangedSignal("Text"):Connect(function(query)
 						if dividerrow2 then dividerrow2.Visible = query == "" end
 					end)
 
-					if playersearch and playersearch.Parent then
-playersearch:CaptureFocus()
-end
-end
+					if playersearch and playersearch.Parent then playersearch:CaptureFocus() end
+				end
 			end
 		)
 
@@ -13281,7 +13337,9 @@ end
 		valuetext,
 		arrow,
 		getselected,
-		refresh
+		refresh,
+		optionchecks,
+		optionmaker
 	)
 		parentobject = target or body
 
@@ -13291,6 +13349,7 @@ end
 		keyformatter = config.keyformatter or config.KeyFormatter
 
 		selected = {}
+		optionchecks = {}
 
 		for _, option in ipairs(default or {}) do
 			selected[option] = true
@@ -13394,6 +13453,11 @@ end
 			valuetext.Text = #values > 0 and table.concat(values, ", ") or "None"
 
 			if fire and callback then callback(values) end
+			for option, data in pairs(optionchecks) do
+				if data.check.Parent then
+					data.check.ImageTransparency = selected[option] and 0 or 1
+				end
+			end
 		end
 
 		button8.Activated:Connect(
@@ -13419,6 +13483,8 @@ end
 				keypickerlistening = false
 
 				popup.onclose = function()
+					optionmaker = nil
+					table.clear(optionchecks)
 					if keypickerlistening and keypickerowner then
 						keypickerlistening = false
 						S.endkeycapture(keypickerowner, nil)
@@ -13484,14 +13550,18 @@ end
 					pickerkey = S.label(
 						pickerrow,
 						"Press",
-						UDim2.fromOffset(58, 32),
+						UDim2.fromOffset(50, 24),
 						S.medium,
 						S.theme.text3
 					)
-					pickerkey.AnchorPoint = Vector2.new(1, 0)
-					pickerkey.Position = UDim2.new(1, -9, 0, 0)
+					pickerkey.AnchorPoint = Vector2.new(1, 0.5)
+					pickerkey.Position = UDim2.new(1, -7, 0.5, 0)
+					pickerkey.BackgroundColor3 = S.theme.input
+					pickerkey.BackgroundTransparency = 0
+					S.bindtheme(pickerkey, "BackgroundColor3", S.theme.input, "input")
+					S.corner(pickerkey, 5)
 					pickerkey.TextSize = 13
-					pickerkey.TextXAlignment = Enum.TextXAlignment.Right
+					pickerkey.TextXAlignment = Enum.TextXAlignment.Center
 					pickerkey.ZIndex = 515
 
 					keypickerowner = pickerrow
@@ -13551,12 +13621,13 @@ end
 
 									if not table.find(options, option2) then
 										table.insert(options, option2)
+										if optionmaker then optionmaker(option2) end
 									end
 
 									selected[option2] = true
-									pickerkey.Text = option2
+									if optionmaker then optionmaker(option2) end
+									pickerkey.Text = "Press"
 									refresh(true)
-									S.closepopup()
 								end,
 								nil,
 								{
@@ -13572,7 +13643,10 @@ end
 					end)
 				end
 
-				for _, option, iteration6 in S.scopediterator(2, ipairs(options)) do
+				optionmaker = function(option, iteration6)
+					if optionchecks[option] then return end
+					popup.fadedirty = true
+					iteration6 = {}
 					iteration6.row = S.new("TextButton", {
 						Parent = scroll,
 
@@ -13614,6 +13688,7 @@ end
 					iteration6.check.Position = UDim2.new(1, -9, 0.5, 0)
 
 					iteration6.check.ImageTransparency = selected[option] and 0 or 1
+					optionchecks[option] = iteration6
 
 					iteration6.row.MouseEnter:Connect(
 						function()
@@ -13654,6 +13729,9 @@ end
 
 						refresh(true)
 					end)
+				end
+				for _, option in ipairs(options) do
+					optionmaker(option)
 				end
 			end
 		)
@@ -13892,8 +13970,6 @@ end
 		render,
 		setkey
 	)
-		
-
 		parentobject = target or body
 
 		captureoptions = type(captureoptions) == "table" and captureoptions or {}
@@ -13966,9 +14042,7 @@ end
 					112
 				)
 
-			S.tween(button9, {
-				Size = fullwidth and UDim2.new(1, 0, 0, 25) or UDim2.fromOffset(width, 25),
-			}, S.fastti)
+			button9.Size = fullwidth and UDim2.new(1, 0, 0, 25) or UDim2.fromOffset(width, 25)
 
 			if hidelabel or fullwidth then
 				title.Size = UDim2.fromOffset(0, 0)
@@ -14040,19 +14114,13 @@ end
 			listening = true
 
 			if
-				not S.beginkeycapture(
-					row,
-					function()
-						listening = false
-						render()
-					end,
-					function(selectedkey)
-						listening = false
-						setkey(selectedkey, true)
-					end,
-					nil,
-					captureoptions
-				)
+				not S.beginkeycapture(row, function()
+					listening = false
+					render()
+				end, function(selectedkey)
+					listening = false
+					setkey(selectedkey, true)
+				end, nil, captureoptions)
 			then
 				listening = false
 			end
@@ -14336,7 +14404,9 @@ end
 		cellwidth
 	)
 		options = table.clone(options or {})
-		while #options > 6 do table.remove(options) end
+		while #options > 6 do
+			table.remove(options)
+		end
 		multiselect = multiselect == true
 		holder = S.new("Frame", {
 			Parent = target or body,
@@ -14355,15 +14425,7 @@ end
 			BorderSizePixel = 0,
 			ZIndex = 16,
 		})
-		grid = S.new("UIGridLayout", {
-			Parent = row,
-			CellPadding = UDim2.fromOffset(8, 6),
-			CellSize = UDim2.fromOffset(120, 28),
-			FillDirection = Enum.FillDirection.Horizontal,
-			FillDirectionMaxCells = 1,
-			HorizontalAlignment = Enum.HorizontalAlignment.Left,
-			SortOrder = Enum.SortOrder.LayoutOrder,
-		})
+		grid = {}
 		buttons = {}
 		minwidth = 80
 		selected = multiselect and {} or (default or options[1])
@@ -14412,34 +14474,51 @@ end
 			end
 		end
 
-		layout = function(width, columns, rows, height, available)
+		layout = function(width, rows, used, itemwidth, heights, start, finish, extra, x, y)
 			width = math.max(1, holder.AbsoluteSize.X)
-			columns = math.max(
-				1,
-				math.min(#options, math.floor((width + 8) / (minwidth + 8)))
-			)
-			if #options >= 5 then columns = 2 end
-			rows = math.ceil(#options / columns)
-			height = math.max(0, rows * 34 - 6)
-			available = math.max(1, width - 8 * (columns - 1))
-			cellwidth = math.max(1, math.floor(available / columns) - 1)
-			grid.FillDirectionMaxCells = columns
-			grid.CellSize = UDim2.fromOffset(cellwidth, 28)
-			row.Size = UDim2.new(1, 0, 0, height)
-			holder.Size = UDim2.new(1, 0, 0, 22 + height)
+			if cellwidth == width then return end
+			cellwidth = width
+			rows = {}
+			used, start = 0, 1
+			for index, option in ipairs(options) do
+				itemwidth = #options >= 5 and math.max(1, (width - 8) / 2)
+					or math.min(width, grid[index])
+				if
+					index > start
+					and (
+						used + 8 + itemwidth > width + 0.01
+						or (#options >= 5 and index - start == 2)
+					)
+				then
+					table.insert(rows, { start, index - 1, used })
+					start, used = index, 0
+				end
+				used += (index > start and 8 or 0) + itemwidth
+			end
+			if #options > 0 then table.insert(rows, { start, #options, used }) end
+			for rowindex, items in ipairs(rows) do
+				extra = #options >= 5 and 0
+					or math.max(0, width - items[3]) / (items[2] - items[1] + 1)
+				x, y = 0, (rowindex - 1) * 34
+				for index = items[1], items[2] do
+					itemwidth = #options >= 5 and math.max(1, (width - 8) / 2)
+						or math.min(width, grid[index]) + extra
+					buttons[options[index]].button.Position = UDim2.fromOffset(x, y)
+					buttons[options[index]].button.Size = UDim2.fromOffset(itemwidth, 28)
+					x += itemwidth + 8
+				end
+			end
+			heights = math.max(0, #rows * 34 - 6)
+			row.Size = UDim2.new(1, 0, 0, heights)
+			holder.Size = UDim2.new(1, 0, 0, 22 + heights)
 		end
 
 		for index, option, iteration7 in S.scopediterator(2, ipairs(options)) do
 			iteration7.active = isactive(option)
 			iteration7.text = tostring(option)
-			minwidth = math.max(
-				minwidth,
-				math.min(
-					180,
-					math.ceil(S.measuretext(iteration7.text, 14, S.font, Vector2.new(1000, 28)).X)
-						+ 36
-				)
-			)
+			grid[index] = math.ceil(
+				S.measuretext(iteration7.text, 14, S.font, Vector2.new(10000, 28)).X
+			) + 34
 			iteration7.button = S.new("TextButton", {
 				Parent = row,
 				LayoutOrder = index,
@@ -14465,7 +14544,12 @@ end
 				iteration7.active and S.theme.highlight or S.theme.border,
 				1
 			)
-			S.bindtheme(iteration7.ring, "Color", iteration7.active and S.theme.highlight or S.theme.border, iteration7.active and "highlight" or "border")
+			S.bindtheme(
+				iteration7.ring,
+				"Color",
+				iteration7.active and S.theme.highlight or S.theme.border,
+				iteration7.active and "highlight" or "border"
+			)
 			iteration7.dot = S.new("Frame", {
 				Parent = iteration7.circle,
 				AnchorPoint = Vector2.new(0.5, 0.5),
@@ -15001,8 +15085,6 @@ end
 		)
 			container = selected and containers[selected]
 
-			
-
 			height2 = tabsclosed and barheight
 				or contentoffset + (container and container.Size.Y.Offset or 0)
 
@@ -15364,19 +15446,14 @@ end
 			iteration8.containerlayout
 				:GetPropertyChangedSignal("AbsoluteContentSize")
 				:Connect(function(height)
-					height = iteration8.containerlayout.AbsoluteContentSize.Y
-						+ (4)
+					height = iteration8.containerlayout.AbsoluteContentSize.Y + 4
 
 					iteration8.container.Size = UDim2.new(1, 0, 0, height)
 
 					if selected == tabname then resizehost(false) end
-
-					
 				end)
 
 			iteration8.button.InputBegan:Connect(function(input, position)
-				
-
 				if input.UserInputType ~= Enum.UserInputType.MouseButton1 then return end
 
 				tabdrag = {
@@ -15422,8 +15499,6 @@ end
 				orderedbuttons,
 				currentdata2
 			)
-				
-
 				if not tabdrag then return end
 
 				if input.UserInputType ~= Enum.UserInputType.MouseMovement then return end
@@ -15497,8 +15572,6 @@ end
 		S.connect(
 			S.uis.InputEnded,
 			function(input, data, dragged, drag, target, finished, finish, animation)
-				
-
 				if not tabdrag or input.UserInputType ~= Enum.UserInputType.MouseButton1 then
 					return
 				end
@@ -16011,7 +16084,21 @@ function S.resolvebackgroundimage(
 	return S.backgroundcustomasset(path4)
 end
 
-function S.boxblurbackgroundbuffer(source, width, height, radius, token, horizontal, output, sum, offset, remove, add, deadline, count)
+function S.boxblurbackgroundbuffer(
+	source,
+	width,
+	height,
+	radius,
+	token,
+	horizontal,
+	output,
+	sum,
+	offset,
+	remove,
+	add,
+	deadline,
+	count
+)
 	radius = math.max(0, math.floor(radius))
 	if radius == 0 then return source end
 	horizontal = buffer.create(width * height * 16)
@@ -16023,7 +16110,10 @@ function S.boxblurbackgroundbuffer(source, width, height, radius, token, horizon
 		for channel = 0, 3 do
 			sum = 0
 			for dx = -radius, radius do
-				sum += buffer.readu8(source, (y * width + math.clamp(dx, 0, width - 1)) * 4 + channel)
+				sum += buffer.readu8(
+					source,
+					(y * width + math.clamp(dx, 0, width - 1)) * 4 + channel
+				)
 			end
 			for x = 0, width - 1 do
 				buffer.writeu32(horizontal, (y * width + x) * 16 + channel * 4, sum)
@@ -16042,7 +16132,10 @@ function S.boxblurbackgroundbuffer(source, width, height, radius, token, horizon
 		for channel = 0, 3 do
 			sum = 0
 			for dy = -radius, radius do
-				sum += buffer.readu32(horizontal, (math.clamp(dy, 0, height - 1) * width + x) * 16 + channel * 4)
+				sum += buffer.readu32(
+					horizontal,
+					(math.clamp(dy, 0, height - 1) * width + x) * 16 + channel * 4
+				)
 			end
 			for y = 0, height - 1 do
 				buffer.writeu8(output, (y * width + x) * 4 + channel, math.floor(sum / count))
@@ -16081,7 +16174,13 @@ function S.preparebackgroundblurbase(
 	ok12,
 	content5
 )
-	if S.backgroundblurbaseasset == asset and S.backgroundblurbasepixels and S.backgroundblurbasewidth > 0 and S.backgroundblurbaseheight > 0 and S.backgroundblureditable then
+	if
+		S.backgroundblurbaseasset == asset
+		and S.backgroundblurbasepixels
+		and S.backgroundblurbasewidth > 0
+		and S.backgroundblurbaseheight > 0
+		and S.backgroundblureditable
+	then
 		return true
 	end
 	if S.backgroundblureditable then
@@ -16091,20 +16190,28 @@ function S.preparebackgroundblurbase(
 	candidates = {}
 	if S.backgroundimage and S.backgroundimage.Parent then
 		ok, content2 = pcall(function() return S.backgroundimage.ImageContent end)
-		if ok and content2 and content2 ~= Content.none then candidates[#candidates + 1] = content2 end
+		if ok and content2 and content2 ~= Content.none then
+			candidates[#candidates + 1] = content2
+		end
 		imageuri = S.backgroundimage.Image
 		if imageuri and imageuri ~= "" then
 			ok12, content5 = pcall(Content.fromUri, imageuri)
-			if ok12 and content5 and content5 ~= Content.none then candidates[#candidates + 1] = content5 end
+			if ok12 and content5 and content5 ~= Content.none then
+				candidates[#candidates + 1] = content5
+			end
 		end
 	end
 	if asset and asset ~= "" then
 		ok8, content3 = pcall(Content.fromUri, asset)
-		if ok8 and content3 and content3 ~= Content.none then candidates[#candidates + 1] = content3 end
+		if ok8 and content3 and content3 ~= Content.none then
+			candidates[#candidates + 1] = content3
+		end
 	end
 	if S.backgroundimagesource and S.backgroundimagesource ~= "" then
 		ok9, content4 = pcall(Content.fromUri, S.backgroundimagesource)
-		if ok9 and content4 and content4 ~= Content.none then candidates[#candidates + 1] = content4 end
+		if ok9 and content4 and content4 ~= Content.none then
+			candidates[#candidates + 1] = content4
+		end
 	end
 	editable = nil
 	size = nil
@@ -16128,7 +16235,9 @@ function S.preparebackgroundblurbase(
 		pixels = nil
 		if token ~= S.backgroundsourcegeneration then return false end
 	end
-	if not editable or not size or not pixels or token ~= S.backgroundsourcegeneration then return false end
+	if not editable or not size or not pixels or token ~= S.backgroundsourcegeneration then
+		return false
+	end
 	S.backgroundblurbaseasset = asset
 	S.backgroundblurbasepixels = pixels
 	S.backgroundblurbasewidth = size.X
@@ -16229,6 +16338,10 @@ end
 function S.schedulebackgroundblur(animate, requested, blur, asset, generation, job)
 	blur = math.clamp(math.round(S.backgroundimageblur), 0, S.backgroundimageblurmax)
 	asset = S.backgroundresolvedasset
+	if asset and S.backgroundblurfailedasset == asset then
+		S.applybackgroundblurblend()
+		return
+	end
 	if blur <= 0 or not asset or asset == "" then
 		S.backgroundblurtoken += 1
 		S.stopbackgroundblurjob()
@@ -16252,7 +16365,15 @@ function S.schedulebackgroundblur(animate, requested, blur, asset, generation, j
 			if generation ~= S.backgroundsourcegeneration then return end
 			S.backgroundblurloading = nil
 			S.backgroundblurtask = nil
-			if success then S.schedulebackgroundblur(false) end
+			if success then
+				S.schedulebackgroundblur(false)
+			else
+				S.backgroundblurfailedasset = asset
+				warn(
+					"blush: EditableImage could not read this image. Check asset access and EditableImage permissions; the original image remains visible."
+				)
+				S.applybackgroundblurblend()
+			end
 		end)
 		return
 	end
@@ -16263,7 +16384,10 @@ function S.schedulebackgroundblur(animate, requested, blur, asset, generation, j
 	end)
 	S.backgroundblurjob = job
 	S.backgroundblurconnection = S.runservice.PreRender:Connect(function(ok, message)
-		if job.token ~= S.backgroundblurtoken then S.stopbackgroundblurjob() return end
+		if job.token ~= S.backgroundblurtoken then
+			S.stopbackgroundblurjob()
+			return
+		end
 		ok, message = coroutine.resume(job.thread)
 		if not ok or coroutine.status(job.thread) == "dead" then
 			S.stopbackgroundblurjob()
@@ -16293,7 +16417,6 @@ function S.renderbackgroundimage(animate, opacity, blur, visible, imageinfo, tar
 	S.backgroundblurdisplay.ImageColor3 = Color3.new(1, 1, 1)
 
 	if not visible then
-		S.backgroundblurdebounce += 1
 		S.backgroundblurtoken += 1
 		S.backgroundimage.Visible = false
 		S.backgroundblurdisplay.Visible = false
@@ -16303,7 +16426,6 @@ function S.renderbackgroundimage(animate, opacity, blur, visible, imageinfo, tar
 	end
 
 	if blur <= 0 then
-		S.backgroundblurdebounce += 1
 		S.backgroundblurtoken += 1
 		S.backgroundblurdisplay.Visible = false
 		S.backgroundblurdisplay.ImageTransparency = 1
@@ -16775,7 +16897,6 @@ S.setkeybindblacklist(
 
 S.initialtransparency = math.clamp(tonumber(S.savedsettings.uiTransparency) or 0, 0, 90)
 
-
 S.notificationsenabled = S.savedsettings.notifications ~= false
 
 S.defaultnotificationduration = 3.5
@@ -16798,7 +16919,8 @@ S.windowglowintensity =
 	math.clamp(tonumber(S.savedsettings.windowGlowIntensity) or 16, 0, S.windowglowintensitymax)
 S.windowglowsize =
 	math.clamp(tonumber(S.savedsettings.windowGlowSize) or 10, 0, S.windowglowsizemax)
-S.windowglowcolor = S.theme.white
+S.windowglowcolor = S.decodecolor(S.savedsettings.windowGlowColor) or S.theme.white
+S.windowglowcustom = S.savedsettings.windowGlowColor ~= nil
 S.windowglowalpha = math.clamp(tonumber(S.savedsettings.windowGlowAlpha) or 1, 0, 1)
 S.windowglowrenderalpha = S.windowglowalpha
 
@@ -16810,7 +16932,6 @@ S.setbackgroundimageopacity(S.backgroundimageopacity, false)
 S.setbackgroundimageblur(S.backgroundimageblur, false)
 
 S.applyuitransparency(S.initialtransparency)
-
 
 S.loadingsettings = true
 S.watermarktoggle = nil
@@ -16826,7 +16947,6 @@ S.searchtoggle = nil
 S.menukeypicker = nil
 S.keybindblacklistcontrol = nil
 S.hotkeylisttoggle = nil
-S.minimizebuttoncontrol = nil
 S.uitransparencycontrol = nil
 S.notificationtoggle = nil
 S.configselector = nil
@@ -16856,8 +16976,20 @@ function S.panelthemepayload(result, colors)
 	result = {}
 	for name, panel in pairs(S.panelthemes) do
 		colors = {}
-		for role, color in pairs(panel.overrides) do colors[role] = { color.R, color.G, color.B } end
-		result[name] = { colors = colors, opacity = panel.opacity, glow = panel.glow }
+		for role, color in pairs(panel.overrides) do
+			colors[role] = { color.R, color.G, color.B }
+		end
+		result[name] = {
+			colors = colors,
+			opacity = panel.opacity,
+			glow = panel.glow and {
+				enabled = panel.glow.enabled,
+				intensity = panel.glow.intensity,
+				size = panel.glow.size,
+				alpha = panel.glow.alpha,
+				color = { panel.glow.color.R, panel.glow.color.G, panel.glow.color.B },
+			},
+		}
 	end
 	return result
 end
@@ -16866,17 +16998,36 @@ function S.loadpanelthemes(payload, panel)
 	for name, data in pairs(type(payload) == "table" and payload or {}) do
 		panel = S.panelthemes[name]
 		if panel and type(data) == "table" then
-			for role in pairs(panel.overrides) do S.setpanelcolor(panel, role, nil) end
+			for role in pairs(panel.overrides) do
+				S.setpanelcolor(panel, role, nil)
+			end
 			for role, rgb in pairs(data.colors or {}) do
-				if S.theme[role] and type(rgb) == "table" and #rgb == 3 then S.setpanelcolor(panel, role, Color3.new(rgb[1], rgb[2], rgb[3])) end
+				if S.theme[role] and type(rgb) == "table" and #rgb == 3 then
+					S.setpanelcolor(panel, role, Color3.new(rgb[1], rgb[2], rgb[3]))
+				end
 			end
 			panel.opacity = math.clamp(tonumber(data.opacity) or 1, 0, 1)
 			panel.root.BackgroundTransparency = S.effectivetransparency(0, "popup", panel.root)
 			if panel.pickers then
-				for role, picker in pairs(panel.pickers) do picker:Set(panel.overrides[role] or S.theme[role], 1, false) end
+				for role, picker in pairs(panel.pickers) do
+					picker:Set(panel.overrides[role] or S.theme[role], 1, false)
+				end
 			end
 			if panel.opacitycontrol then panel.opacitycontrol:Set(panel.opacity * 100, false) end
-			if panel.glowcontrol and data.glow ~= nil then panel.glowcontrol:Set(data.glow) end
+			if panel.glow and type(data.glow) == "table" then
+				panel.glow.enabled = data.glow.enabled ~= false
+				panel.glow.intensity = math.clamp(tonumber(data.glow.intensity) or 16, 0, 300)
+				panel.glow.size = math.clamp(tonumber(data.glow.size) or 12, 0, 64)
+				panel.glow.alpha = math.clamp(tonumber(data.glow.alpha) or 1, 0, 1)
+				if type(data.glow.color) == "table" then
+					panel.glow.color = Color3.new(table.unpack(data.glow.color))
+				end
+				panel.glowtoggle:Set(panel.glow.enabled, false)
+				panel.glowtoggle.Color:Set(panel.glow.color, panel.glow.alpha, false)
+				panel.glowintensity:Set(panel.glow.intensity, false)
+				panel.glowsize:Set(panel.glow.size, false)
+				panel.applyglow()
+			end
 		end
 	end
 end
@@ -16884,16 +17035,27 @@ end
 function S.addpanelsettings(section, panel, roles, shadow)
 	panel.pickers = {}
 	for _, definition in ipairs(roles) do
-		panel.pickers[definition[2]] = section:AddColorPicker(definition[1], panel.overrides[definition[2]] or S.theme[definition[2]], function(color)
-			S.setpanelcolor(panel, definition[2], color)
-			S.saveuisettings()
-		end)
+		panel.pickers[definition[2]] = section:AddColorPicker(
+			definition[1],
+			panel.overrides[definition[2]] or S.theme[definition[2]],
+			function(color)
+				S.setpanelcolor(panel, definition[2], color)
+				S.saveuisettings()
+			end
+		)
 	end
-	panel.opacitycontrol = section:AddSlider("Opacity", 0, 100, panel.opacity * 100, "%", function(value)
-		panel.opacity = value / 100
-		panel.root.BackgroundTransparency = S.effectivetransparency(0, "popup", panel.root)
-		S.saveuisettings()
-	end)
+	panel.opacitycontrol = section:AddSlider(
+		"Opacity",
+		0,
+		100,
+		panel.opacity * 100,
+		"%",
+		function(value)
+			panel.opacity = value / 100
+			panel.root.BackgroundTransparency = S.effectivetransparency(0, "popup", panel.root)
+			S.saveuisettings()
+		end
+	)
 	section:AddButton("Reset colors", function()
 		for role, picker in pairs(panel.pickers) do
 			S.setpanelcolor(panel, role, nil)
@@ -16902,16 +17064,57 @@ function S.addpanelsettings(section, panel, roles, shadow)
 		S.saveuisettings()
 	end)
 	if shadow then
-		panel.glowcontrol = section:AddSlider("Glow", 0, 100, 0, "%", function(value)
-			panel.glow = value
-			shadow.Transparency = 1 - value / 100 * 0.35
-			shadow:SetAttribute("BlushBaseTransparency", shadow.Transparency)
+		panel.glow = { enabled = true, color = S.theme.white, intensity = 16, size = 12, alpha = 1 }
+		panel.glowshadow = shadow
+		panel.applyglow = function()
+			S.applyglow(
+				shadow,
+				panel.glow.enabled,
+				panel.glow.color,
+				panel.glow.intensity,
+				panel.glow.size,
+				panel.glow.alpha
+			)
+		end
+		section:AddSeparator()
+		panel.glowtoggle = section:AddToggleColor(
+			"Glow Enabled",
+			true,
+			panel.glow.color,
+			function(value)
+				panel.glow.enabled = value
+				panel.applyglow()
+				S.saveuisettings()
+			end,
+			function(color, alpha)
+				panel.glow.color = color
+				panel.glow.alpha = alpha
+				panel.applyglow()
+				S.saveuisettings()
+			end
+		)
+		panel.glowintensity = section:AddSlider("Glow Intensity", 0, 300, 16, "%", function(value)
+			panel.glow.intensity = value
+			panel.applyglow()
 			S.saveuisettings()
 		end)
+		panel.glowsize = section:AddSlider("Glow Size", 0, 64, 12, "px", function(value)
+			panel.glow.size = value
+			panel.applyglow()
+			S.saveuisettings()
+		end)
+		panel.applyglow()
 	end
 end
 
-function S.currentuipayload(accent, background, maincolor, highlightcolor, fontcolor, selectedmenukey)
+function S.currentuipayload(
+	accent,
+	background,
+	maincolor,
+	highlightcolor,
+	fontcolor,
+	selectedmenukey
+)
 	accent = S.accentpicker and S.accentpicker:color() or S.theme.white
 
 	background = S.backgroundpicker and S.backgroundpicker:color() or S.theme.window
@@ -16926,6 +17129,11 @@ function S.currentuipayload(accent, background, maincolor, highlightcolor, fontc
 
 	return {
 		panelThemes = S.panelthemepayload(),
+		secondaryText = S.secondarytextoverride and {
+			S.secondarytextoverride.R,
+			S.secondarytextoverride.G,
+			S.secondarytextoverride.B,
+		} or nil,
 		watermark = S.watermarktoggle and S.watermarktoggle:Get() or S.watermarkshown,
 
 		watermarkInfo = {
@@ -16945,9 +17153,6 @@ function S.currentuipayload(accent, background, maincolor, highlightcolor, fontc
 			or S.notificationsenabled,
 
 		hotkeyList = S.hotkeylisttoggle and S.hotkeylisttoggle:Get() or S.hotkeylist.Visible,
-
-		minimizeButton = S.minimizebuttoncontrol and S.minimizebuttoncontrol:Get()
-			or S.windowminimizebuttonenabled,
 
 		backgroundImageSource = S.backgroundimagesource,
 
@@ -16999,7 +17204,8 @@ function S.currentuipayload(accent, background, maincolor, highlightcolor, fontc
 		font = S.encodecolor(fontcolor),
 
 		mainAlpha = S.maincolorpicker and S.maincolorpicker:currentalpha() or S.theme.mainAlpha,
-		highlightAlpha = S.highlightpicker and S.highlightpicker:currentalpha() or S.theme.highlightAlpha,
+		highlightAlpha = S.highlightpicker and S.highlightpicker:currentalpha()
+			or S.theme.highlightAlpha,
 		accentAlpha = S.accentpicker and S.accentpicker:currentalpha() or S.theme.accentAlpha,
 
 		backgroundAlpha = S.backgroundpicker and S.backgroundpicker:currentalpha()
@@ -17614,10 +17820,8 @@ end
 
 S.settingssection = S.createsection(S.settings, "left", "Interface", S.icons.settings)
 
-S.interfaceflags = S.settingssection:AddRow(10, 24)
-
-S.watermarktoggle = S.interfaceflags:AddToggle(
-	"Watermark",
+S.watermarktoggle = S.watermarksettingssection:AddToggle(
+	"Enabled",
 	S.savedsettings.watermark == true,
 	function(value)
 		S.setwatermarkvisible(value, true)
@@ -17656,7 +17860,8 @@ S.watermarkinfocontrol = S.watermarksettingssection:AddMultiDropdown(
 		"Player",
 		"Fps",
 		"Ping",
-		"Time", "Game",
+		"Time",
+		"Game",
 	},
 	S.watermarkinfodefault,
 	function(values, selected)
@@ -17714,7 +17919,7 @@ S.watermarkplayermodecontrol = S.watermarksettingssection:AddRadio(
 
 S.updatewatermarklayout()
 
-S.animationtoggle = S.interfaceflags:AddToggle("Animations", S.animationsenabled, function(value)
+S.animationtoggle = S.settingssection:AddToggle("Animations", S.animationsenabled, function(value)
 	S.animationsenabled = value == true
 
 	if S.animationsenabled then
@@ -17746,10 +17951,10 @@ S.notificationtoggle = S.interfaceflags2:AddToggle(
 	end
 )
 
-S.interfaceflags3 = S.settingssection:AddRow(10, 24)
+S.keybindssection:AddDivider("Panel")
 
-S.hotkeylisttoggle = S.interfaceflags3:AddToggle(
-	"Keybinds",
+S.hotkeylisttoggle = S.keybindssection:AddToggle(
+	"Show Keybinds",
 	S.savedsettings.hotkeyList == true or S.savedsettings.checkboxList == true,
 	function(value)
 		S.sethotkeylistvisible(value)
@@ -17759,7 +17964,7 @@ S.hotkeylisttoggle = S.interfaceflags3:AddToggle(
 
 S.sethotkeylistvisible(S.savedsettings.hotkeyList == true or S.savedsettings.checkboxList == true)
 
-S.topnavigationtoggle = S.interfaceflags3:AddToggle(
+S.topnavigationtoggle = S.settingssection:AddToggle(
 	"Top navigation",
 	S.topnavigationenabled,
 	function(value)
@@ -17769,63 +17974,56 @@ S.topnavigationtoggle = S.interfaceflags3:AddToggle(
 	end
 )
 
-S.interfaceflags4 = S.settingssection:AddRow(10, 29)
-
-S.minimizebuttoncontrol = S.interfaceflags4:AddToggle(
-	"Minimize button",
-	S.savedsettings.minimizeButton ~= false,
-	function(value)
-		S.setminimizebuttonvisible(value, true)
+S.settingssection:AddSeparator()
+S.secondarytextpicker = S.settingssection:AddColorPicker(
+	"Secondary Text",
+	S.theme.text3,
+	function(color)
+		S.secondarytextoverride = color
+		S.theme.text3 = color
+		S.indexthemecolors()
+		S.applythemerole("text3", false)
 		S.saveuisettings()
 	end
 )
-S.setminimizebuttonvisible(S.savedsettings.minimizeButton ~= false, false)
 
 S.keybindssection = S.createsection(S.settings, "left", "Keybinds", S.icons.keyboard)
-S.keybindsrow = S.keybindssection:AddRow(10, 29)
 
-S.menukeypicker = S.keybindsrow:AddKeyPicker("Window Open/Close", S.menukey, function(key)
+S.menukeypicker = S.settingssection:AddKeyPicker("Window Open/Close", S.menukey, function(key)
 	S.menukey = key
 	S.refreshmenukeybinding()
 	S.saveuisettings()
 end)
 
+S.menukeypicker.Object.LayoutOrder = -10
+S.keybindssection:AddDivider("Capture")
 S.keybindblacklistcontrol = S.keybindssection:AddMultiDropdown(
 	"Blacklisted Keys",
 	S.keybindblacklistoptions,
 	S.getkeybindblacklistlabels(),
 	function(values)
 		S.setkeybindblacklist(values)
-		if S.keybindblacklistcontrol then S.keybindblacklistcontrol:Set(S.getkeybindblacklistlabels(), false) end
+		if S.keybindblacklistcontrol then
+			S.keybindblacklistcontrol:Set(S.getkeybindblacklistlabels(), false)
+		end
 		S.saveuisettings()
-	end
-)
-
-S.keybindblacklistpicker = S.keybindssection:AddKeyPicker(
-	"Add keybind",
-	false,
-	function(key, _5, labelvalue3, values)
-		if not key then return end
-		_5, labelvalue3 = S.ensurekeybindblacklistoption(key.Name)
-		values = S.getkeybindblacklistlabels()
-		if not table.find(values, labelvalue3) then values[#values + 1] = labelvalue3 end
-		S.keybindblacklistcontrol:SetOptions(table.clone(S.keybindblacklistoptions))
-		S.keybindblacklistcontrol:Set(values, true)
 	end,
 	nil,
 	{
-		AllowBlacklisted = true,
-		AllowEscape = true,
-		KeepDelete = true,
-		HideLabel = false,
-		FullWidth = false,
+		KeyPicker = true,
+		KeyPickerLabel = "Add key",
+		KeyFormatter = function(key, name, label)
+			if not key then return nil end
+			name, label = S.ensurekeybindblacklistoption(key.Name)
+			return label
+		end,
 	}
 )
 
 S.windowsection = S.createsection(S.settings, "left", "Window", S.icons.sliders)
 
 S.windowglowtoggle = S.windowsection:AddToggleColor(
-	"Window glow",
+	"Window Glow",
 	S.windowglowenabled,
 	S.windowglowcolor,
 	function(value)
@@ -17835,6 +18033,7 @@ S.windowglowtoggle = S.windowsection:AddToggleColor(
 	end,
 	function(color, alpha)
 		S.windowglowcolor = color
+		S.windowglowcustom = true
 		S.windowglowrenderalpha = math.clamp(tonumber(alpha) or 1, 0, 1)
 
 		if
@@ -17857,7 +18056,7 @@ S.windowglowrenderalpha = S.windowglowcolorpicker:currentalpha()
 S.applywindowglow()
 
 S.windowglowintensitycontrol = S.windowsection:AddSlider(
-	"Glow intensity",
+	"Glow Intensity",
 	0,
 	S.windowglowintensitymax,
 	S.windowglowintensity,
@@ -17868,20 +18067,6 @@ S.windowglowintensitycontrol = S.windowsection:AddSlider(
 		S.saveuisettings()
 	end
 )
-
-S.uitransparencycontrol = S.windowsection:AddSlider(
-	"Transparency",
-	0,
-	90,
-	S.initialtransparency,
-	"%",
-	function(value)
-		S.applyuitransparency(value)
-		S.saveuisettings()
-	end
-)
-
-S.windowsection:AddSeparator()
 
 S.windowglowsizecontrol = S.windowsection:AddSlider(
 	"Glow Size",
@@ -17896,21 +18081,54 @@ S.windowglowsizecontrol = S.windowsection:AddSlider(
 	end
 )
 
-S.applyuitransparency(S.initialtransparency)
-S.watermarkglow = S.addshadow(S.watermark, "WatermarkGlow", 1, 12, 0, -2, S.theme.highlight, UDim2.fromOffset(0, 0), false)
-if S.watermarkglow then S.bindtheme(S.watermarkglow, "Color", S.theme.highlight, "highlight") end
-S.addpanelsettings(S.watermarksettingssection, S.panelthemes.Watermark, {
-	{ "Background", "popup" }, { "Title", "text" }, { "Secondary text", "text3" },
-	{ "Separator", "border" }, { "Accent", "highlight" },
-}, S.watermarkglow)
-S.addpanelsettings(S.keybindssection, S.panelthemes.Keybinds, {
-	{ "Background", "popup" }, { "Main", "input" }, { "Highlight", "highlight" },
-	{ "Accent", "white" }, { "Text", "text" }, { "Secondary text", "text3" },
-	{ "Border", "border" }, { "Active indicator", "text2" },
-})
-S.loadpanelthemes(S.savedsettings.panelThemes)
+S.windowsection:AddSeparator()
 
-S.themessection = S.createsection(S.settings, "right", "Appearance", S.icons.palette)
+S.uitransparencycontrol = S.windowsection:AddSlider(
+	"Transparency",
+	0,
+	90,
+	S.initialtransparency,
+	"%",
+	function(value)
+		S.applyuitransparency(value)
+		S.saveuisettings()
+	end
+)
+
+S.applyuitransparency(S.initialtransparency)
+S.watermarkglow = S.addshadow(
+	S.watermark,
+	"WatermarkGlow",
+	1,
+	12,
+	0,
+	-2,
+	S.theme.highlight,
+	UDim2.fromOffset(0, 0),
+	false
+)
+if S.watermarkglow then S.bindtheme(S.watermarkglow, "Color", S.theme.highlight, "highlight") end
+S.watermarksettingssection:AddDivider("Appearance")
+S.addpanelsettings(S.watermarksettingssection, S.panelthemes.Watermark, {
+	{ "Background", "popup" },
+	{ "Text", "text2" },
+	{ "Secondary Text", "text3" },
+	{ "Separator", "border" },
+}, S.watermarkglow)
+S.keybindssection:AddDivider("Appearance")
+S.addpanelsettings(S.keybindssection, S.panelthemes.Keybinds, {
+	{ "Background", "popup" },
+	{ "Text", "text" },
+	{ "Icons", "text3" },
+	{ "Border", "border" },
+}, S.hotkeyglow)
+S.loadpanelthemes(S.savedsettings.panelThemes)
+if type(S.savedsettings.secondaryText) == "table" then
+	S.secondarytextoverride = Color3.new(table.unpack(S.savedsettings.secondaryText))
+	S.secondarytextpicker:Set(S.secondarytextoverride, 1, false)
+end
+
+S.themessection = S.createsection(S.settings, "right", "Theme", S.icons.palette)
 
 S.themepresets = {
 	Default = {
@@ -18004,7 +18222,9 @@ S.themeselector = S.themessection:AddDropdown(
 		S.applyhighlight(preset4.highlight or preset4.accent, 1, false)
 
 		if S.maincolorpicker then S.maincolorpicker:Set(presetmain, 1, false) end
-		if S.highlightpicker then S.highlightpicker:Set(preset4.highlight or preset4.accent, 1, false) end
+		if S.highlightpicker then
+			S.highlightpicker:Set(preset4.highlight or preset4.accent, 1, false)
+		end
 		if S.accentpicker then S.accentpicker:Set(preset4.accent, 1, false) end
 
 		if S.backgroundpicker then S.backgroundpicker:Set(preset4.background, 1, false) end
@@ -18039,21 +18259,29 @@ S.themeselector = S.themessection:AddDropdown(
 	}
 )
 
-S.maincolorpicker = S.themessection:AddColorPicker("Main color", S.theme.main, function(color, alpha)
-	S.applymaincolor(color, false)
-	S.applymainalpha(alpha)
-	S.saveuisettings()
-end)
+S.maincolorpicker = S.themessection:AddColorPicker(
+	"Main color",
+	S.theme.main,
+	function(color, alpha)
+		S.applymaincolor(color, false)
+		S.applymainalpha(alpha)
+		S.saveuisettings()
+	end
+)
 
 S.maincolorpicker.propagate = S.maincolorpicker.callback
 S.maincolorpicker.callback = nil
 S.maincolorpicker.onpersist = S.saveuisettings
 S.maincolorpicker:Set(S.theme.main, S.theme.mainAlpha, false)
 
-S.highlightpicker = S.themessection:AddColorPicker("Highlight", S.theme.highlight, function(color, alpha)
-	S.applyhighlight(color, alpha, false)
-	S.saveuisettings()
-end)
+S.highlightpicker = S.themessection:AddColorPicker(
+	"Highlight",
+	S.theme.highlight,
+	function(color, alpha)
+		S.applyhighlight(color, alpha, false)
+		S.saveuisettings()
+	end
+)
 S.highlightpicker.propagate = S.highlightpicker.callback
 S.highlightpicker.callback = nil
 S.highlightpicker.onpersist = S.saveuisettings
@@ -18126,6 +18354,7 @@ S.fontpicker.propagate = S.fontpicker.callback
 S.fontpicker.callback = nil
 S.fontpicker.onpersist = S.saveuisettings
 
+S.themessection:AddDivider("Theme Files")
 S.themefileinput = S.themessection:AddInput(
 	"Theme name",
 	S.selectedthemesave,
@@ -18183,8 +18412,8 @@ S.themessection:AddButton("Delete", function(name8, ok)
 	)
 end)
 
-S.backgroundimagesection =
-	S.createsection(S.settings, "right", "Background Image", S.icons.wallpaper)
+S.backgroundimagesection = S.windowsection
+S.windowsection:AddDivider("Background Image")
 
 S.backgroundimageinput = S.backgroundimagesection:AddInput(
 	"Source",
@@ -18340,6 +18569,7 @@ S.new("Frame", {
 	BorderSizePixel = 0,
 })
 
+S.savessection:AddSeparator()
 S.autosaveconfigcontrol = S.savessection:AddToggle(
 	"Auto save",
 	S.rawsavedsettings.autoSaveConfig == true,
@@ -18386,6 +18616,9 @@ function S.applysaveduisettings(
 	wasloading = S.loadingsettings
 	S.loadingsettings = true
 	S.loadpanelthemes(data.panelThemes)
+	S.secondarytextoverride = type(data.secondaryText) == "table"
+			and Color3.new(table.unpack(data.secondaryText))
+		or nil
 
 	loadedtransparency = math.clamp(tonumber(data.uiTransparency) or 0, 0, 90)
 
@@ -18403,7 +18636,7 @@ function S.applysaveduisettings(
 		S.watermarkconfig.Ping = data.watermarkInfo.Ping ~= false
 
 		S.watermarkconfig.Time = data.watermarkInfo.Time ~= false
-	S.watermarkconfig.Game = data.watermarkInfo.Game == true
+		S.watermarkconfig.Game = data.watermarkInfo.Game == true
 
 		S.watermarkconfig.PlayerMode = S.normalizewatermarkplayermode(
 			data.watermarkInfo.PlayerMode or S.watermarkconfig.PlayerMode
@@ -18449,14 +18682,6 @@ function S.applysaveduisettings(
 		S.autosaveconfigcontrol:Set(data.autoSaveConfig == true, false)
 	end
 
-	if data.minimizeButton ~= nil then
-		S.setminimizebuttonvisible(data.minimizeButton == true, true)
-
-		if S.minimizebuttoncontrol then
-			S.minimizebuttoncontrol:Set(S.windowminimizebuttonenabled, false)
-		end
-	end
-
 	S.backgroundexcludesidebar = data.backgroundImageExcludeSidebar == true
 	S.autobackgroundcolors = false
 	S.topnavigationenabled = data.topNavigation == true
@@ -18473,7 +18698,8 @@ function S.applysaveduisettings(
 	S.windowglowintensity =
 		math.clamp(tonumber(data.windowGlowIntensity) or 16, 0, S.windowglowintensitymax)
 	S.windowglowsize = math.clamp(tonumber(data.windowGlowSize) or 10, 0, S.windowglowsizemax)
-	S.windowglowcolor = S.theme.white
+	S.windowglowcolor = S.decodecolor(data.windowGlowColor) or S.theme.white
+	S.windowglowcustom = data.windowGlowColor ~= nil
 	S.windowglowalpha = math.clamp(tonumber(data.windowGlowAlpha) or S.windowglowalpha or 1, 0, 1)
 	S.windowglowrenderalpha = S.windowglowalpha
 
@@ -18566,7 +18792,9 @@ function S.applysaveduisettings(
 	S.accentpicker:Set(loadedaccent, loadedaccentalpha, false)
 	S.backgroundpicker:Set(loadedbackground, loadedbackgroundalpha, false)
 	if S.maincolorpicker then S.maincolorpicker:Set(loadedmain, loadedmainalpha, false) end
-	if S.highlightpicker then S.highlightpicker:Set(loadedhighlight, loadedhighlightalpha, false) end
+	if S.highlightpicker then
+		S.highlightpicker:Set(loadedhighlight, loadedhighlightalpha, false)
+	end
 	S.fontpicker:Set(loadedfont, loadedfontalpha, false)
 
 	S.syncwindowglowcolor(false)
@@ -18601,7 +18829,10 @@ do
 	S.preset = S.themepresets.Default
 
 	S.applytheme(S.preset.background, S.preset.accent, 1, 1, S.preset.font, 1, false)
-	S.applymaincolor(S.preset.main or S.buildtheme(S.preset.background, S.preset.accent, S.preset.font, nil).main, false)
+	S.applymaincolor(
+		S.preset.main or S.buildtheme(S.preset.background, S.preset.accent, S.preset.font, nil).main,
+		false
+	)
 	S.applymainalpha(1)
 	S.applyhighlight(S.preset.highlight or S.preset.accent, 1, false)
 	if S.maincolorpicker then S.maincolorpicker:Set(S.theme.main, 1, false) end
@@ -19465,8 +19696,6 @@ function S.refreshsidegroups(
 	otherheight2,
 	height3
 )
-	
-
 	mainheight2 = S.maincategorycollapsed and 0 or S.maincontentlayout.AbsoluteContentSize.Y
 	otherheight2 = S.othercategorycollapsed and 0 or S.othercontentlayout.AbsoluteContentSize.Y
 
@@ -19497,16 +19726,12 @@ S.othercontentlayout
 	:Connect(function() S.refreshsidegroups(false) end)
 
 S.category.Activated:Connect(function()
-	
-
 	S.maincategorycollapsed = not S.maincategorycollapsed
 	S.tween(S.categoryarrow, { Rotation = S.maincategorycollapsed and -90 or 0 }, S.tabti)
 	S.refreshsidegroups(true)
 end)
 
 S.otherheader.Activated:Connect(function()
-	
-
 	S.othercategorycollapsed = not S.othercategorycollapsed
 	S.tween(S.otherarrow, { Rotation = S.othercategorycollapsed and -90 or 0 }, S.tabti)
 	S.refreshsidegroups(true)
@@ -19577,8 +19802,6 @@ function S.createlibrarytabsection(
 	}
 
 	function sectiontab:SetCollapsed(value, animate)
-		
-
 		self.Collapsed = value == true
 		S.tween(self.Arrow, { Rotation = self.Collapsed and -90 or 0 }, S.tabti)
 		S.refreshsidegroups(animate ~= false)
@@ -19715,7 +19938,7 @@ function S.updatetopnavigationlayout(
 
 	searchvisible = S.searchenabled and true
 	searchwidth = searchvisible and (compact and 116 or 150) or 0
-	searchinset = S.windowminimizebuttonenabled and 52 or (compact and 10 or 14)
+	searchinset = compact and 10 or 14
 	leftbound = compact and 112 or 162
 	rightbound =
 		math.max(leftbound + 190, width - searchinset - (searchvisible and searchwidth + 12 or 0))
@@ -19735,7 +19958,7 @@ function S.updatetopnavigationlayout(
 end
 
 S.connect(S.header:GetPropertyChangedSignal("AbsoluteSize"), function()
-	if S.topnavigationenabled then S.updatetopnavigationlayout() end
+	if S.topnavigation and S.topnavigation.Visible then S.updatetopnavigationlayout() end
 end)
 
 function S.updatetopnavigationstate(
@@ -19769,7 +19992,8 @@ function S.updatetopnavigationstate(
 	S.topprimarybutton.Visible = enabled
 	S.topsubholder.Visible = enabled and (legacycombat or haschildren)
 	for button, data in pairs(S.topsubentries) do
-		button.Visible = data.tab and data.tab.ParentTab == roottab and not data.tab.Hidden or not data.tab and legacycombat
+		button.Visible = data.tab and data.tab.ParentTab == roottab and not data.tab.Hidden
+			or not data.tab and legacycombat
 	end
 
 	if not enabled then
@@ -19796,22 +20020,29 @@ function S.updatetopnavigationstate(
 	if haschildren then
 		entries = {}
 		for _, child in ipairs(roottab.SubTabs) do
-			if not child.Hidden then entries[#entries + 1] = { button = child.Button, active = S.currentpage == child.Page } end
+			if not child.Hidden then
+				entries[#entries + 1] =
+					{ button = child.Button, active = S.currentpage == child.Page }
+			end
 		end
 	end
 	for _, entry in ipairs(entries) do
 		data = S.topsubentries[entry.button]
 		if data then
-active = entry.active == true
-			width = active and math.min(190, 44 + S.measuretext(data.text.Text, 15, S.medium, Vector2.new(500, 32)).X) or 38
+			active = entry.active == true
+			width = active
+					and math.min(
+						190,
+						44 + S.measuretext(data.text.Text, 15, S.medium, Vector2.new(500, 32)).X
+					)
+				or 38
 			iconcolor = active and S.theme.text or S.theme.text3
 			textalpha = active and 0 or 1
 			pillalpha = active and 0.18 or 1
 			info = S.tabti
 
 			data.icon.AnchorPoint = active and Vector2.new(0, 0.5) or Vector2.new(0.5, 0.5)
-			data.icon.Position = active and UDim2.fromOffset(12, 16)
-				or UDim2.new(0.5, 0, 0.5, 0)
+			data.icon.Position = active and UDim2.fromOffset(12, 16) or UDim2.new(0.5, 0, 0.5, 0)
 
 			if animate ~= false and S.animationsenabled then
 				S.tween(entry.button, { Size = UDim2.fromOffset(width, 32) }, info)
@@ -19835,21 +20066,19 @@ active = entry.active == true
 				S.setfontalphabase(data.text, "TextTransparency", textalpha)
 				data.text.TextTransparency = S.effectivefontalpha(textalpha)
 			end
-end
+		end
 	end
 end
 
 function S.applytopnavigation(value, animate, width)
 	S.topnavigationenabled = value == true
 
-	
-
 	-- Top navigation only replaces the Combat subtabs. Primary navigation stays in the sidebar.
 	S.sidebar.Visible = true
-		S.sidebardivider.Visible = true
-		width = math.max(0, (S.sidebarwidth or 215) - 1)
-		S.main.Position = UDim2.fromOffset(width, 0)
-		S.main.Size = UDim2.new(1, -width, 1, 0)
+	S.sidebardivider.Visible = true
+	width = math.max(0, (S.sidebarwidth or 215) - 1)
+	S.main.Position = UDim2.fromOffset(width, 0)
+	S.main.Size = UDim2.new(1, -width, 1, 0)
 
 	if S.topnavigationenabled then
 		S.subholder.Size = UDim2.new(1, 0, 0, 0)
@@ -20100,8 +20329,6 @@ function S.selectsub(button, previous)
 end
 
 function S.expandsubtabs(value, height, height4)
-	
-
 	height4 = value and 100 or 0
 	if S.topnavigationenabled then height4 = 0 end
 
@@ -20141,8 +20368,6 @@ end
 
 function S.bindnavdrag(button, ordertable, applyorder)
 	button.InputBegan:Connect(function(input)
-		
-
 		if
 			input.UserInputType ~= Enum.UserInputType.MouseButton1
 			and input.UserInputType ~= Enum.UserInputType.Touch
@@ -20377,8 +20602,6 @@ end)
 
 S.applytopnavigation(S.topnavigationenabled, false)
 
-
-
 -- footer
 
 S.rawnew("Frame", {
@@ -20485,7 +20708,15 @@ function S.setsidebarentrycompact(entry, compact, sub)
 	end
 end
 
-function S.applysidebarlayout(width, animate, mainoffset, info, otheravailable, previouscompact, liveresize)
+function S.applysidebarlayout(
+	width,
+	animate,
+	mainoffset,
+	info,
+	otheravailable,
+	previouscompact,
+	liveresize
+)
 	previouscompact = S.sidebarcompact
 	width = math.clamp(
 		math.floor(tonumber(width) or S.sidebarwidth),
@@ -20657,28 +20888,13 @@ function S.beginwindowdrag(input, allowdouble, deferpopup, start, now, targetpos
 
 	start = S.point(input)
 
-	
-
-	if
-		S.closebutton
-		and S.closebutton.Parent
-		and S.windowminimizebuttonenabled
-		and S.inside(S.closebutton, start)
-	then
-		S.releaseinteraction(input)
-		return
-	end
-
-	if allowdouble
-		and true
-		and not (S.searchenabled and S.inside(S.searchholder, start)) then
-now = os.clock()
+	if allowdouble and true and not (S.searchenabled and S.inside(S.searchholder, start)) then
+		now = os.clock()
 
 		if now - S.lasttap <= 0.28 then
 			S.lasttap = 0
-			targetposition = S.centeredwindowposition(
-				Vector2.new(S.shell.Size.X.Offset, S.shell.Size.Y.Offset)
-			)
+			targetposition =
+				S.centeredwindowposition(Vector2.new(S.shell.Size.X.Offset, S.shell.Size.Y.Offset))
 
 			if S.animationsenabled then
 				S.tween(S.shell, { Position = targetposition }, S.quart26)
@@ -20691,7 +20907,7 @@ now = os.clock()
 		end
 
 		S.lasttap = now
-end
+	end
 
 	if not deferpopup then S.closepopup() end
 
@@ -20927,8 +21143,6 @@ function S.applywindowdrag(drag, delta)
 
 	delta = drag.current - drag.start
 	S.shell.Position = S.offsetposition(drag.startposition, delta)
-
-	
 end
 
 function S.applywatermarkdrag(drag)
@@ -21209,7 +21423,6 @@ S.librarytabs = {}
 S.librarytaborder = {}
 S.librarytabserial = 0
 
-
 S.lockedcontrols = setmetatable({}, { __mode = "k" })
 
 function S.resolvecontrolroot(control, parentobject, holder, object17)
@@ -21255,7 +21468,8 @@ function S.applylockedoption(control, value, root, state, overlay)
 		S.corner(overlay, 6)
 		S.bindtheme(overlay, "BackgroundColor3", S.theme.window, "window")
 		S.transparencybase[overlay] = nil
-		S.image(overlay, "lock-keyhole", 13, S.theme.text3, 1001).Position = UDim2.new(1, -18, .5, -6)
+		S.image(overlay, "lock-keyhole", 13, S.theme.text2, 1001).Position =
+			UDim2.new(1, -25, 0.5, -6)
 
 		state = {
 			root = root,
@@ -21291,9 +21505,7 @@ function S.applylockedoption(control, value, root, state, overlay)
 			end
 		end
 
-		control.SetLocked = function(_, enabled)
-			return S.applylockedoption(control, enabled)
-		end
+		control.SetLocked = function(_, enabled) return S.applylockedoption(control, enabled) end
 		control.IsLocked = function(current)
 			current = S.lockedcontrols[control]
 			return current and current.locked == true or false
@@ -21335,9 +21547,7 @@ function S.libraryenhancerow(
 		if type(config) == "table" then
 			control =
 				addbutton(self, tostring(config.Name or config.Text or "Button"), config.Callback)
-			if config.Locked ~= nil then
-				S.applylockedoption(control, config.Locked)
-			end
+			if config.Locked ~= nil then S.applylockedoption(control, config.Locked) end
 			return control
 		end
 
@@ -21361,9 +21571,7 @@ function S.libraryenhancerow(
 						KeepDelete = config.KeepDelete == true,
 					}
 			)
-			if config.Locked ~= nil then
-				S.applylockedoption(control, config.Locked)
-			end
+			if config.Locked ~= nil then S.applylockedoption(control, config.Locked) end
 			return control
 		end
 
@@ -21380,9 +21588,7 @@ function S.libraryenhancerow(
 				config.Callback,
 				config
 			)
-			if config.Locked ~= nil then
-				S.applylockedoption(control, config.Locked)
-			end
+			if config.Locked ~= nil then S.applylockedoption(control, config.Locked) end
 			return control
 		end
 
@@ -21399,9 +21605,7 @@ function S.libraryenhancerow(
 				config.Callback,
 				config
 			)
-			if config.Locked ~= nil then
-				S.applylockedoption(control, config.Locked)
-			end
+			if config.Locked ~= nil then S.applylockedoption(control, config.Locked) end
 			return control
 		end
 
@@ -21416,9 +21620,7 @@ function S.libraryenhancerow(
 				config.Color or config.Default or Color3.new(1, 1, 1),
 				config.Callback
 			)
-			if config.Locked ~= nil then
-				S.applylockedoption(control, config.Locked)
-			end
+			if config.Locked ~= nil then S.applylockedoption(control, config.Locked) end
 			return control
 		end
 
@@ -21435,7 +21637,8 @@ function S.libraryenhancerow(
 		sourceconfig,
 		name11,
 		control,
-		copied
+		copied,
+		oldroot
 	)
 		sourceconfig = type(config) == "table" and config or nil
 
@@ -21461,6 +21664,26 @@ function S.libraryenhancerow(
 				addtoggle(self, config, default, S.persistentcallback(callback), keybindable, badge)
 		end
 
+		if section and sourceconfig then
+			oldroot = control.Object
+			control = S.layouttoggleaddons(section, control, sourceconfig)
+			if oldroot ~= control.Object then
+				for index, item in ipairs(self.Items) do
+					if item == oldroot then self.Items[index] = control.Object end
+				end
+				control.Object:SetAttribute("BlushRowHeight", control.Object.Size.Y.Offset)
+				control.Object:GetPropertyChangedSignal("Size"):Connect(function()
+					if
+						control.Object:GetAttribute("BlushRowHeight")
+						~= control.Object.Size.Y.Offset
+					then
+						control.Object:SetAttribute("BlushRowHeight", control.Object.Size.Y.Offset)
+						self:Refresh()
+					end
+				end)
+				self:Refresh()
+			end
+		end
 		if section then
 			S.registerpersistentcontrol(section, "Toggle", name11, control, sourceconfig)
 		end
@@ -21475,7 +21698,23 @@ function S.libraryenhancerow(
 	return row
 end
 
-function S.layouttoggleaddons(section, control, config, specifications, header, outer, stack, layout, inline, childconfig, child, kind, keyconfig, refresh, offset)
+function S.layouttoggleaddons(
+	section,
+	control,
+	config,
+	specifications,
+	header,
+	outer,
+	stack,
+	layout,
+	inline,
+	childconfig,
+	child,
+	kind,
+	keyconfig,
+	refresh,
+	offset
+)
 	specifications = {}
 	for _, name in ipairs({ "ColorPicker", "KeyPicker", "Slider", "Dropdown" }) do
 		if config[name] ~= nil and config[name] ~= false then
@@ -21484,10 +21723,15 @@ function S.layouttoggleaddons(section, control, config, specifications, header, 
 			table.insert(specifications, childconfig)
 		end
 	end
-	if config.InlineKeyPicker and not config.KeyPicker then table.insert(specifications, { Type = "KeyPicker" }) end
+	if config.InlineKeyPicker and not config.KeyPicker then
+		table.insert(specifications, { Type = "KeyPicker" })
+	end
 	for name, addon in pairs(config.Addons or {}) do
 		childconfig = type(addon) == "table" and table.clone(addon) or {}
-		childconfig.Type = childconfig.Type or childconfig.Kind or (type(name) == "string" and name) or addon
+		childconfig.Type = childconfig.Type
+			or childconfig.Kind
+			or (type(name) == "string" and name)
+			or addon
 		if childconfig.Type == "Keybindable" then
 			if not control.Binding.configbutton then
 				S.attachtoggleconfig(control.Object, control.Binding)
@@ -21498,6 +21742,7 @@ function S.layouttoggleaddons(section, control, config, specifications, header, 
 		end
 	end
 	header = control.Object
+	control.ToggleObject = header
 	inline = {}
 	control.Addons = {}
 	refresh = function(right, height)
@@ -21512,19 +21757,28 @@ function S.layouttoggleaddons(section, control, config, specifications, header, 
 		end
 		control.TextObject.Size = UDim2.new(1, -29 - right, 1, 0)
 		if outer then
-			height = 24 + (layout.AbsoluteContentSize.Y > 0 and 5 + layout.AbsoluteContentSize.Y or 0)
+			height = 24
+				+ (layout.AbsoluteContentSize.Y > 0 and 5 + layout.AbsoluteContentSize.Y or 0)
 			outer.Size = UDim2.new(1, 0, 0, height)
 		end
 	end
-	table.sort(specifications, function(a, b)
-		return (a.Type == "ColorPicker" and 1 or a.Type == "KeyPicker" and 2 or 3)
-			< (b.Type == "ColorPicker" and 1 or b.Type == "KeyPicker" and 2 or 3)
-	end)
+	table.sort(
+		specifications,
+		function(a, b)
+			return (a.Type == "ColorPicker" and 1 or a.Type == "KeyPicker" and 2 or 3)
+				< (b.Type == "ColorPicker" and 1 or b.Type == "KeyPicker" and 2 or 3)
+		end
+	)
 	for _, spec in ipairs(specifications) do
 		kind = spec.Type
 		if kind == "KeyPicker" then
-			child = S.attachinlinekeypicker(header, control.Binding, control.TextObject,
-				spec.Key or spec.Default or config.Key or config.DefaultKey, spec.Callback or config.KeyCallback)
+			child = S.attachinlinekeypicker(
+				header,
+				control.Binding,
+				control.TextObject,
+				spec.Key or spec.Default or config.Key or config.DefaultKey,
+				spec.Callback or config.KeyCallback
+			)
 			control.KeyObject = child
 			table.insert(inline, child)
 			child:GetPropertyChangedSignal("Size"):Connect(refresh)
@@ -21532,7 +21786,7 @@ function S.layouttoggleaddons(section, control, config, specifications, header, 
 			childconfig = table.clone(spec)
 			if kind == "ColorPicker" then
 				childconfig.Target = header
-				childconfig.Name = ""
+				childconfig.Name = (config.Name or config.Text or "Toggle") .. " Color"
 				childconfig.Color = childconfig.Color or config.Color or Color3.new(1, 1, 1)
 				childconfig.Callback = childconfig.Callback or config.ColorCallback
 				child = section:AddColorPicker(childconfig)
@@ -21541,24 +21795,40 @@ function S.layouttoggleaddons(section, control, config, specifications, header, 
 				child.Object.AnchorPoint = Vector2.new(1, 0.5)
 				table.insert(inline, child.Object)
 				control.Color = child
+				control.PickerObject = child.swatch and child.swatch.Parent
 			else
 				if not outer then
-					outer = S.new("Frame", { Parent = header.Parent, Size = header.Size, LayoutOrder = header.LayoutOrder, BackgroundTransparency = 1 })
+					outer = S.new("Frame", {
+						Parent = header.Parent,
+						Size = header.Size,
+						LayoutOrder = header.LayoutOrder,
+						BackgroundTransparency = 1,
+					})
 					header.Parent = outer
 					header.Size = UDim2.new(1, 0, 0, 24)
-					stack = S.new("Frame", { Parent = outer, Position = UDim2.fromOffset(0, 29), Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, BackgroundTransparency = 1 })
+					stack = S.new("Frame", {
+						Parent = outer,
+						Position = UDim2.fromOffset(0, 29),
+						Size = UDim2.new(1, 0, 0, 0),
+						AutomaticSize = Enum.AutomaticSize.Y,
+						BackgroundTransparency = 1,
+					})
 					layout = S.list(stack, 5)
 					layout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(refresh)
-					for _, entry in ipairs(section.controls) do if entry.row == header then entry.row = outer end end
+					for _, entry in ipairs(section.controls) do
+						if entry.row == header then entry.row = outer end
+					end
 					control.Object = outer
 				end
 				childconfig.Target = stack
-				childconfig.Name = childconfig.Name or kind
+				childconfig.Name = childconfig.Name
+					or ((config.Name or config.Text or "Toggle") .. " " .. kind)
 				child = section["Add" .. kind](section, childconfig)
 			end
 			control.Addons[kind] = child
 		end
 	end
+	control.Binding.configroot = control.Object
 	control.Binding.layoutaddons = refresh
 	refresh()
 	return control
@@ -21661,9 +21931,7 @@ function S.libraryenhancesection(
 				config.Callback,
 				config.Target
 			)
-			if config.Locked ~= nil then
-				S.applylockedoption(control, config.Locked)
-			end
+			if config.Locked ~= nil then S.applylockedoption(control, config.Locked) end
 			return control
 		end
 
@@ -21682,10 +21950,26 @@ function S.libraryenhancesection(
 		return S.libraryenhancerow(row, self)
 	end
 
-	section.AddToggle = function(self, config, default, callback, target, keybindable, badge, control)
+	section.AddToggle = function(
+		self,
+		config,
+		default,
+		callback,
+		target,
+		keybindable,
+		badge,
+		control
+	)
 		if type(config) == "table" then
-			control = addtoggle(self, tostring(config.Name or config.Text or "Toggle"), configdefault(config),
-				config.Callback, config.Target, config.Keybindable == true, config.Badge)
+			control = addtoggle(
+				self,
+				tostring(config.Name or config.Text or "Toggle"),
+				configdefault(config),
+				config.Callback,
+				config.Target,
+				config.Keybindable == true,
+				config.Badge
+			)
 			return S.layouttoggleaddons(self, control, config)
 		end
 		return addtoggle(self, config, default, callback, target, keybindable, badge)
@@ -21702,15 +21986,20 @@ function S.libraryenhancesection(
 		badge
 	)
 		if type(config) == "table" then
-			return addtogglekey(
+			config = table.clone(config)
+			config.KeyPicker = config.KeyPicker or true
+			return S.layouttoggleaddons(
 				self,
-				tostring(config.Name or config.Text or "Toggle"),
-				configdefault(config),
-				config.Key or config.DefaultKey or Enum.KeyCode.F,
-				config.Callback,
-				config.KeyCallback,
-				config.Target,
-				config.Badge
+				addtoggle(
+					self,
+					tostring(config.Name or config.Text or "Toggle"),
+					configdefault(config),
+					config.Callback,
+					config.Target,
+					config.Keybindable == true,
+					config.Badge
+				),
+				config
 			)
 		end
 
@@ -21728,15 +22017,22 @@ function S.libraryenhancesection(
 		keybindable
 	)
 		if type(config) == "table" then
-			return addtogglecolor(
+			config = table.clone(config)
+			config.ColorPicker = config.ColorPicker
+				or { Color = config.Color or Color3.new(1, 1, 1), Callback = config.ColorCallback }
+			config.Callback = config.Callback or config.ToggleCallback
+			return S.layouttoggleaddons(
 				self,
-				tostring(config.Name or config.Text or "Toggle"),
-				configdefault(config),
-				config.Color or Color3.new(1, 1, 1),
-				config.Callback or config.ToggleCallback,
-				config.ColorCallback,
-				config.Target,
-				config.Keybindable == true or config.Keybind == true
+				addtoggle(
+					self,
+					tostring(config.Name or config.Text or "Toggle"),
+					configdefault(config),
+					config.Callback,
+					config.Target,
+					config.Keybindable == true,
+					config.Badge
+				),
+				config
 			)
 		end
 
@@ -21764,16 +22060,23 @@ function S.libraryenhancesection(
 		target
 	)
 		if type(config) == "table" then
-			return addtogglecolorkey(
+			config = table.clone(config)
+			config.ColorPicker = config.ColorPicker
+				or { Color = config.Color or Color3.new(1, 1, 1), Callback = config.ColorCallback }
+			config.KeyPicker = config.KeyPicker or true
+			config.Callback = config.Callback or config.ToggleCallback
+			return S.layouttoggleaddons(
 				self,
-				tostring(config.Name or config.Text or "Toggle"),
-				configdefault(config),
-				config.Color or Color3.new(1, 1, 1),
-				config.Key or config.DefaultKey or Enum.KeyCode.F,
-				config.Callback or config.ToggleCallback,
-				config.ColorCallback,
-				config.KeyCallback,
-				config.Target
+				addtoggle(
+					self,
+					tostring(config.Name or config.Text or "Toggle"),
+					configdefault(config),
+					config.Callback,
+					config.Target,
+					config.Keybindable == true,
+					config.Badge
+				),
+				config
 			)
 		end
 
@@ -22158,9 +22461,7 @@ function S.libraryenhancesection(
 				config.Entries or config.Items or {},
 				config.Target
 			)
-			if config.Locked ~= nil then
-				S.applylockedoption(control, config.Locked)
-			end
+			if config.Locked ~= nil then S.applylockedoption(control, config.Locked) end
 			return control
 		end
 
@@ -22185,9 +22486,7 @@ function S.libraryenhancesection(
 				config.Callback,
 				config.Target
 			)
-			if config.Locked ~= nil then
-				S.applylockedoption(control, config.Locked)
-			end
+			if config.Locked ~= nil then S.applylockedoption(control, config.Locked) end
 			return control
 		end
 
@@ -22203,9 +22502,7 @@ function S.libraryenhancesection(
 				tostring(config.Body or config.Message or ""),
 				config.Target
 			)
-			if config.Locked ~= nil then
-				S.applylockedoption(control, config.Locked)
-			end
+			if config.Locked ~= nil then S.applylockedoption(control, config.Locked) end
 			return control
 		end
 
@@ -22462,7 +22759,7 @@ function S.librarysetsettingstab(config, enabled, name13, icon, groupname, secti
 		S.keybindssection.frame.Visible = sections.Keybinds ~= false
 		S.windowsection.frame.Visible = sections.Window ~= false
 		S.themessection.frame.Visible = sections.Themes ~= false and sections.Appearance ~= false
-		S.backgroundimagesection.frame.Visible = sections.Background ~= false
+		-- Background controls share the Window section.
 		S.savessection.frame.Visible = sections.Configs ~= false
 	else
 		S.settingssection.frame.Visible = true
@@ -22470,7 +22767,7 @@ function S.librarysetsettingstab(config, enabled, name13, icon, groupname, secti
 		S.keybindssection.frame.Visible = true
 		S.windowsection.frame.Visible = true
 		S.themessection.frame.Visible = true
-		S.backgroundimagesection.frame.Visible = true
+
 		S.savessection.frame.Visible = true
 	end
 
@@ -22667,44 +22964,44 @@ function S.librarycreatetab(
 	glow = nil
 
 	if parenttab then
-		button14, iconobject, textobject = S.createtopsub(name14, asset or S.icons["layout-grid"], #parenttab.SubTabs + 1)
+		button14, iconobject, textobject =
+			S.createtopsub(name14, asset or S.icons["layout-grid"], #parenttab.SubTabs + 1)
 		button14.Visible = false
 	else
-	button14, textobject, indicator, iconobject, glow =
-		S.navbutton(parentobject, name14, asset, false)
+		button14, textobject, indicator, iconobject, glow =
+			S.navbutton(parentobject, name14, asset, false)
 
-	S.naventries[button14] = {
-		button = button14,
-		sub = false,
-		text = textobject,
-		indicator = indicator,
-		icon = iconobject,
-		glow = glow,
-	}
+		S.naventries[button14] = {
+			button = button14,
+			sub = false,
+			text = textobject,
+			indicator = indicator,
+			icon = iconobject,
+			glow = glow,
+		}
 
-	S.setsidebarentrycompact(S.naventries[button14], S.sidebarcompact, false)
+		S.setsidebarentrycompact(S.naventries[button14], S.sidebarcompact, false)
 
-	S.bindnavhover(button14, false)
+		S.bindnavhover(button14, false)
 
-	if destination == "main" then
-		table.insert(S.mainnavorder, button14)
-		S.bindnavdrag(button14, S.mainnavorder)
-		S.applynavorder()
-	elseif sectiontab then
-		table.insert(sectiontab.Order, button14)
+		if destination == "main" then
+			table.insert(S.mainnavorder, button14)
+			S.bindnavdrag(button14, S.mainnavorder)
+			S.applynavorder()
+		elseif sectiontab then
+			table.insert(sectiontab.Order, button14)
 
-		applysectionorder = function()
-			for index, item in ipairs(sectiontab.Order) do
-				item.LayoutOrder = index * 10
+			applysectionorder = function()
+				for index, item in ipairs(sectiontab.Order) do
+					item.LayoutOrder = index * 10
+				end
 			end
+
+			applysectionorder()
+			S.bindnavdrag(button14, sectiontab.Order, applysectionorder)
+		else
+			button14.LayoutOrder = #S.librarytaborder + 1
 		end
-
-		applysectionorder()
-		S.bindnavdrag(button14, sectiontab.Order, applysectionorder)
-	else
-		button14.LayoutOrder = #S.librarytaborder + 1
-	end
-
 	end
 
 	tab = {
@@ -22778,7 +23075,8 @@ function S.librarycreatetab(
 
 	function tab:AddSubTab(config, subicon)
 		if self.ParentTab then return self.ParentTab:AddSubTab(config, subicon) end
-		config = type(config) == "table" and table.clone(config) or { Name = config, Icon = subicon }
+		config = type(config) == "table" and table.clone(config)
+			or { Name = config, Icon = subicon }
 		config.ParentTab = self
 		return S.librarycreatetab(windowapi, config)
 	end
@@ -22808,9 +23106,13 @@ function S.librarycreatetab(
 		self.Name = name14
 		S.librarytabs[name14] = self
 		textobject.Text = name14
-		if parenttab then page.secondary = name14 else
+		if parenttab then
+			page.secondary = name14
+		else
 			page.primary = name14
-			for _, child in ipairs(self.SubTabs) do child.Page.primary = name14 end
+			for _, child in ipairs(self.SubTabs) do
+				child.Page.primary = name14
+			end
 		end
 
 		if S.currentpage == page then S.titleprimary.Text = name14 end
@@ -22820,7 +23122,9 @@ function S.librarycreatetab(
 		assetvalue = value ~= nil and S.librarynormalizeicon(value) or nil
 
 		page.icon = assetvalue
-		if parenttab then iconobject.Image = assetvalue or "" else
+		if parenttab then
+			iconobject.Image = assetvalue or ""
+		else
 			iconobject = S.setnaventryicon(S.naventries[button14], assetvalue)
 		end
 
@@ -22865,7 +23169,11 @@ function S.librarycreatetab(
 
 	S.refreshsidegroups(false)
 	if parenttab and S.currentnav == parenttab.Button then
-		if not parenttab.SelectedSubTab then tab:Select() else S.updatetopnavigationstate(false) end
+		if not parenttab.SelectedSubTab then
+			tab:Select()
+		else
+			S.updatetopnavigationstate(false)
+		end
 	end
 	return tab
 end
@@ -22929,10 +23237,6 @@ function S.library:CreateWindow(
 	S.windowresizeenabled = options.Resize ~= false
 	S.windowdragenabled = options.Draggable ~= false
 
-	if options.MinimizeButton ~= nil then
-		S.windowminimizebuttonenabled = options.MinimizeButton == true
-	end
-
 	if options.SidebarResize ~= nil then
 		S.sidebarresizehandle.Visible = options.SidebarResize == true
 		S.sidebarresizehandle.Active = options.SidebarResize == true
@@ -22947,12 +23251,6 @@ function S.library:CreateWindow(
 
 	S.resizehandle.Visible = S.windowresizeenabled
 	S.resizehandle.Active = S.windowresizeenabled
-
-	S.setminimizebuttonvisible(S.windowminimizebuttonenabled, false)
-
-	if S.minimizebuttoncontrol then
-		S.minimizebuttoncontrol:Set(S.windowminimizebuttonenabled, false)
-	end
 
 	if options.Roundness ~= nil then
 		S.windowcorner.CornerRadius = UDim.new(0, math.max(0, tonumber(options.Roundness) or 12))
@@ -22982,7 +23280,8 @@ function S.library:CreateWindow(
 
 	if typeof(options.GlowColor) == "Color3" then
 		S.windowglowcolor = options.GlowColor
-	else
+		S.windowglowcustom = true
+	elseif not S.windowglowcustom then
 		S.windowglowcolor = S.theme.white
 	end
 
@@ -23017,13 +23316,10 @@ function S.library:CreateWindow(
 		S.originalwindowsize = size
 		S.shell.Size = UDim2.fromOffset(size.X, size.Y)
 
-		if typeof(position) ~= "UDim2" then
-			S.shell.Position = S.centeredwindowposition(size)
-		end
+		if typeof(position) ~= "UDim2" then S.shell.Position = S.centeredwindowposition(size) end
 	end
 
 	if typeof(position) == "UDim2" then S.shell.Position = position end
-
 
 	if type(options.Theme) == "table" then
 		S.applytheme(
@@ -23041,8 +23337,10 @@ function S.library:CreateWindow(
 		if options.Theme.MainAlpha ~= nil then S.applymainalpha(options.Theme.MainAlpha) end
 		if typeof(options.Theme.Highlight) == "Color3" or options.Theme.HighlightAlpha ~= nil then
 			S.applyhighlight(
-				typeof(options.Theme.Highlight) == "Color3" and options.Theme.Highlight or S.theme.highlight,
-				options.Theme.HighlightAlpha ~= nil and options.Theme.HighlightAlpha or S.theme.highlightAlpha,
+				typeof(options.Theme.Highlight) == "Color3" and options.Theme.Highlight
+					or S.theme.highlight,
+				options.Theme.HighlightAlpha ~= nil and options.Theme.HighlightAlpha
+					or S.theme.highlightAlpha,
 				options.Theme.Animate ~= false
 			)
 		end
@@ -23254,14 +23552,6 @@ function S.library:CreateWindow(
 		if not S.windowdragenabled then S.windowdrag = nil end
 	end
 
-	function S.librarywindow:SetMinimizeButtonVisible(value)
-		S.setminimizebuttonvisible(value, true)
-
-		if S.minimizebuttoncontrol then
-			S.minimizebuttoncontrol:Set(S.windowminimizebuttonenabled, false)
-		end
-	end
-
 	function S.librarywindow:SetMinSize(value)
 		if typeof(value) ~= "Vector2" then return false end
 
@@ -23287,11 +23577,7 @@ function S.library:CreateWindow(
 		S.originalwindowsize = value
 		S.shell.Size = UDim2.fromOffset(value.X, value.Y)
 
-		if recenter == true then
-			S.shell.Position = S.centeredwindowposition(
-				value
-			)
-		end
+		if recenter == true then S.shell.Position = S.centeredwindowposition(value) end
 
 		if S.currentpage then S.currentpage:reflowall(false) end
 
@@ -23355,6 +23641,7 @@ function S.library:CreateWindow(
 		if typeof(value) ~= "Color3" then return false end
 
 		S.windowglowcolor = value
+		S.windowglowcustom = true
 		S.applywindowglow()
 
 		if S.windowglowcolorpicker then
@@ -23506,22 +23793,34 @@ function S.library:CreateWindow(
 		return false
 	end
 
-
-	function S.librarywindow:SetTheme(config)
+	function S.librarywindow:SetTheme(config, derived)
 		config = config or {}
+		if config.Background or config.Window then
+			derived = S.buildtheme(
+				config.Background or config.Window,
+				config.Accent or S.theme.white,
+				config.Font or config.Text,
+				config.Main
+			)
+		end
 
 		S.applytheme(
 			config.Background or config.Window or S.theme.window,
 			config.Accent or S.theme.white,
 			config.BackgroundAlpha or S.theme.backgroundAlpha,
 			config.AccentAlpha or S.theme.accentAlpha,
-			config.Font or config.Text or S.theme.font,
+			config.Font or config.Text or (derived and derived.font) or S.theme.font,
 			config.FontAlpha or S.theme.fontAlpha,
 			config.Animate ~= false
 		)
 
-		if typeof(config.Main) == "Color3" then S.applymaincolor(config.Main, config.Animate ~= false) end
-		if config.MainAlpha ~= nil then S.applymainalpha(config.MainAlpha) end
+		if derived and config.Main == nil then
+			S.applymaincolor(derived.main, config.Animate ~= false)
+		end
+		if typeof(config.Main) == "Color3" then
+			S.applymaincolor(config.Main, config.Animate ~= false)
+		end
+		if config.MainAlpha ~= nil then S.setmaincoloralpha(config.MainAlpha) end
 		if typeof(config.Highlight) == "Color3" or config.HighlightAlpha ~= nil then
 			S.applyhighlight(
 				typeof(config.Highlight) == "Color3" and config.Highlight or S.theme.highlight,
@@ -23599,9 +23898,7 @@ function S.library:GetSettingsTab() return S.librarygetsettingstab() end
 
 function S.library:Notify(...) S.notify(...) end
 
-function S.library:SetLocked(element, value)
-	return S.applylockedoption(element, value)
-end
+function S.library:SetLocked(element, value) return S.applylockedoption(element, value) end
 
 function S.library:IsLocked(element, root, state)
 	root = S.resolvecontrolroot(element)
