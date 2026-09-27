@@ -76,7 +76,6 @@ S.__blush_cleanup = function(autosavetask, settingstask)
 		S.pagelayoutconnection = nil
 	end
 	if S.pendingpagelayouts then table.clear(S.pendingpagelayouts) end
-	S.runservice:UnbindFromRenderStep("__blush_force_cursor")
 	S.contextactionservice:UnbindAction("__blush_menu_key")
 	if S.interactionrenderconnection and S.interactionrenderconnection.Connected then
 		S.interactionrenderconnection:Disconnect()
@@ -115,7 +114,6 @@ S.__blush_cleanup = function(autosavetask, settingstask)
 	end
 	S.__blush_save_task = nil
 
-	if S.restorecursorstate then S.restorecursorstate() end
 
 	if S.destroybackgroundeditable then S.destroybackgroundeditable() end
 
@@ -1642,95 +1640,19 @@ S.__blush_shellscale = S.new("UIScale", {
 
 S.modalguard = S.new("TextButton", {
 	Parent = S.gui,
-	Position = UDim2.fromOffset(0, 0),
-	Size = UDim2.fromScale(1, 1),
+	Position = UDim2.fromOffset(-100, -100),
+	Size = UDim2.fromOffset(1, 1),
 	BackgroundTransparency = 1,
 	BorderSizePixel = 0,
 	Text = "",
+	TextTransparency = 1,
 	AutoButtonColor = false,
 	Active = false,
 	Selectable = false,
-	Modal = false,
+	Modal = true,
 	Visible = false,
 	ZIndex = 1,
 })
-
-S.cursorstate = {
-	captured = false,
-	mousebehavior = nil,
-	mouseiconenabled = nil,
-	override = nil,
-}
-
-function S.capturecursorstate()
-	if S.cursorstate.captured or S.uis.TouchEnabled then return end
-
-	S.cursorstate.captured = true
-	S.cursorstate.mousebehavior = S.uis.MouseBehavior
-	S.cursorstate.mouseiconenabled = S.uis.MouseIconEnabled
-
-	if gethiddenproperty then
-		S.cursorstate.override = gethiddenproperty(S.uis, "OverrideMouseIconBehavior")
-	end
-end
-
-function S.forcecursorvisible()
-	if S.uis.TouchEnabled then return end
-
-	S.capturecursorstate()
-
-	S.uis.MouseBehavior = Enum.MouseBehavior.Default
-	S.uis.MouseIconEnabled = true
-
-	if sethiddenproperty then
-		sethiddenproperty(
-			S.uis,
-			"OverrideMouseIconBehavior",
-			Enum.OverrideMouseIconBehavior.ForceShow
-		)
-	end
-end
-
-function S.restorecursorstate()
-	if not S.cursorstate.captured or S.uis.TouchEnabled then return end
-
-	S.invoke(function()
-		if S.cursorstate.mousebehavior ~= nil then
-			S.uis.MouseBehavior = S.cursorstate.mousebehavior
-		end
-
-		if S.cursorstate.mouseiconenabled ~= nil then
-			S.uis.MouseIconEnabled = S.cursorstate.mouseiconenabled
-		end
-	end)
-
-	if sethiddenproperty then
-		sethiddenproperty(
-			S.uis,
-			"OverrideMouseIconBehavior",
-			S.cursorstate.override or Enum.OverrideMouseIconBehavior.None
-		)
-	end
-
-	S.cursorstate.captured = false
-	S.cursorstate.mousebehavior = nil
-	S.cursorstate.mouseiconenabled = nil
-	S.cursorstate.override = nil
-end
-
-S.runservice:UnbindFromRenderStep("__blush_force_cursor")
-
-S.runservice:BindToRenderStep(
-	"__blush_force_cursor",
-	Enum.RenderPriority.Last.Value + 100,
-	function()
-		if S.gui and S.gui.Parent and S.gui.Enabled and S.__blush_windowvisible == true then
-			S.forcecursorvisible()
-		end
-	end
-)
-
-S.forcecursorvisible()
 
 function S.applyuiscale(value, scale)
 	scale = math.clamp(tonumber(value) or 100, 70, 130) / 100
@@ -17396,9 +17318,10 @@ function S.playvisibilityfade(
 )
 	S.__blush_windowvisible = show
 
+	if S.modalguard and S.modalguard.Parent then S.modalguard.Visible = show end
+
 	if show then
 		S.setvisibilityrootsvisible(true)
-		S.forcecursorvisible()
 		S.animatereopenbutton(false, token)
 	else
 		S.reopengui.Enabled = false
@@ -17459,7 +17382,6 @@ function S.playvisibilityfade(
 			S.setvisibilityrootsvisible(true)
 		else
 			S.setvisibilityrootsvisible(false)
-			S.restorecursorstate()
 			S.animatereopenbutton(true, token)
 		end
 
@@ -17512,7 +17434,6 @@ function S.playvisibilityfade(
 			S.setvisibilityrootsvisible(true)
 		else
 			S.setvisibilityrootsvisible(false)
-			S.restorecursorstate()
 			S.animatereopenbutton(true, token)
 		end
 
@@ -22195,13 +22116,12 @@ function S.library:CreateWindow(
 	S.watermarkgui.Enabled = true
 	S.reopengui.Enabled = false
 
-	S.modalguard.Modal = false
+	S.modalguard.Modal = true
 	S.modalguard.Active = false
-	S.modalguard.Visible = false
+	S.modalguard.Visible = true
 
 	S.__blush_windowvisible = true
 	S.setvisibilityrootsvisible(true)
-	S.forcecursorvisible()
 
 	S.librarywindow = {
 		_tabs = S.librarytabs,
@@ -22688,7 +22608,7 @@ end
 S.gui.Enabled = false
 S.watermarkgui.Enabled = false
 S.reopengui.Enabled = false
-S.modalguard.Modal = false
+S.modalguard.Modal = true
 S.modalguard.Active = false
 S.modalguard.Visible = false
 
