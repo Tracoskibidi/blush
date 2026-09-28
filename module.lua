@@ -2,53 +2,56 @@ local m = {}
 
 -- services
 
-m.pls   = game:GetService("Players")
-m.run   = game:GetService("RunService")
-m.uis   = game:GetService("UserInputService")
-m.tween = game:GetService("TweenService")
-m.rs    = game:GetService("ReplicatedStorage")
-m.rf    = game:GetService("ReplicatedFirst")
+m.pls = game:GetService("Players")
+m.run = game:GetService("RunService")
+m.uis = game:GetService("UserInputService")
+m.rs = game:GetService("ReplicatedStorage")
+m.rf = game:GetService("ReplicatedFirst")
 m.light = game:GetService("Lighting")
-m.gui   = game:GetService("GuiService")
-m.tp    = game:GetService("TeleportService")
-m.ws    = game:GetService("Workspace")
 
 -- runservice
 
-m.h  = m.run.Heartbeat
+m.h = m.run.Heartbeat
 m.pr = m.run.PreRender
-m.post  = m.run.PostSimulation
 m.pre = m.run.PreSimulation
-m.preanim = m.run.PreAnimation
+m.post = m.run.PostSimulation
 
--- workspace
-
-m.cam = m.ws.CurrentCamera
-m.tr  = m.ws.Terrain
 
 -- player
 
 m.lp = m.pls.LocalPlayer
-m.bp = m.lp:FindFirstChildOfClass("Backpack")
+m.cam = workspace.CurrentCamera
+
+m.char = m.lp.Character or m.lp.CharacterAdded:Wait()
+m.hum = m.char:WaitForChild("Humanoid")
+m.hrp = m.char:WaitForChild("HumanoidRootPart")
+
+m.lp.CharacterAdded:Connect(function(char)
+	m.char = char
+	m.hum = char:WaitForChild("Humanoid")
+	m.hrp = char:WaitForChild("HumanoidRootPart")
+end)
+
+-- ftap
+
+m.ce = m.rs.CharacterEvents
+m.ge = m.rs.GrabEvents
+m.mt = m.rs.MenuToys
 
 -- connections
 
 m.connections = {}
 
-function m.connect(name: string, signal: RBXScriptSignal, callback)
-	local connection = m.connections[name]
+function m.connect(name, signal, callback)
+	m.disconnect(name)
 
-	if connection then
-		connection:Disconnect()
-	end
-
-	connection          = signal:Connect(callback)
+	local connection = signal:Connect(callback)
 	m.connections[name] = connection
 
 	return connection
 end
 
-function m.disconnect(name: string)
+function m.disconnect(name)
 	local connection = m.connections[name]
 
 	if connection then
@@ -58,84 +61,144 @@ function m.disconnect(name: string)
 end
 
 function m.disconnectall()
-	for name, connection in m.connections do
-		connection:Disconnect()
-		m.connections[name] = nil
+	for name in m.connections do
+		m.connections[name]:Disconnect()
 	end
+
+	table.clear(m.connections)
 end
 
 -- utilities
 
-function m.fsearch(parent: Instance, name: string, timeout: number?)
-	local start = os.clock()
+function m.fsearch(parent, name, timeout)
+	local object = parent:FindFirstChild(name)
 
-	while task.wait() do
-		if not parent.Parent then
-			return false
+	if object then
+		return object
+	end
+
+	if not parent.Parent then
+		return false
+	end
+
+	timeout = timeout or 30
+
+	local thread = coroutine.running()
+	local done = false
+	local added
+	local removed
+
+	local function finish(result)
+		if done then
+			return
 		end
 
-		local object = parent:FindFirstChild(name)
+		done = true
+		added:Disconnect()
+		removed:Disconnect()
 
-		if object then
-			return object
-		end
+		task.spawn(thread, result)
+	end
 
-		if os.clock() - start >= (timeout or 30) then
-			return false
+	added = parent.ChildAdded:Connect(function(child)
+		if child.Name == name then
+			finish(child)
 		end
+	end)
+
+	removed = parent.Destroying:Connect(function()
+		finish(false)
+	end)
+
+	task.delay(timeout, finish, false)
+
+	return coroutine.yield()
+end
+
+-- ftap functions
+
+function m.sit(seat)
+	if replicatesignal then
+		replicatesignal(seat.RemoteCreateSeatWeld, m.hum)
+		return
+	end
+
+	seat:Sit(m.hum)
+end
+
+function m.dline(part)
+	m.ge.DestroyGrabLine(part)
+end
+
+function m.so(part, times)
+	times = times or 1
+
+	for _ = 1, times do
+		m.ce.SetNetworkOwner:FireServer(part, part.CFrame)
 	end
 end
 
--- character
+function m.cline(part, cframe)
+	m.ge.CreateGrabLine:FireServer(part, cframe or part.CFrame)
+end
 
-m.char = m.lp.Character or m.lp.CharacterAdded:Wait()
-m.hum  = m.fsearch(m.char, "Humanoid", 5)
-m.hrp  = m.fsearch(m.char, "HumanoidRootPart", 5)
+function m.ragdoll(time)
+	m.ce.RagdollRemote:FireServer(m.hrp, time)
+end
 
-m.lp.CharacterAdded:Connect(function(char)
-	m.char = char
-	m.hum  = m.fsearch(char, "Humanoid", 5)
-	m.hrp  = m.fsearch(char, "HumanoidRootPart", 5)
-end)
+function m.spawn(name, cframe)
+	local toys = m.lp.PlayerGui.MenuGui.Menu.TabContents.Toys.Contents
+
+	if toys:FindFirstChild(name) then
+		return m.mt.SpawnToyRemoteFunction:InvokeServer(
+			name,
+			cframe or m.hrp.CFrame,
+			Vector3.zero
+		)
+	end
+end
 
 -- performance
 
-function m.ping()
-	m.pingdata = m.pingdata or {
-		stat     = game:GetService("Stats").Network.ServerStatsItem["Data Ping"],
-		current  = 0,
-		trend    = 0,
-		lasttime = os.clock(),
-		interval = .1,
-	}
+m.pingdata = {
+	stat = game:GetService("Stats").Network.ServerStatsItem["Data Ping"],
+	current = 0,
+	trend = 0,
+	lasttime = os.clock(),
+	interval = .1,
+}
 
-	if m.pingdata.current == 0 then
-		m.pingdata.current = m.pingdata.stat:GetValue()
+function m.ping()
+	local data = m.pingdata
+
+	if data.current == 0 then
+		data.current = data.stat:GetValue()
 	end
 
-	m.pingdata.latest = m.pingdata.stat:GetValue()
+	local latest = data.stat:GetValue()
 
-	if m.pingdata.latest ~= m.pingdata.current then
-		m.pingdata.now   = os.clock()
-		m.pingdata.delta = math.max(m.pingdata.now - m.pingdata.lasttime, .001)
+	if latest ~= data.current then
+		local now = os.clock()
+		local delta = math.max(now - data.lasttime, .001)
 
-		m.pingdata.trend    += ((m.pingdata.latest - m.pingdata.current) / m.pingdata.delta - m.pingdata.trend) * .5
-		m.pingdata.interval += (m.pingdata.delta - m.pingdata.interval) * .25
-		m.pingdata.current   = m.pingdata.latest
-		m.pingdata.lasttime  = m.pingdata.now
+		data.trend += ((latest - data.current) / delta - data.trend) * .5
+		data.interval += (delta - data.interval) * .25
+		data.current = latest
+		data.lasttime = now
 	end
 
 	return math.round(math.max(
 		0,
-		m.pingdata.current + m.pingdata.trend * math.min(m.pingdata.interval, .25)
+		data.current + data.trend * math.min(data.interval, .25)
 	))
 end
 
-function m.fps()
-	m.fpsdata = m.fpsdata or {
-		value = 0,
-	}
+m.fpsdata = {
+	value = 0,
+	connection = nil,
+}
 
+function m.fps()
 	if not m.fpsdata.connection then
 		m.fpsdata.connection = m.pr:Connect(function(dt)
 			m.fpsdata.value = math.round(1 / dt)
@@ -148,39 +211,64 @@ end
 -- players
 
 function m.players()
-	local players = {}
+	local result = {}
+	local players = m.pls:GetPlayers()
 
-	for _, player in m.pls:GetPlayers() do
+	for index = 1, #players do
+		local player = players[index]
+
 		if player ~= m.lp then
-			players[#players + 1] = player
+			result[#result + 1] = player
 		end
 	end
 
-	return players
+	return result
 end
 
-function m.closer(radius: number)
-	local closest     = nil
-	local closestdist = radius * radius
+function m.closer(radius)
+	local closest = nil
+	local distance = radius * radius
+	local players = m.pls:GetPlayers()
 
-	for _, player in m.pls:GetPlayers() do
+	for index = 1, #players do
+		local player = players[index]
+
 		if player ~= m.lp then
-			local char = player.Character
-			local hrp  = char and char:FindFirstChild("HumanoidRootPart")
+			local character = player.Character
+			local root = character and character:FindFirstChild("HumanoidRootPart")
 
-			if hrp and m.hrp then
-				local offset = hrp.Position - m.hrp.Position
-				local dist   = offset:Dot(offset)
+			if root and m.hrp then
+				local offset = root.Position - m.hrp.Position
+				local dist = offset:Dot(offset)
 
-				if dist <= closestdist then
-					closest     = player
-					closestdist = dist
+				if dist <= distance then
+					closest = player
+					distance = dist
 				end
 			end
 		end
 	end
 
-	return closest, closest and math.sqrt(closestdist) or nil
+	if closest then
+		return closest, math.sqrt(distance)
+	end
 end
+
+
+
+function m.gp()
+	m.connect("grabparts", workspace.ChildAdded, function(grab)
+		if grab.Name == "GrabParts" then
+			m.grabpart = m.fsearch(m.fsearch(grab, "GrabPart"), "WeldConstraint").Part1
+
+			grab.Destroying:Once(function()
+				m.grabpart = nil
+			end)
+		end
+	end)
+
+	return m.grabpart
+end
+
 
 return m
