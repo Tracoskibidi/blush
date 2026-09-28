@@ -4075,9 +4075,9 @@ S.resizeicon.ImageTransparency = 0.42
 S.addshadow(
 	S.resizeicon,
 	"ResizeGlow",
-	0.76,
-	8,
-	0,
+	0.86,
+	10,
+	1,
 	-1,
 	S.theme.white,
 	UDim2.fromOffset(0, 0),
@@ -5249,6 +5249,10 @@ S.notificationreturn = S.sectionti
 function S.notificationasset(value, result)
 	if value == nil then return nil end
 
+	if typeof(value) == "Instance" and value:IsA("Player") then
+		return S.getplayerthumbnail(value)
+	end
+
 	if type(value) == "number" then return "rbxassetid://" .. tostring(value) end
 
 	result = tostring(value)
@@ -5333,14 +5337,28 @@ function S.notify(
 
 	options = nil
 
-	if type(actiontext) == "table" then
+	if type(titletext) == "table" then
+		options = titletext
+		titletext = options.Title or options.title
+		bodytext = options.Content or options.content or options.Body or options.body or options.Description or options.description
+		duration = options.Duration or options.duration
+		actiontext = options.Action or options.action or options.Button or options.button or options.ActionText or options.actiontext
+		actioncallback = options.Callback or options.callback or options.ActionCallback or options.actioncallback
+		iconasset = options.Icon or options.icon
+	elseif type(actiontext) == "table" then
 		options = actiontext
+		actiontext = options.Action or options.action or options.Button or options.button or options.ActionText or options.actiontext
+		actioncallback = options.Callback or options.callback or options.ActionCallback or options.actioncallback
+		iconasset = options.Icon or options.icon
+	end
 
-		actiontext = options.action or options.button or options.actiontext
-
-		actioncallback = options.callback or options.actioncallback
-
-		iconasset = options.icon
+	if options then
+		local playericon = options.Player or options.player
+		if typeof(playericon) == "Instance" and playericon:IsA("Player") then
+			iconasset = S.getplayerthumbnail(playericon)
+		elseif type(playericon) == "number" then
+			iconasset = string.format("rbxthumb://type=AvatarHeadShot&id=%d&w=150&h=150", playericon)
+		end
 	end
 
 	S.notificationorder += 1
@@ -13055,9 +13073,9 @@ function S.createsection(
 					)
 					pickerkey.AnchorPoint = Vector2.new(1, 0.5)
 					pickerkey.Position = UDim2.new(1, -7, 0.5, 0)
-					pickerkey.BackgroundColor3 = S.theme.input
+					pickerkey.BackgroundColor3 = S.theme.popup
 					pickerkey.BackgroundTransparency = 0
-					S.bindtheme(pickerkey, "BackgroundColor3", S.theme.input, "input")
+					S.bindtheme(pickerkey, "BackgroundColor3", S.theme.popup, "popup")
 					S.corner(pickerkey, 5)
 					pickerkey.TextSize = 13
 					pickerkey.TextXAlignment = Enum.TextXAlignment.Center
@@ -18179,7 +18197,7 @@ S.backgroundimageactions:AddButton("Clear", function()
 	S.saveuisettings(true)
 end)
 
-S.savessection = S.createsection(S.settings, "right", "Configs", S.icons.wrench)
+S.savessection = S.createsection(S.settings, "left", "Configs", S.icons.wrench)
 
 S.configinput = S.savessection:AddInput(
 	"Config name",
@@ -23218,7 +23236,8 @@ function S.library:CreateWindow(
 		buttontext,
 		iconasset
 	)
-		S.notify(titletext, bodytext, duration, callback, buttontext, iconasset)
+		if type(titletext) == "table" then return S.notify(titletext) end
+		return S.notify(titletext, bodytext, duration, buttontext, callback, iconasset)
 	end
 
 	function S.librarywindow:SetGradient(element, value)
