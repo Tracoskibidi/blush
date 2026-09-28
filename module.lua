@@ -134,7 +134,7 @@ function m.so(part, times)
 	times = times or 1
 
 	for _ = 1, times do
-		m.ce.SetNetworkOwner:FireServer(part, part.CFrame)
+		m.ge.SetNetworkOwner:FireServer(part, part.CFrame)
 	end
 end
 
@@ -254,29 +254,6 @@ function m.closer(radius)
 	end
 end
 
-
-
-function m.gp(timeout)
-	local grab = workspace:FindFirstChild("GrabParts")
-
-	if not grab then
-		return
-	end
-
-	local part = m.fsearch(grab, "GrabPart", timeout or 1)
-
-	if not part then
-		return
-	end
-
-	local weld = m.fsearch(part, "WeldConstraint", timeout or 1)
-
-	if not weld then
-		return
-	end
-
-	return weld.Part1
-end
 
 
 return m
