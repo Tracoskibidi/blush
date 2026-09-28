@@ -256,18 +256,26 @@ end
 
 
 
-function m.gp()
-	m.connect("grabparts", workspace.ChildAdded, function(grab)
-		if grab.Name == "GrabParts" then
-			m.grabpart = m.fsearch(m.fsearch(grab, "GrabPart"), "WeldConstraint").Part1
+function m.gp(timeout)
+	local grab = workspace:FindFirstChild("GrabParts")
 
-			grab.Destroying:Once(function()
-				m.grabpart = nil
-			end)
-		end
-	end)
+	if not grab then
+		return
+	end
 
-	return m.grabpart
+	local part = m.fsearch(grab, "GrabPart", timeout or 1)
+
+	if not part then
+		return
+	end
+
+	local weld = m.fsearch(part, "WeldConstraint", timeout or 1)
+
+	if not weld then
+		return
+	end
+
+	return weld.Part1
 end
 
 
