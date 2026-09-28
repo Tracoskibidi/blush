@@ -211,6 +211,8 @@ S.theme = {
 	fontAlpha = 1,
 }
 
+S.secondarytextalpha = 1
+
 S.icons = {
 	["a-arrow-down"] = "rbxassetid://92867583610071",
 	["a-arrow-up"] = "rbxassetid://132318504999733",
@@ -2162,7 +2164,7 @@ function S.bindtheme(
 			entries2 = S.__blush_font_alpha[object]
 
 			if entries2 and entries2[alphafield] ~= nil then
-				object[alphafield] = S.effectivefontalpha(entries2[alphafield])
+				object[alphafield] = S.effectivefontalpha(entries2[alphafield], object, alphafield)
 			end
 		elseif role == "highlight" then
 			entries3 = S.__blush_highlight_alpha[object]
@@ -2351,8 +2353,25 @@ function S.setfontalphabase(object, property, value, entries)
 	return false
 end
 
-function S.effectivefontalpha(value)
-	return 1 - (1 - value) * math.clamp(S.theme.fontAlpha or 1, 0, 1)
+function S.fontalpharole(object, property, bindings, colorproperty)
+	bindings = object and S.objectbindings[object]
+	if not bindings then return nil end
+
+	colorproperty = property == "TextTransparency" and "TextColor3"
+		or property == "ImageTransparency" and "ImageColor3"
+		or property == "ScrollBarImageTransparency" and "ScrollBarImageColor3"
+		or property == "BackgroundTransparency" and "BackgroundColor3"
+		or property == "Transparency" and "Color"
+
+	return colorproperty and bindings[colorproperty] or nil
+end
+
+function S.effectivefontalpha(value, object, property, alpha)
+	alpha = math.clamp(S.theme.fontAlpha or 1, 0, 1)
+	if S.fontalpharole(object, property) == "text3" then
+		alpha *= math.clamp(S.secondarytextalpha or 1, 0, 1)
+	end
+	return 1 - (1 - value) * alpha
 end
 
 function S.applyfontalpha(value)
@@ -2363,7 +2382,21 @@ function S.applyfontalpha(value)
 			S.__blush_font_alpha[object] = nil
 		else
 			for property, base in pairs(entries) do
-				object[property] = S.effectivefontalpha(base)
+				object[property] = S.effectivefontalpha(base, object, property)
+			end
+		end
+	end
+end
+
+function S.applysecondarytextalpha(value)
+	S.secondarytextalpha = math.clamp(tonumber(value) or 1, 0, 1)
+
+	for object, entries in pairs(S.__blush_font_alpha) do
+		if object.Parent then
+			for property, base in pairs(entries) do
+				if S.fontalpharole(object, property) == "text3" then
+					object[property] = S.effectivefontalpha(base, object, property)
+				end
 			end
 		end
 	end
@@ -2653,7 +2686,7 @@ function S.tween(
 			elseif S.setmainalphabase(object, property, value) then
 				goals[property] = S.effectivemainalpha(value)
 			elseif S.setfontalphabase(object, property, value) then
-				goals[property] = S.effectivefontalpha(value)
+				goals[property] = S.effectivefontalpha(value, object, property)
 			else
 				goals[property] = value
 			end
@@ -4042,8 +4075,8 @@ S.resizeicon.ImageTransparency = 0.42
 S.addshadow(
 	S.resizeicon,
 	"ResizeGlow",
-	0.982,
-	9,
+	0.76,
+	8,
 	0,
 	-1,
 	S.theme.white,
@@ -5535,7 +5568,6 @@ S.windowdrag = nil
 S.watermarkdrag = nil
 S.sliderdrag = nil
 S.pickerdrag = nil
-S.sectiondrag = nil
 
 S.animatedpickers = {}
 S.pickeranimationconnection = nil
@@ -8266,43 +8298,25 @@ function S.createpage(name, primary, secondary, pageframe, left, right, page, se
 
 	page.scrollupdates.right = S.createscrollbar(pageframe, right, "right")
 
-	sectionvisible = function(section)
-		return not section.dragpreview
-			and not section.floating
-			and (section.dragging or section.frame.Visible)
-	end
+	sectionvisible = function(section) return section.frame.Visible end
 
 	function page:invalidateorder() self.ordercache = nil end
 
-	function page:sorted(column, excluded, result, filtered)
+	function page:sorted(column, result)
 		if not self.ordercache then self.ordercache = {} end
 		result = self.ordercache[column]
-		if not result then
-			result = {}
-			for _, section in ipairs(self.sections) do
-				if section.column == column and section.frame.Parent then
-					result[#result + 1] = section
-				end
+		if result then return result end
+
+		result = {}
+		for _, section in ipairs(self.sections) do
+			if section.column == column and section.frame.Parent then
+				result[#result + 1] = section
 			end
-			table.sort(result, S.sectionorderless)
-			self.ordercache[column] = result
 		end
-		if not excluded then return result end
-		filtered = {}
-		for _, section in ipairs(result) do
-			if section ~= excluded then filtered[#filtered + 1] = section end
-		end
-		return filtered
-	end
 
-	function page:normalize(column, index)
-		self:invalidateorder()
-		index = 0
-
-		for _, section in ipairs(self:sorted(column)) do
-			index += 1
-			section.order = index
-		end
+		table.sort(result, S.sectionorderless)
+		self.ordercache[column] = result
+		return result
 	end
 
 	S.__blush_section_reflow_tweens = S.__blush_section_reflow_tweens
@@ -8340,12 +8354,7 @@ function S.createpage(name, primary, secondary, pageframe, left, right, page, se
 					S.__blush_section_reflow_tweens[section] = nil
 				end
 
-				if
-					animate
-					and section.frame.Position ~= target
-					and not section.dragging
-					and section.frame.Visible
-				then
+				if animate and section.frame.Position ~= target and section.frame.Visible then
 					animation = S.tween(section.frame, { Position = target }, S.sectionti)
 					S.__blush_section_reflow_tweens[section] = animation
 				else
@@ -8364,7 +8373,7 @@ function S.createpage(name, primary, secondary, pageframe, left, right, page, se
 
 		bottompadding = 0
 
-		if animate or self.attaching then
+		if animate then
 			scroll.CanvasSize = UDim2.fromOffset(
 				0,
 				math.max(scroll.CanvasSize.Y.Offset, y + bottompadding, scroll.AbsoluteSize.Y)
@@ -9634,378 +9643,6 @@ function S.opencolorpicker(
 	state:refresh()
 end
 
--- section movement
-
-function S.sectiontargetindex(page, column, excluded, y, items, visible, scroll, index, center)
-	items = page:sorted(column, excluded)
-
-	visible = {}
-
-	for _, section in ipairs(items) do
-		if section.frame.Visible then table.insert(visible, section) end
-	end
-
-	scroll = page[column]
-
-	index = #visible + 1
-
-	for i, section in ipairs(visible) do
-		center = scroll.AbsolutePosition.Y
-			+ (section.targety or section.frame.Position.Y.Offset)
-			- scroll.CanvasPosition.Y
-			+ (section.targetheight or section.frame.Size.Y.Offset) / 2
-
-		if y < center then
-			index = i
-			break
-		end
-	end
-
-	return index, visible
-end
-
-function S.movesection(section, column, index, page, oldcolumn, targetitems, visible, orderlist)
-	page = section.page
-
-	oldcolumn = section.column
-
-	targetitems = page:sorted(column, section)
-
-	visible = {}
-
-	for _, object in ipairs(targetitems) do
-		if object.frame.Visible then table.insert(visible, object) end
-	end
-
-	index = math.clamp(index, 1, #visible + 1)
-
-	section.column = column
-	page:invalidateorder()
-
-	if section.frame.Parent ~= page[column] then section.frame.Parent = page[column] end
-
-	orderlist = {}
-
-	for _, object in ipairs(page:sorted(column, section)) do
-		if object.frame.Visible then table.insert(orderlist, object) end
-	end
-
-	table.insert(orderlist, index, section)
-
-	for i, object in ipairs(orderlist) do
-		object.order = i
-	end
-
-	page:normalize(column)
-
-	if oldcolumn ~= column then
-		page:normalize(oldcolumn)
-
-		page:reflow(oldcolumn, true)
-	end
-
-	page:reflow(column, true)
-end
-
-function S.transfersectionpage(section, targetpage, oldpage)
-	oldpage = section.page
-
-	if not targetpage or oldpage == targetpage then return end
-
-	for index = #oldpage.sections, 1, -1 do
-		if oldpage.sections[index] == section then
-			table.remove(oldpage.sections, index)
-			break
-		end
-	end
-
-	oldpage:normalize(section.column)
-	oldpage:reflow(section.column, true)
-
-	section.page = targetpage
-	targetpage.order += 1
-	section.order = targetpage.order
-	table.insert(targetpage.sections, section)
-	targetpage:invalidateorder()
-end
-
-function S.beginsectiondrag(
-	drag,
-	section,
-	absolute,
-	originalsize,
-	ghost,
-	clone,
-	clonedcollapse,
-	cloneddivider,
-	clonedclip,
-	animation
-)
-	if S.draglayer and S.draglayer.Parent then S.draglayer.GroupTransparency = 0 end
-
-	section = drag.section
-	drag.wascollapsed = section.collapsed
-	drag.wasfloating = section.floating == true
-	absolute = section.frame.AbsolutePosition - S.draglayer.AbsolutePosition
-	originalsize = section.frame.AbsoluteSize
-	drag.width = originalsize.X
-	drag.expandedheight = math.max(43, section.targetheight or originalsize.Y, originalsize.Y)
-	drag.grab = drag.current - section.frame.AbsolutePosition
-
-	ghost = S.new("Frame", {
-		Parent = S.draglayer,
-		Position = UDim2.fromOffset(absolute.X, absolute.Y),
-		Size = UDim2.fromOffset(originalsize.X, originalsize.Y),
-		BackgroundTransparency = 1,
-		BorderSizePixel = 0,
-		ClipsDescendants = false,
-		ZIndex = 410,
-	})
-
-	S.corner(ghost, 10)
-
-	clone = section.frame:Clone()
-	clone.Parent = ghost
-	clone.Position = UDim2.fromOffset(0, 0)
-	clone.Size = UDim2.fromOffset(originalsize.X, originalsize.Y)
-
-	for _, object in ipairs(clone:GetDescendants()) do
-		if object:IsA("GuiObject") then object.ZIndex += 400 end
-	end
-
-	clone.ZIndex += 400
-	section.dragging = true
-	section.frame.Visible = false
-	drag.started = true
-	drag.ghost = ghost
-	drag.clone = clone
-	drag.cloneanimations = {}
-
-	if not drag.wascollapsed then
-		section:SetCollapsed(true, false, false)
-
-		clonedcollapse = clone:FindFirstChild("SectionCollapse", true)
-		cloneddivider = clone:FindFirstChild("SectionDivider")
-		clonedclip = clone:FindFirstChild("SectionClip")
-
-		drag.ghostsizeanimation = S.tween(
-			ghost,
-			{ Size = UDim2.fromOffset(originalsize.X, 43) },
-			S.sectionattachti
-		)
-
-		animation = S.tween(clone, { Size = UDim2.fromOffset(originalsize.X, 43) }, S.sectionattachti)
-		if animation then drag.cloneanimations[#drag.cloneanimations + 1] = animation end
-
-		if clonedcollapse then
-			animation = S.tween(clonedcollapse, { Rotation = -90 }, S.sectionattachti)
-			if animation then drag.cloneanimations[#drag.cloneanimations + 1] = animation end
-		end
-
-		if cloneddivider then
-			animation = S.tween(cloneddivider, { BackgroundTransparency = 1 }, S.sectionattachti)
-			if animation then drag.cloneanimations[#drag.cloneanimations + 1] = animation end
-		end
-
-		if clonedclip then
-			clonedclip.ClipsDescendants = true
-			animation = S.tween(clonedclip, { Size = UDim2.new(1, 0, 0, 0) }, S.sectionattachti)
-			if animation then drag.cloneanimations[#drag.cloneanimations + 1] = animation end
-		end
-	end
-
-	drag.previewcolumn = section.column
-	drag.previewindex = -1
-	section.dragpreview = true
-	S.updatesectiondrag(drag)
-	section.page:reflow(section.column, true)
-end
-
-function S.updatesectiondrag(drag, section, position, canattach, page, split, column, index)
-	section = drag.section
-	position = drag.current - drag.grab - S.draglayer.AbsolutePosition
-	drag.ghost.Position = UDim2.fromOffset(position.X, position.Y)
-	canattach = S.currentpage
-		and S.__blush_windowvisible ~= false
-		and S.shell.Visible
-		and S.inside(S.window, drag.current)
-	drag.outside = not canattach
-	page = canattach and S.currentpage or nil
-
-	if not page then
-		drag.mode = "detached"
-		drag.previewpage = nil
-		return
-	end
-
-	drag.mode = "attached-preview"
-	split = (
-		page.left.AbsolutePosition.X
-		+ page.left.AbsoluteSize.X
-		+ page.right.AbsolutePosition.X
-	) * 0.5
-	column = drag.current.X < split and "left" or "right"
-	index = S.sectiontargetindex(page, column, section, drag.current.Y)
-	drag.previewpage = page
-	drag.previewcolumn = column
-	drag.previewindex = index
-end
-
-function S.attachsectiontransition(
-	drag,
-	section,
-	ghost,
-	targetparent,
-	target,
-	targetsize,
-	clone,
-	clonedcollapse,
-	cloneddivider,
-	clonedclip,
-	finished,
-	finish,
-	animation
-)
-	section = drag.section
-	ghost = drag.ghost
-	section.page.attaching = true
-
-	if drag.ghostsizeanimation then
-		drag.ghostsizeanimation:Cancel()
-		drag.ghostsizeanimation = nil
-	end
-
-	for _, current in ipairs(drag.cloneanimations or {}) do
-		if current then current:Cancel() end
-	end
-	drag.cloneanimations = nil
-
-	section.floating = false
-	section.floatingwidth = nil
-	section.frame:SetAttribute("BlushDetachedSection", false)
-	section.dragging = true
-	section.frame.Visible = false
-
-	if section.shadow then section.shadow.Enabled = false end
-
-	targetparent = section.page[section.column]
-	if section.frame.Parent ~= targetparent then section.frame.Parent = targetparent end
-
-	if not section.collapsed then section:SetCollapsed(true, false, false) end
-	section.targetheight = 43
-	section.frame.Size = UDim2.new(1, -7, 0, 43)
-	section.clip.Size = UDim2.new(1, 0, 0, 0)
-	section.clip.ClipsDescendants = true
-	section.page:reflow(section.column, false, true)
-	S.applyuitransparency(S.uitransparency * 100)
-
-	target = targetparent.AbsolutePosition
-		- S.draglayer.AbsolutePosition
-		+ Vector2.new(0, section.targety - targetparent.CanvasPosition.Y)
-	targetsize = UDim2.fromOffset(math.max(1, targetparent.AbsoluteSize.X - 7), 43)
-	clone = drag.clone
-
-	if clone and clone.Parent then
-		clonedcollapse = clone:FindFirstChild("SectionCollapse", true)
-		cloneddivider = clone:FindFirstChild("SectionDivider")
-		clonedclip = clone:FindFirstChild("SectionClip")
-
-		S.tween(clone, { Size = targetsize }, S.sectionattachti)
-		if clonedclip then
-			clonedclip.ClipsDescendants = true
-			S.tween(clonedclip, { Size = UDim2.new(1, 0, 0, 0) }, S.sectionattachti)
-		end
-		if clonedcollapse then S.tween(clonedcollapse, { Rotation = -90 }, S.sectionattachti) end
-		if cloneddivider then
-			S.tween(cloneddivider, { BackgroundTransparency = 1 }, S.sectionattachti)
-		end
-	end
-
-	finished = false
-	finish = function()
-		if finished then return end
-		finished = true
-		section.page.attaching = nil
-		section.dragging = false
-		section.frame.Visible = true
-		section.clip.ClipsDescendants = true
-		section.page:reflow(section.column, false)
-		S.applyuitransparency(S.uitransparency * 100)
-
-		if ghost and ghost.Parent then ghost:Destroy() end
-
-		if not drag.wascollapsed then section:SetCollapsed(false, true, true) end
-	end
-
-	if not ghost or not ghost.Parent then
-		finish()
-		return
-	end
-
-	animation = S.tween(ghost, {
-		Position = UDim2.fromOffset(target.X, target.Y),
-		Size = targetsize,
-	}, S.sectionattachti)
-
-	if animation then
-		animation.Completed:Connect(finish)
-	else
-		finish()
-	end
-end
-
-function S.finishsectiondrag(drag, section, floatingposition)
-	if S.draglayer and S.draglayer.Parent then S.draglayer.GroupTransparency = 0 end
-
-	drag = S.sectiondrag
-	S.sectiondrag = nil
-
-	if drag then S.releaseinteraction(drag.input) end
-	if not drag or not drag.started then return end
-
-	section = drag.section
-	section.dragpreview = nil
-
-	if drag.previewpage and not drag.outside then
-		if section.page ~= drag.previewpage then
-			S.transfersectionpage(section, drag.previewpage)
-		end
-		section.floating = false
-		S.movesection(section, drag.previewcolumn, drag.previewindex)
-	end
-
-	section.lastdragend = os.clock()
-	section.headerdragged = false
-
-	if drag.outside then
-		floatingposition = drag.ghost.AbsolutePosition - S.draglayer.AbsolutePosition
-		section.floating = true
-		section.frame:SetAttribute("BlushDetachedSection", true)
-		section.frame.BackgroundTransparency = S.effectivetransparency(0.04, "section", section.frame)
-		section.floatingwidth = drag.width
-		section.frame.Parent = S.draglayer
-		section.frame.Position = UDim2.fromOffset(floatingposition.X, floatingposition.Y)
-		section.frame.Size = UDim2.fromOffset(drag.width, 43)
-		section.clip.Size = UDim2.new(1, 0, 0, 0)
-		section.dragging = false
-		section.frame.Visible = true
-
-		if section.shadow then section.shadow.Enabled = true end
-
-		S.applyuitransparency(S.uitransparency * 100)
-
-		if drag.ghost and drag.ghost.Parent then drag.ghost:Destroy() end
-
-		section.page:reflow(section.column, true)
-
-		if not drag.wascollapsed then section:SetCollapsed(false, true, false) end
-
-		return
-	end
-
-	S.attachsectiontransition(drag)
-end
-
 -- section
 
 function S.sliderbounds(minimum, maximum, round, factor)
@@ -10029,12 +9666,11 @@ function S.createsection(
 	titletext,
 	sectionicon,
 	frame,
-	floatingshadow,
 	headerobject,
 	titleoffset,
 	sectionimage,
 	titleobject,
-	draghandle,
+	headerbutton,
 	collapse,
 	divider,
 	clip,
@@ -10069,9 +9705,6 @@ function S.createsection(
 	S.backgroundsectionframes[frame] = 0.04
 	if S.updatebackgroundsurfaces then S.updatebackgroundsurfaces() end
 
-	floatingshadow = S.adddepthshadow(frame, "floating")
-
-	if floatingshadow then floatingshadow.Enabled = false end
 
 	headerobject = S.new("Frame", {
 		Parent = frame,
@@ -10103,7 +9736,7 @@ function S.createsection(
 	titleobject.TextSize = 17
 	titleobject.ZIndex = 15
 
-	draghandle = S.new("TextButton", {
+	headerbutton = S.new("TextButton", {
 		Parent = headerobject,
 
 		Size = UDim2.new(1, 0, 1, 0),
@@ -10169,13 +9802,14 @@ function S.createsection(
 		ZIndex = 14,
 	})
 
-	body = S.new("Frame", {
+	body = S.new("CanvasGroup", {
 		Parent = clip,
 
 		Size = UDim2.new(1, 0, 0, 0),
 
 		BackgroundTransparency = 1,
 		BorderSizePixel = 0,
+		GroupTransparency = 0,
 
 		ZIndex = 14,
 	})
@@ -10196,7 +9830,6 @@ function S.createsection(
 		clip = clip,
 		collapse = collapse,
 		divider = divider,
-		shadow = floatingshadow,
 		TextObject = titleobject,
 		IconObject = sectionimage,
 
@@ -10206,17 +9839,12 @@ function S.createsection(
 		transitions = {},
 
 		collapsed = false,
-		dragging = false,
-		floating = false,
-		floatingwidth = nil,
 
 		headerheight = 43,
 		targetheight = 43,
 		targety = 0,
 
 		ready = false,
-		headerdragged = false,
-		lastdragend = 0,
 	}
 
 	sectiontransition = function(key, object, properties, animate, previous, animation)
@@ -10232,7 +9860,7 @@ function S.createsection(
 			return nil
 		end
 
-		animation = S.tween(object, properties, S.tabti)
+		animation = S.tween(object, properties, S.sectionti)
 		section.transitions[key] = animation
 
 		if animation then
@@ -10281,16 +9909,7 @@ function S.createsection(
 		section.targetheight = section.collapsed and collapsedheader2
 			or (section.headerheight + visibleheight2)
 
-		framesize = nil
-
-		if section.floating then
-			framesize = UDim2.fromOffset(
-				section.floatingwidth or math.max(1, frame.AbsoluteSize.X),
-				section.targetheight
-			)
-		else
-			framesize = UDim2.new(1, -7, 0, section.targetheight)
-		end
+		framesize = UDim2.new(1, -7, 0, section.targetheight)
 
 		clipsize = UDim2.new(1, 0, 0, visibleheight2)
 
@@ -10308,13 +9927,10 @@ function S.createsection(
 		if clipanimation then
 			clipanimation.Completed:Connect(function()
 				if not section.collapsed and clip.Parent then clip.ClipsDescendants = false end
-				if not section.floating and page and page.frame and page.frame.Parent then
-					page:reflow(section.column, false)
-				end
 			end)
 		end
 
-		if not section.floating then page:reflow(section.column, layoutanimate == true) end
+		page:reflow(section.column, layoutanimate == true)
 	end
 
 	function section:RefreshLayout(animate, layoutanimate)
@@ -10333,9 +9949,9 @@ function S.createsection(
 
 		if visible then
 			headerobject.Visible = true
-			draghandle.Parent = headerobject
-			draghandle.Position = UDim2.fromOffset(0, 0)
-			draghandle.Size = UDim2.fromScale(1, 1)
+			headerbutton.Parent = headerobject
+			headerbutton.Position = UDim2.fromOffset(0, 0)
+			headerbutton.Size = UDim2.fromScale(1, 1)
 			collapse.Parent = headerobject
 			collapse.AnchorPoint = Vector2.new(1, 0.5)
 			collapse.Position = UDim2.new(1, -13, 0.5, 0)
@@ -10344,12 +9960,11 @@ function S.createsection(
 			divider.BackgroundTransparency = self.collapsed and 1 or 0.52
 		else
 			headerobject.Visible = false
-			-- Keep the existing drag/minimize control usable without reserving a title row.
-			draghandle.Parent = frame
-			draghandle.AnchorPoint = Vector2.new(1, 0)
-			draghandle.Position = UDim2.new(1, 0, 0, 0)
-			draghandle.Size = UDim2.fromOffset(34, 32)
-			draghandle.ZIndex = 20
+			headerbutton.Parent = frame
+			headerbutton.AnchorPoint = Vector2.new(1, 0)
+			headerbutton.Position = UDim2.new(1, 0, 0, 0)
+			headerbutton.Size = UDim2.fromOffset(34, 32)
+			headerbutton.ZIndex = 20
 			collapse.Parent = frame
 			collapse.AnchorPoint = Vector2.new(1, 0.5)
 			collapse.Position = UDim2.new(1, -9, 0, 16)
@@ -10379,6 +9994,8 @@ function S.createsection(
 				or (self.collapsed and 1 or 0.52),
 		}, animate)
 
+		sectiontransition("bodyalpha", body, { GroupTransparency = self.collapsed and 1 or 0 }, animate)
+
 		resize(animate, layoutanimate)
 	end
 
@@ -10391,41 +10008,8 @@ function S.createsection(
 
 	page:reflow(column, false)
 
-	draghandle.Activated:Connect(function()
-		if
-			(S.sectiondrag and S.sectiondrag.section == section and S.sectiondrag.started)
-			or os.clock() - (section.lastdragend or 0) < 0.12
-		then
-			return
-		end
-
+	headerbutton.Activated:Connect(function()
 		section:SetCollapsed(not section.collapsed, true, true)
-	end)
-
-	draghandle.InputBegan:Connect(function(input)
-		if
-			input.UserInputType ~= Enum.UserInputType.MouseButton1
-			and input.UserInputType ~= Enum.UserInputType.Touch
-		then
-			return
-		end
-
-		if not S.acquireinteraction("sectiondrag", input) then return end
-
-		S.closepopup()
-
-		section.headerdragged = false
-
-		S.sectiondrag = {
-			input = input,
-
-			section = section,
-
-			start = S.point(input),
-			current = S.point(input),
-
-			started = false,
-		}
 	end)
 
 	register = function(row, name, expected, fallback, visible)
@@ -12944,7 +12528,7 @@ function S.createsection(
 					end
 
 					selectedicon = S.image(row, S.icons.check, 14, S.theme.highlight, 516)
-					selectedicon.Size = UDim2.fromOffset(13, 14)
+					selectedicon.Size = UDim2.fromOffset(17, 14)
 					selectedicon.ScaleType = Enum.ScaleType.Stretch
 					selectedicon.AnchorPoint = Vector2.new(1, 0.5)
 					selectedicon.Position = UDim2.new(1, -8, 0.5, 0)
@@ -16932,7 +16516,7 @@ function S.loadpanelthemes(payload, panel)
 			if panel.glow and type(data.glow) == "table" then
 				panel.glow.enabled = data.glow.enabled ~= false
 				panel.glow.intensity = math.clamp(tonumber(data.glow.intensity) or 16, 0, 300)
-				panel.glow.size = math.clamp(tonumber(data.glow.size) or 12, 0, 64)
+				panel.glow.size = math.clamp(tonumber(data.glow.size) or 12, 0, 25)
 				panel.glow.alpha = math.clamp(tonumber(data.glow.alpha) or 1, 0, 1)
 				if type(data.glow.color) == "table" then
 					panel.glow.color = Color3.new(table.unpack(data.glow.color))
@@ -17028,7 +16612,7 @@ function S.addpanelsettings(section, panel, roles, shadow, control)
 		end)
 		panel.settingsobjects[#panel.settingsobjects + 1] = panel.glowintensity.Object
 
-		panel.glowsize = section:AddSlider("Glow Size", 0, 64, 12, "px", function(value)
+		panel.glowsize = section:AddSlider("Glow Size", 0, 25, 12, "px", function(value)
 			panel.glow.size = value
 			panel.applyglow()
 			S.saveuisettings()
@@ -17037,8 +16621,14 @@ function S.addpanelsettings(section, panel, roles, shadow, control)
 
 		panel.updateglowsettings = function(parentvisible)
 			parentvisible = parentvisible ~= false
-			panel.glowintensity.Object.Visible = parentvisible and panel.glow.enabled
-			panel.glowsize.Object.Visible = parentvisible and panel.glow.enabled
+			local visible = parentvisible and panel.glow.enabled
+			if S.setsettingsvisible then
+				S.setsettingsvisible(panel.glowintensity.Object, visible, true)
+				S.setsettingsvisible(panel.glowsize.Object, visible, true)
+			else
+				panel.glowintensity.Object.Visible = visible
+				panel.glowsize.Object.Visible = visible
+			end
 		end
 
 		panel.updateglowsettings(true)
@@ -17073,6 +16663,7 @@ function S.currentuipayload(
 			S.secondarytextoverride.G,
 			S.secondarytextoverride.B,
 		} or nil,
+		secondaryTextAlpha = S.secondarytextalpha,
 		watermark = S.watermarktoggle and S.watermarktoggle:Get() or S.watermarkshown,
 
 		watermarkInfo = {
@@ -17163,6 +16754,8 @@ function S.currentthemepayload(payload)
 		accent = payload.accent,
 		background = payload.background,
 		font = payload.font,
+		secondaryText = payload.secondaryText,
+		secondaryTextAlpha = payload.secondaryTextAlpha,
 		mainAlpha = payload.mainAlpha,
 		highlightAlpha = payload.highlightAlpha,
 		accentAlpha = payload.accentAlpha,
@@ -17675,6 +17268,11 @@ function S.applythemepayload(
 	accentalpha = math.clamp(tonumber(data.accentAlpha) or 1, 0, 1)
 	fontalpha = math.clamp(tonumber(data.fontAlpha) or 1, 0, 1)
 
+	S.secondarytextoverride = type(data.secondaryText) == "table"
+		and Color3.new(table.unpack(data.secondaryText))
+		or nil
+	S.secondarytextalpha = math.clamp(tonumber(data.secondaryTextAlpha) or 1, 0, 1)
+
 	oldloading = S.loadingsettings
 	S.loadingsettings = true
 
@@ -17699,6 +17297,10 @@ function S.applythemepayload(
 	S.accentpicker:Set(accent, accentalpha, false)
 	S.backgroundpicker:Set(background, backgroundalpha, false)
 	S.fontpicker:Set(fontcolor, fontalpha, false)
+	if S.secondarytextpicker then
+		S.secondarytextpicker:Set(S.theme.text3, S.secondarytextalpha, false)
+	end
+	S.applysecondarytextalpha(S.secondarytextalpha)
 
 	S.syncwindowglowcolor(false)
 
@@ -17879,7 +17481,15 @@ S.watermarkplayermodecontrol = S.watermarksettingssection:AddRadio(
 
 S.updatewatermarklayout()
 
-S.animationtoggle = S.settingssection:AddToggle("Animations", S.animationsenabled, function(value)
+S.menukeypicker = S.settingssection:AddKeyPicker("Window Open/Close", S.menukey, function(key)
+	S.menukey = key
+	S.refreshmenukeybinding()
+	S.saveuisettings()
+end)
+
+S.interfaceflags1 = S.settingssection:AddRow(10, 24)
+
+S.animationtoggle = S.interfaceflags1:AddToggle("Animations", S.animationsenabled, function(value)
 	S.animationsenabled = value == true
 
 	if S.animationsenabled then
@@ -17890,9 +17500,7 @@ S.animationtoggle = S.settingssection:AddToggle("Animations", S.animationsenable
 	S.saveuisettings()
 end)
 
-S.interfaceflags2 = S.settingssection:AddRow(10, 24)
-
-S.searchtoggle = S.interfaceflags2:AddToggle("Search", S.searchenabled, function(value)
+S.searchtoggle = S.interfaceflags1:AddToggle("Search", S.searchenabled, function(value)
 	S.setsearchvisible(value, true)
 
 	if not S.searchenabled then S.search.Text = "" end
@@ -17900,7 +17508,7 @@ S.searchtoggle = S.interfaceflags2:AddToggle("Search", S.searchenabled, function
 	S.saveuisettings()
 end)
 
-S.setsearchvisible(S.searchenabled, false)
+S.interfaceflags2 = S.settingssection:AddRow(10, 24)
 
 S.notificationtoggle = S.interfaceflags2:AddToggle(
 	"Notifications",
@@ -17910,6 +17518,18 @@ S.notificationtoggle = S.interfaceflags2:AddToggle(
 		S.saveuisettings()
 	end
 )
+
+S.topnavigationtoggle = S.interfaceflags2:AddToggle(
+	"Top navigation",
+	S.topnavigationenabled,
+	function(value)
+		S.topnavigationenabled = value == true
+		if S.applytopnavigation then S.applytopnavigation(S.topnavigationenabled, true) end
+		S.saveuisettings()
+	end
+)
+
+S.setsearchvisible(S.searchenabled, false)
 
 S.keybindssection = S.createsection(S.settings, "left", "Keybinds", S.icons.keyboard)
 
@@ -17925,37 +17545,6 @@ S.hotkeylisttoggle = S.keybindssection:AddToggle(
 
 S.sethotkeylistvisible(S.savedsettings.hotkeyList == true or S.savedsettings.checkboxList == true)
 
-S.topnavigationtoggle = S.settingssection:AddToggle(
-	"Top navigation",
-	S.topnavigationenabled,
-	function(value)
-		S.topnavigationenabled = value == true
-		if S.applytopnavigation then S.applytopnavigation(S.topnavigationenabled, true) end
-		S.saveuisettings()
-	end
-)
-
-S.secondarytextpicker = S.settingssection:AddColorPicker(
-	"Secondary Text",
-	S.theme.text3,
-	function(color)
-		S.secondarytextoverride = color
-		S.theme.text3 = color
-		S.indexthemecolors()
-		S.applythemerole("text3", false)
-		S.saveuisettings()
-	end
-)
-
-
-
-S.menukeypicker = S.settingssection:AddKeyPicker("Window Open/Close", S.menukey, function(key)
-	S.menukey = key
-	S.refreshmenukeybinding()
-	S.saveuisettings()
-end)
-
-S.menukeypicker.Object.LayoutOrder = -10
 S.keybindblacklistcontrol = S.keybindssection:AddMultiDropdown(
 	"Blacklisted Keys",
 	S.keybindblacklistoptions,
@@ -18080,16 +17669,97 @@ S.addpanelsettings(S.keybindssection, S.panelthemes.Keybinds, {
 }, S.hotkeyglow)
 S.loadpanelthemes(S.savedsettings.panelThemes)
 
+S.settingsvisibilitytokens = setmetatable({}, { __mode = "k" })
+S.settingsvisibilitytargets = setmetatable({}, { __mode = "k" })
+
+function S.setsettingsvisible(root, visible, animate, objects, saved, token, primary, animation, goals)
+	if not root or not root.Parent then return end
+	if S.settingsvisibilitytargets[root] == visible and root.Visible == visible then return end
+
+	S.settingsvisibilitytargets[root] = visible
+	token = (S.settingsvisibilitytokens[root] or 0) + 1
+	S.settingsvisibilitytokens[root] = token
+
+	if not animate or not S.animationsenabled or S.constructing then
+		root.Visible = visible
+		return
+	end
+	objects = { root }
+	for _, object in ipairs(root:GetDescendants()) do objects[#objects + 1] = object end
+	saved = {}
+
+	for _, object in ipairs(objects) do
+		goals = {}
+		saved[object] = {}
+
+		if object:IsA("GuiObject") and object.BackgroundTransparency < 1 then
+			saved[object].BackgroundTransparency = object.BackgroundTransparency
+			goals.BackgroundTransparency = visible and object.BackgroundTransparency or 1
+		end
+		if object:IsA("TextLabel") or object:IsA("TextButton") or object:IsA("TextBox") then
+			if object.TextTransparency < 1 then
+				saved[object].TextTransparency = object.TextTransparency
+				goals.TextTransparency = visible and object.TextTransparency or 1
+			end
+		end
+		if object:IsA("ImageLabel") or object:IsA("ImageButton") then
+			if object.ImageTransparency < 1 then
+				saved[object].ImageTransparency = object.ImageTransparency
+				goals.ImageTransparency = visible and object.ImageTransparency or 1
+			end
+		end
+		if (object:IsA("UIStroke") or object:IsA("UIShadow")) and object.Transparency < 1 then
+			saved[object].Transparency = object.Transparency
+			goals.Transparency = visible and object.Transparency or 1
+		end
+
+		if visible then
+			for property in pairs(goals) do object[property] = 1 end
+		end
+	end
+
+	if visible then root.Visible = true end
+
+	for _, object in ipairs(objects) do
+		if object.Parent then
+			goals = {}
+			for property, base in pairs(saved[object]) do
+				goals[property] = visible and base or 1
+			end
+			if next(goals) then
+				animation = S.tween(object, goals, S.hoverti, true)
+				primary = primary or animation
+			end
+		end
+	end
+
+	local function finish()
+		if S.settingsvisibilitytokens[root] ~= token then return end
+		if not visible and root.Parent then root.Visible = false end
+		for object, properties in pairs(saved) do
+			if object.Parent then
+				for property, base in pairs(properties) do object[property] = base end
+			end
+		end
+	end
+
+	if primary then
+		primary.Completed:Connect(finish)
+	else
+		finish()
+	end
+end
+
 function S.refreshsettingsdependencies(animate, watermarkenabled, keybindsenabled, glowenabled, panel)
 	watermarkenabled = S.watermarktoggle:Get() == true
 	keybindsenabled = S.hotkeylisttoggle:Get() == true
 	glowenabled = S.windowglowtoggle:Get() == true
 
-	S.watermarkinfocontrol.Object.Visible = watermarkenabled
-	S.watermarkplayermodecontrol.Object.Visible = watermarkenabled
-	S.keybindblacklistcontrol.Object.Visible = keybindsenabled
-	S.windowglowintensitycontrol.Object.Visible = glowenabled
-	S.windowglowsizecontrol.Object.Visible = glowenabled
+	S.setsettingsvisible(S.watermarkinfocontrol.Object, watermarkenabled, animate == true)
+	S.setsettingsvisible(S.watermarkplayermodecontrol.Object, watermarkenabled, animate == true)
+	S.setsettingsvisible(S.keybindblacklistcontrol.Object, keybindsenabled, animate == true)
+	S.setsettingsvisible(S.windowglowintensitycontrol.Object, glowenabled, animate == true)
+	S.setsettingsvisible(S.windowglowsizecontrol.Object, glowenabled, animate == true)
 
 	for _, data in ipairs({
 		{ S.panelthemes.Watermark, watermarkenabled },
@@ -18097,7 +17767,7 @@ function S.refreshsettingsdependencies(animate, watermarkenabled, keybindsenable
 	}) do
 		panel = data[1]
 		for _, object in ipairs(panel.settingsobjects or {}) do
-			if object and object.Parent then object.Visible = data[2] end
+			if object and object.Parent then S.setsettingsvisible(object, data[2], animate == true) end
 		end
 		if panel.updateglowsettings then panel.updateglowsettings(data[2]) end
 	end
@@ -18111,8 +17781,8 @@ S.refreshsettingsdependencies(false)
 
 if type(S.savedsettings.secondaryText) == "table" then
 	S.secondarytextoverride = Color3.new(table.unpack(S.savedsettings.secondaryText))
-	S.secondarytextpicker:Set(S.secondarytextoverride, 1, false)
 end
+S.secondarytextalpha = math.clamp(tonumber(S.savedsettings.secondaryTextAlpha) or 1, 0, 1)
 
 S.themessection = S.createsection(S.settings, "right", "Theme", S.icons.palette)
 
@@ -18124,9 +17794,10 @@ S.themepresets = {
 	},
 
 	Dark = {
-		background = Color3.fromRGB(9, 10, 12),
-		accent = Color3.fromRGB(190, 198, 210),
-		font = Color3.fromRGB(226, 229, 234),
+		background = Color3.fromRGB(10, 10, 11),
+		main = Color3.fromRGB(18, 18, 20),
+		accent = Color3.fromRGB(205, 205, 212),
+		font = Color3.fromRGB(232, 232, 236),
 	},
 
 	Violet = {
@@ -18202,13 +17873,13 @@ S.themeselector = S.themessection:AddDropdown(
 			return
 		end
 
-		S.applytheme(preset4.background, preset4.accent, 1, 1, preset4.font, 1, false)
+		S.applytheme(preset4.background, preset4.accent, 1, 1, preset4.font, 1, true)
 		presetmain = preset4.main
 			or S.buildtheme(preset4.background, preset4.accent, preset4.font, nil).main
 
-		S.applymaincolor(presetmain, false)
+		S.applymaincolor(presetmain, true)
 		S.applymainalpha(1)
-		S.applyhighlight(preset4.highlight or preset4.accent, 1, false)
+		S.applyhighlight(preset4.highlight or preset4.accent, 1, true)
 
 		if S.maincolorpicker then S.maincolorpicker:Set(presetmain, 1, false) end
 		if S.highlightpicker then
@@ -18343,6 +18014,23 @@ S.fontpicker.propagate = S.fontpicker.callback
 S.fontpicker.callback = nil
 S.fontpicker.onpersist = S.saveuisettings
 
+S.secondarytextpicker = S.themessection:AddColorPicker(
+	"Secondary Text",
+	S.secondarytextoverride or S.theme.text3,
+	function(color, alpha)
+		S.secondarytextoverride = color
+		S.theme.text3 = color
+		S.indexthemecolors()
+		S.applythemerole("text3", false)
+		S.applysecondarytextalpha(alpha)
+		S.saveuisettings()
+	end
+)
+S.secondarytextpicker.propagate = S.secondarytextpicker.callback
+S.secondarytextpicker.callback = nil
+S.secondarytextpicker.onpersist = S.saveuisettings
+S.secondarytextpicker:Set(S.secondarytextoverride or S.theme.text3, S.secondarytextalpha, false)
+
 S.themessection:AddDivider("Theme Files")
 S.themefileinput = S.themessection:AddInput(
 	"Theme name",
@@ -18401,8 +18089,7 @@ S.themessection:AddButton("Delete", function(name8, ok)
 	)
 end)
 
-S.backgroundimagesection = S.windowsection
-S.windowsection:AddDivider("Background Image")
+S.backgroundimagesection = S.createsection(S.settings, "right", "Background Image", S.icons.image)
 
 S.backgroundimageinput = S.backgroundimagesection:AddInput(
 	"Source",
@@ -18593,6 +18280,7 @@ function S.applysaveduisettings(
 	S.secondarytextoverride = type(data.secondaryText) == "table"
 			and Color3.new(table.unpack(data.secondaryText))
 		or nil
+	S.secondarytextalpha = math.clamp(tonumber(data.secondaryTextAlpha) or 1, 0, 1)
 
 	loadedtransparency = math.clamp(tonumber(data.uiTransparency) or 0, 0, 90)
 
@@ -18772,6 +18460,10 @@ function S.applysaveduisettings(
 		S.highlightpicker:Set(loadedhighlight, loadedhighlightalpha, false)
 	end
 	S.fontpicker:Set(loadedfont, loadedfontalpha, false)
+	if S.secondarytextpicker then
+		S.secondarytextpicker:Set(S.theme.text3, S.secondarytextalpha, false)
+	end
+	S.applysecondarytextalpha(S.secondarytextalpha)
 
 	S.syncwindowglowcolor(false)
 
@@ -18950,9 +18642,6 @@ end
 function S.setvisibilityrootsvisible(value)
 	if S.shell and S.shell.Parent then S.shell.Visible = value end
 
-	-- Popups opened from floating sections remain usable while the window is closed.
-
-	-- Floating sections remain independently visible.
 end
 
 function S.playvisibilityfade(
@@ -21239,19 +20928,6 @@ S.connect(
 			end
 		end
 
-		if S.sectiondrag and S.matches(S.sectiondrag, input) then
-			S.sectiondrag.current = p
-
-			delta3 = p - S.sectiondrag.start
-
-			if not S.sectiondrag.started and delta3.Magnitude >= 5 then
-				S.sectiondrag.section.headerdragged = true
-
-				S.beginsectiondrag(S.sectiondrag)
-			end
-
-			if S.sectiondrag.started then S.updatesectiondrag(S.sectiondrag) end
-		end
 	end
 )
 
@@ -21373,9 +21049,6 @@ S.connect(
 			end
 		end
 
-		if S.sectiondrag and (mouseended or input == S.sectiondrag.input) then
-			S.finishsectiondrag()
-		end
 
 		if
 			S.topprimarygesture
@@ -22735,7 +22408,7 @@ function S.librarysetsettingstab(config, enabled, name13, icon, groupname, secti
 		S.keybindssection.frame.Visible = sections.Keybinds ~= false
 		S.windowsection.frame.Visible = sections.Window ~= false
 		S.themessection.frame.Visible = sections.Themes ~= false and sections.Appearance ~= false
-		-- Background controls share the Window section.
+		S.backgroundimagesection.frame.Visible = sections.BackgroundImage ~= false
 		S.savessection.frame.Visible = sections.Configs ~= false
 	else
 		S.settingssection.frame.Visible = true
@@ -22743,7 +22416,7 @@ function S.librarysetsettingstab(config, enabled, name13, icon, groupname, secti
 		S.keybindssection.frame.Visible = true
 		S.windowsection.frame.Visible = true
 		S.themessection.frame.Visible = true
-
+		S.backgroundimagesection.frame.Visible = true
 		S.savessection.frame.Visible = true
 	end
 
@@ -23239,30 +22912,37 @@ function S.library:CreateWindow(
 		S.applywindowshadow()
 	end
 
-	if options.Glow ~= nil then S.windowglowenabled = options.Glow == true end
+	local glowoptions = type(options.Glow) == "table" and options.Glow or nil
 
-	if options.GlowIntensity ~= nil then
+	if options.Glow ~= nil then
+		S.windowglowenabled = glowoptions and glowoptions.Enabled ~= false or options.Glow == true
+	end
+
+	local glowintensity = glowoptions and glowoptions.Intensity or options.GlowIntensity
+	if glowintensity ~= nil then
 		S.windowglowintensity = math.clamp(
-			tonumber(options.GlowIntensity) or S.windowglowintensity,
+			tonumber(glowintensity) or S.windowglowintensity,
 			0,
 			S.windowglowintensitymax
 		)
 	end
 
-	if options.GlowSize ~= nil then
-		S.windowglowsize =
-			math.clamp(tonumber(options.GlowSize) or S.windowglowsize, 0, S.windowglowsizemax)
+	local glowsize = glowoptions and glowoptions.Size or options.GlowSize
+	if glowsize ~= nil then
+		S.windowglowsize = math.clamp(tonumber(glowsize) or S.windowglowsize, 0, S.windowglowsizemax)
 	end
 
-	if typeof(options.GlowColor) == "Color3" then
-		S.windowglowcolor = options.GlowColor
+	local glowcolor = glowoptions and glowoptions.Color or options.GlowColor
+	if typeof(glowcolor) == "Color3" then
+		S.windowglowcolor = glowcolor
 		S.windowglowcustom = true
 	elseif not S.windowglowcustom then
 		S.windowglowcolor = S.theme.white
 	end
 
-	if options.GlowAlpha ~= nil then
-		S.windowglowalpha = math.clamp(tonumber(options.GlowAlpha) or S.windowglowalpha, 0, 1)
+	local glowalpha = glowoptions and glowoptions.Alpha or options.GlowAlpha
+	if glowalpha ~= nil then
+		S.windowglowalpha = math.clamp(tonumber(glowalpha) or S.windowglowalpha, 0, 1)
 	end
 
 	S.windowglowrenderalpha = S.windowglowalpha
@@ -23297,7 +22977,18 @@ function S.library:CreateWindow(
 
 	if typeof(position) == "UDim2" then S.shell.Position = position end
 
-	if type(options.Theme) == "table" then
+	if type(options.Theme) == "string" and S.themepresets[options.Theme] then
+		local preset = S.themepresets[options.Theme]
+		local presetmain = preset.main
+			or S.buildtheme(preset.background, preset.accent, preset.font, nil).main
+
+		S.applytheme(preset.background, preset.accent, 1, 1, preset.font, 1, false)
+		S.applymaincolor(presetmain, false)
+		S.applymainalpha(1)
+		S.applyhighlight(preset.highlight or preset.accent, 1, false)
+
+		if S.themeselector then S.themeselector:Set(options.Theme, false) end
+	elseif type(options.Theme) == "table" then
 		local derivedtheme
 		if options.Theme.Background or options.Theme.Window then
 			derivedtheme = S.buildtheme(
@@ -23333,6 +23024,15 @@ function S.library:CreateWindow(
 				options.Theme.Animate ~= false
 			)
 		end
+		if typeof(options.Theme.SecondaryText) == "Color3" then
+			S.secondarytextoverride = options.Theme.SecondaryText
+			S.theme.text3 = options.Theme.SecondaryText
+			S.indexthemecolors()
+			S.applythemerole("text3", options.Theme.Animate ~= false)
+		end
+		if options.Theme.SecondaryTextAlpha ~= nil then
+			S.applysecondarytextalpha(options.Theme.SecondaryTextAlpha)
+		end
 	end
 
 	if options.MenuKey ~= nil then
@@ -23364,6 +23064,34 @@ function S.library:CreateWindow(
 		S.notificationsenabled = options.Notifications == true
 
 		if S.notificationtoggle then S.notificationtoggle:Set(S.notificationsenabled, false) end
+	end
+
+	local backgroundoption = options.BackgroundImage
+	if backgroundoption == nil and typeof(options.Background) ~= "Color3" then
+		backgroundoption = options.Background
+	end
+	if backgroundoption ~= nil then
+		local backgroundsource = backgroundoption
+		local backgroundopacity
+		local backgroundblur
+		local backgroundexclude
+
+		if type(backgroundoption) == "table" then
+			backgroundsource = backgroundoption.Source or backgroundoption.Image or backgroundoption.Asset
+			backgroundopacity = backgroundoption.Opacity
+			backgroundblur = backgroundoption.Blur
+			backgroundexclude = backgroundoption.ExcludeSidebar
+		end
+
+		if backgroundopacity ~= nil then S.setbackgroundimageopacity(backgroundopacity, false) end
+		if backgroundblur ~= nil then S.setbackgroundimageblur(backgroundblur, false) end
+		if backgroundexclude ~= nil then S.setbackgroundexcludesidebar(backgroundexclude == true) end
+
+		if backgroundsource == false or tostring(backgroundsource or "") == "" then
+			S.clearbackgroundimage(false)
+		else
+			S.loadbackgroundimage(tostring(backgroundsource), false, false)
+		end
 	end
 
 	local watermarkinfo = type(options.Watermark) == "table" and options.Watermark
@@ -23604,6 +23332,20 @@ function S.library:CreateWindow(
 
 	function S.librarywindow:SetLogo(asset, color) S.librarysetlogo(asset, color) end
 
+
+	function S.librarywindow:SetGlow(value)
+		if type(value) ~= "table" then
+			self:SetGlowEnabled(value == true)
+			return
+		end
+
+		self:SetGlowEnabled(value.Enabled ~= false)
+		if value.Intensity ~= nil then self:SetGlowIntensity(value.Intensity) end
+		if value.Size ~= nil then self:SetGlowSize(value.Size) end
+		if value.Alpha ~= nil then self:SetGlowAlpha(value.Alpha) end
+		if typeof(value.Color) == "Color3" then self:SetGlowColor(value.Color) end
+	end
+
 	function S.librarywindow:SetGlowEnabled(value)
 		S.windowglowenabled = value == true
 		S.applywindowglow()
@@ -23812,7 +23554,24 @@ function S.library:CreateWindow(
 	end
 
 	function S.librarywindow:SetTheme(config, derived)
-		config = config or {}
+		if type(config) == "string" then
+			if not S.themepresets[config] then return false end
+			if S.themeselector then
+				S.themeselector:Set(config, true)
+			else
+				local preset = S.themepresets[config]
+				local main = preset.main
+					or S.buildtheme(preset.background, preset.accent, preset.font, nil).main
+				S.applytheme(preset.background, preset.accent, 1, 1, preset.font, 1, true)
+				S.applymaincolor(main, true)
+				S.applymainalpha(1)
+				S.applyhighlight(preset.highlight or preset.accent, 1, true)
+			end
+			return true
+		end
+
+		if type(config) ~= "table" then return false end
+
 		if config.Background or config.Window then
 			derived = S.buildtheme(
 				config.Background or config.Window,
@@ -23846,6 +23605,17 @@ function S.library:CreateWindow(
 				config.Animate ~= false
 			)
 		end
+		if typeof(config.SecondaryText) == "Color3" then
+			S.secondarytextoverride = config.SecondaryText
+			S.theme.text3 = config.SecondaryText
+			S.indexthemecolors()
+			S.applythemerole("text3", config.Animate ~= false)
+		end
+		if config.SecondaryTextAlpha ~= nil then
+			S.applysecondarytextalpha(config.SecondaryTextAlpha)
+		end
+
+		return true
 	end
 
 	function S.librarywindow:GetTheme()
@@ -23855,11 +23625,13 @@ function S.library:CreateWindow(
 			Highlight = S.theme.highlight,
 			Accent = S.theme.white,
 			Font = S.theme.font,
+			SecondaryText = S.theme.text3,
 			BackgroundAlpha = S.theme.backgroundAlpha,
 			MainAlpha = S.theme.mainAlpha,
 			HighlightAlpha = S.theme.highlightAlpha,
 			AccentAlpha = S.theme.accentAlpha,
 			FontAlpha = S.theme.fontAlpha,
+			SecondaryTextAlpha = S.secondarytextalpha,
 		}
 	end
 
