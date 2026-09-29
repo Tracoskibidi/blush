@@ -5,6 +5,7 @@ local m = {}
 m.pls = game:GetService("Players")
 m.run = game:GetService("RunService")
 m.uis = game:GetService("UserInputService")
+m.cas = game:GetService("ContextActionService")
 m.rs = game:GetService("ReplicatedStorage")
 m.rf = game:GetService("ReplicatedFirst")
 m.light = game:GetService("Lighting")
@@ -16,7 +17,6 @@ m.pr = m.run.PreRender
 m.pre = m.run.PreSimulation
 m.post = m.run.PostSimulation
 
-
 -- player
 
 m.lp = m.pls.LocalPlayer
@@ -27,6 +27,10 @@ m.hum = m.char:WaitForChild("Humanoid")
 m.hrp = m.char:WaitForChild("HumanoidRootPart")
 
 m.lp.CharacterAdded:Connect(function(char)
+	if m.unblockragdoll then
+		m.unblockragdoll()
+	end
+
 	m.char = char
 	m.hum = char:WaitForChild("Humanoid")
 	m.hrp = char:WaitForChild("HumanoidRootPart")
@@ -71,6 +75,10 @@ end
 -- utilities
 
 function m.fsearch(parent, name, timeout)
+	if not parent then
+		return false
+	end
+
 	local object = parent:FindFirstChild(name)
 
 	if object then
@@ -115,6 +123,124 @@ function m.fsearch(parent, name, timeout)
 	return coroutine.yield()
 end
 
+-- ragdoll blocker
+
+m.blockragdolldata = {
+	motors = {},
+	auto = nil,
+	sit = nil,
+	timer = nil,
+	character = nil,
+}
+
+function m.unblockragdoll()
+	local data = m.blockragdolldata
+
+	if data.timer then
+		task.cancel(data.timer)
+		data.timer = nil
+	end
+
+	for motor, connection in data.motors do
+		connection:Disconnect()
+		data.motors[motor] = nil
+	end
+
+	if data.auto then
+		data.auto:Disconnect()
+		data.auto = nil
+	end
+
+	if data.sit then
+		data.sit:Disconnect()
+		data.sit = nil
+	end
+
+	data.character = nil
+end
+
+function m.blockragdoll(time)
+	local data = m.blockragdolldata
+	local char = m.char
+	local hum = m.hum
+	local hrp = m.hrp
+	local torso = char and char:FindFirstChild("Torso")
+
+	if not torso or not hum or not hrp then
+		return
+	end
+
+	if data.character ~= char then
+		m.unblockragdoll()
+		data.character = char
+	end
+
+	for _, motor in torso:GetChildren() do
+		if motor:IsA("Motor6D") then
+			motor.Enabled = true
+
+			if not data.motors[motor] then
+				data.motors[motor] =
+					motor:GetPropertyChangedSignal("Enabled"):Connect(function()
+						if not motor.Enabled then
+							motor.Enabled = true
+						end
+					end)
+			end
+		end
+	end
+
+	if not data.auto then
+		data.auto =
+			hum:GetPropertyChangedSignal("AutoRotate"):Connect(function()
+				if not hum.AutoRotate then
+					hum.AutoRotate = true
+				end
+			end)
+	end
+
+	if not data.sit then
+		data.sit =
+			hum:GetPropertyChangedSignal("Sit"):Connect(function()
+				if not hum.Sit then
+					return
+				end
+
+				hum.Sit = false
+				hum:SetStateEnabled(Enum.HumanoidStateType.Jumping, true)
+
+				m.cas:UnbindAction("JumpRemover")
+
+				local root = hrp:FindFirstChild("RootJoint")
+
+				if root then
+					root.Enabled = true
+				end
+			end)
+	end
+
+	hum.AutoRotate = true
+	hum.Sit = false
+	hum:SetStateEnabled(Enum.HumanoidStateType.Jumping, true)
+
+	m.cas:UnbindAction("JumpRemover")
+
+	local root = hrp:FindFirstChild("RootJoint")
+
+	if root then
+		root.Enabled = true
+	end
+
+	if data.timer then
+		task.cancel(data.timer)
+	end
+
+	data.timer = task.delay(time or 1, function()
+		data.timer = nil
+		m.unblockragdoll()
+	end)
+end
+
 -- ftap functions
 
 function m.sit(seat)
@@ -124,10 +250,6 @@ function m.sit(seat)
 	end
 
 	seat:Sit(m.hum)
-end
-
-function m.dline(part)
-	m.ge.DestroyGrabLine(part)
 end
 
 function m.so(part, times)
@@ -165,7 +287,7 @@ m.pingdata = {
 	current = 0,
 	trend = 0,
 	lasttime = os.clock(),
-	interval = .1,
+	interval = 0.1,
 }
 
 function m.ping()
@@ -179,17 +301,17 @@ function m.ping()
 
 	if latest ~= data.current then
 		local now = os.clock()
-		local delta = math.max(now - data.lasttime, .001)
+		local delta = math.max(now - data.lasttime, 0.001)
 
-		data.trend += ((latest - data.current) / delta - data.trend) * .5
-		data.interval += (delta - data.interval) * .25
+		data.trend += ((latest - data.current) / delta - data.trend) * 0.5
+		data.interval += (delta - data.interval) * 0.25
 		data.current = latest
 		data.lasttime = now
 	end
 
 	return math.round(math.max(
 		0,
-		data.current + data.trend * math.min(data.interval, .25)
+		data.current + data.trend * math.min(data.interval, 0.25)
 	))
 end
 
@@ -200,7 +322,7 @@ m.fpsdata = {
 
 function m.fps()
 	if not m.fpsdata.connection then
-		m.fpsdata.connection = m.pr:Connect(function(dt)
+		m.fpsdata.connection = m.h:Connect(function(dt)
 			m.fpsdata.value = math.round(1 / dt)
 		end)
 	end
@@ -253,7 +375,5 @@ function m.closer(radius)
 		return closest, math.sqrt(distance)
 	end
 end
-
-
 
 return m
