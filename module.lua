@@ -123,6 +123,24 @@ function m.fsearch(parent, name, timeout)
 	return coroutine.yield()
 end
 
+
+
+function rejoin()
+	m.lp:Destroy()
+	
+	game:GetService("TeleportService"):TeleportToPlaceInstance(
+		game.PlaceId,
+		m.lp
+	)
+	
+
+	task.wait()
+
+	while task.wait(0.1) do
+		TeleportService:Teleport(game.PlaceId, lp)
+	end
+end
+
 -- ragdoll blocker
 
 m.blockragdolldata = {
