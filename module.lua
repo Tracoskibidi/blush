@@ -280,6 +280,10 @@ function m.spawn(name, cframe)
 	end
 end
 
+function m.destroy(name)
+	m.mt.DestroyToy:FireServer(name)
+end
+
 -- performance
 
 m.pingdata = {
