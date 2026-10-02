@@ -1,4 +1,5 @@
-local S = {}
+-- Runtime ownership, services and shared visual primitives.
+local S = { alive = true, constructing = true, options = {}, connections = {}, owners = {} }
 
 function S.nextscope(adapter, key, values)
 	values = table.pack(adapter.iterator(adapter.invariant, key))
@@ -11,10 +12,6 @@ function S.scopediterator(count, iterator, invariant, control)
 	return S.nextscope, { count = count, iterator = iterator, invariant = invariant }, control
 end
 
-S.constructing = true
-
-function S.invoke(callback, ...) return true, callback(...) end
-
 S.players = game:GetService("Players")
 S.uis = game:GetService("UserInputService")
 S.tweenservice = game:GetService("TweenService")
@@ -24,8 +21,8 @@ S.textservice = game:GetService("TextService")
 S.httpservice = game:GetService("HttpService")
 S.guiservice = game:GetService("GuiService")
 S.contextactionservice = game:GetService("ContextActionService")
-S.assetservice = game:GetService("AssetService")
-S.lighting = game:GetService("Lighting")
+
+
 
 S.player = S.players.LocalPlayer
 S.parent = gethui and gethui() or S.player:WaitForChild("PlayerGui")
@@ -36,18 +33,9 @@ if S.runtimebridge and S.runtimebridge:IsA("BindableEvent") then
 	S.runtimebridge:Destroy()
 end
 
-if S.uis.TouchEnabled then
-	task.defer(
-		function()
-			game:GetService("StarterGui"):SetCore("SendNotification", {
-				Title = "blush UI",
-				Text = "Mobile is not supported.",
-				Duration = 5,
-			})
-		end
-	)
-
-	return
+if S.uis.TouchEnabled and not S.uis.KeyboardEnabled then
+	warn("blush: Mobile is not supported.")
+	return nil
 end
 
 S.runtimebridge = Instance.new("BindableEvent")
@@ -56,94 +44,117 @@ S.runtimebridge.Parent = S.parent
 
 S.gui = nil
 S.watermarkgui = nil
-S.connections = {}
-
-function S.connect(signal, callback, connection)
-	if #S.connections >= 64 and #S.connections % 32 == 0 then
-		for index = #S.connections, 1, -1 do
-			if not S.connections[index].Connected then table.remove(S.connections, index) end
-		end
+function S.own(owner, cleanup)
+	local scope = S.owners[owner]
+	if not scope then
+		scope = {}
+		S.owners[owner] = scope
+		owner.Destroying:Once(function()
+			S.owners[owner] = nil
+			for index = #scope, 1, -1 do
+				local ok, message = xpcall(scope[index], debug.traceback)
+				if not ok then warn("blush cleanup: " .. tostring(message)) end
+			end
+			table.clear(scope)
+		end)
 	end
+	scope[#scope + 1] = cleanup
+	return cleanup
+end
 
-	connection = signal:Connect(callback)
-	table.insert(S.connections, connection)
+function S.connect(signal, callback, owner)
+	local connection = signal:Connect(callback)
+	if owner then
+		S.own(owner, function() connection:Disconnect() end)
+	else
+		S.connections[connection] = true
+	end
 	return connection
 end
 
-S.__blush_cleanup = function(autosavetask, settingstask)
-	if S.pagelayoutconnection then
-		S.pagelayoutconnection:Disconnect()
-		S.pagelayoutconnection = nil
+function S.cancelthread(thread)
+	if thread and thread ~= coroutine.running() and coroutine.status(thread) == "suspended" then
+		task.cancel(thread)
 	end
-	if S.pendingpagelayouts then table.clear(S.pendingpagelayouts) end
-	S.contextactionservice:UnbindAction("__blush_menu_key")
-	if S.interactionrenderconnection and S.interactionrenderconnection.Connected then
-		S.interactionrenderconnection:Disconnect()
-		S.interactionrenderconnection = nil
-	end
-
-	if S.pickeranimationconnection and S.pickeranimationconnection.Connected then
-		S.pickeranimationconnection:Disconnect()
-		S.pickeranimationconnection = nil
-	end
-
-	if S.animateduiconnection and S.animateduiconnection.Connected then
-		S.animateduiconnection:Disconnect()
-		S.animateduiconnection = nil
-	end
-
-	if S.rainbowtextconnection and S.rainbowtextconnection.Connected then
-		S.rainbowtextconnection:Disconnect()
-		S.rainbowtextconnection = nil
-	end
-
-	if S.watermarkstatsconnection and S.watermarkstatsconnection.Connected then
-		S.watermarkstatsconnection:Disconnect()
-		S.watermarkstatsconnection = nil
-	end
-
-	autosavetask = S.__blush_autosave_task
-	if autosavetask and coroutine.status(autosavetask) == "suspended" then
-		pcall(task.cancel, autosavetask)
-	end
-	S.__blush_autosave_task = nil
-
-	settingstask = S.__blush_save_task
-	if settingstask and coroutine.status(settingstask) == "suspended" then
-		pcall(task.cancel, settingstask)
-	end
-	S.__blush_save_task = nil
-
-	if S.destroybackgroundeditable then S.destroybackgroundeditable() end
-
-	if S.closemodal then S.closemodal(true) end
-
-	for _, connection in ipairs(S.connections) do
-		if connection.Connected then connection:Disconnect() end
-	end
-
-	table.clear(S.connections)
-
-	if S.gui and S.gui.Parent then S.gui:Destroy() end
-
-	if S.reopengui and S.reopengui.Parent then S.reopengui:Destroy() end
-
-	if S.watermarkgui and S.watermarkgui.Parent then S.watermarkgui:Destroy() end
-
-	if S.runtimebridge and S.runtimebridge.Parent then S.runtimebridge:Destroy() end
-
-	S.__blush_notify = nil
-	S.__blush_background = nil
 end
 
-table.insert(S.connections, S.runtimebridge.Event:Connect(S.__blush_cleanup))
+function S.releaseobject(object)
+	local bindings = S.objectbindings and S.objectbindings[object]
+	if bindings then
+		for property, role in pairs(bindings) do
+			if S.themebindings[role] then S.themebindings[role][object] = nil end
+		end
+		S.objectbindings[object] = nil
+	end
+	local panel = S.panelowners and S.panelowners[object]
+	if panel then
+		for _, entries in pairs(panel.bindings) do entries[object] = nil end
+		S.panelowners[object] = nil
+	end
+	local tracked = S.activetweens and S.activetweens[object]
+	if tracked then
+		for _, animation in pairs(tracked) do animation:Cancel() end
+		S.activetweens[object] = nil
+	end
+	for _, field in ipairs({ "transparencybase", "__blush_accent_alpha", "__blush_font_alpha", "__blush_main_alpha", "__blush_highlight_alpha", "__blush_checkboxstates", "__blush_gradientstates", "__blush_animatedgradients", "shadowchildren", "groupdecorationconnections", "lockedcontrols", "keyeditbuttons", "naventries", "topsubentries" }) do
+		local registry = S[field]
+		if registry then registry[object] = nil end
+	end
+	for name, registered in pairs(S.panelthemes or {}) do
+		if registered.root == object then S.panelthemes[name] = nil end
+	end
+	if S.__blush_animatedgradients and next(S.__blush_animatedgradients) == nil then
+		S.stopanimatedgradientloop()
+	end
+end
+
+function S.trackobject(object)
+	S.own(object, function() S.releaseobject(object) end)
+	return object
+end
+
+function S.__blush_cleanup()
+	if not S.alive then return end
+	S.alive = false
+	S.constructing = true
+	S.contextactionservice:UnbindAction("__blush_menu_key")
+	S.contextactionservice:UnbindAction('__blush_capture')
+	if S.endpointer then S.endpointer(false) end
+	if S.endkeycapture then S.endkeycapture() end
+	S.cancelthread(S.persistencetask)
+	S.persistencetask = nil
+	if S.closepopup then S.closepopup() end
+	if S.closemodal then S.closemodal(true) end
+	for connection in pairs(S.connections) do connection:Disconnect() end
+	table.clear(S.connections)
+	for _, field in ipairs({ "pagelayoutconnection", "interactionrenderconnection", "pickeranimationconnection", "animatedgradientconnection", "watermarkstatsconnection" }) do
+		local connection = S[field]
+		if connection then connection:Disconnect(); S[field] = nil end
+	end
+	S.cancelthread(S.watermarkmetadatatask)
+	for _, notification in ipairs(S.notifications or {}) do S.cancelthread(notification.timeout) end
+	for object, tracked in pairs(S.activetweens or {}) do
+		for _, animation in pairs(tracked) do animation:Cancel() end
+	end
+	for _, root in ipairs({ S.gui, S.watermarkgui, S.runtimebridge }) do
+		if root then root:Destroy() end
+	end
+	for _, field in ipairs({ "notifications", "pages", "panelthemes", "owners", "pendingpagelayouts", "__blush_togglebindings", "__blush_pending_keybinds", "configcontrols", "pendingcontrolvalues", "animatedpickers", "keybindrows", "keybindgroups", "naventries", "topsubentries", "librarytabs", "librarytaborder" }) do
+		if type(S[field]) == "table" then table.clear(S[field]) end
+	end
+	S.interactionowner = nil
+	S.notificationdrag = nil
+	S.windowdrag = nil
+	S.watermarkdrag = nil
+	S.keybinddrag = nil
+	S.librarywindow = nil
+end
+
+S.connect(S.runtimebridge.Event, S.__blush_cleanup, S.runtimebridge)
 
 S.old = S.parent:FindFirstChild("blush")
 
 if S.old then S.old:Destroy() end
-
-S.oldreopen = S.parent:FindFirstChild("blush_reopen")
-if S.oldreopen then S.oldreopen:Destroy() end
 
 S.oldwatermark = S.parent:FindFirstChild("blush_watermark")
 if S.oldwatermark then S.oldwatermark:Destroy() end
@@ -176,13 +187,15 @@ S.watermarkgui.DisplayOrder = 1000
 S.watermarkgui.Enabled = false
 S.watermarkgui.Parent = S.parent
 
+
+
 S.theme = {
 	-- exact Default preset from first render; all theme bindings start in the correct role
 	window = Color3.fromRGB(13, 13, 15),
 	sidebar = Color3.fromRGB(10, 10, 11),
 
 	section = Color3.fromRGB(26, 26, 28),
-	input = Color3.fromRGB(19, 19, 21),
+	input = Color3.fromRGB(14, 14, 16),
 	hover = Color3.fromRGB(31, 31, 34),
 
 	track = Color3.fromRGB(44, 44, 47),
@@ -1940,7 +1953,7 @@ S.icons.filter = S.icons["list-filter"]
 S.icons.sliders = S.icons["sliders-horizontal"]
 S.icons.down = S.icons["chevron-down"]
 S.icons.right = S.icons["chevron-right"]
-S.icons.resize = "rbxassetid://79701968834514"
+
 S.icons.userround = S.icons["user-round"]
 S.icons.usersround = S.icons["users-round"]
 S.icons.columns2 = S.icons["columns-2"]
@@ -1980,7 +1993,7 @@ S.hoverti = TweenInfo.new(0.18, Enum.EasingStyle.Quart, Enum.EasingDirection.Out
 S.checkti = S.fastti
 S.tabti = S.ti
 S.sectionti = TweenInfo.new(0.24, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
-S.sectionattachti = TweenInfo.new(0.24, Enum.EasingStyle.Quart, Enum.EasingDirection.InOut)
+
 S.dropti = TweenInfo.new(0.18, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
 S.quart20 = TweenInfo.new(0.20, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
 S.quart24 = TweenInfo.new(0.24, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
@@ -2107,7 +2120,7 @@ function S.bindtheme(
 		panel.bindings[role][object][property] = true
 	end
 	if previous == role then return end
-	if previous and S.themebindings[previous][object] then
+	if previous and S.themebindings[previous] and S.themebindings[previous][object] then
 		S.themebindings[previous][object][property] = nil
 		if next(S.themebindings[previous][object]) == nil then
 			S.themebindings[previous][object] = nil
@@ -2184,7 +2197,7 @@ end
 
 function S.syncbinding(object, property, value, role) S.bindtheme(object, property, value, role) end
 
-S.themetweens = setmetatable({}, { __mode = "k" })
+
 
 function S.applythemerole(role, animate, bindings, target, objecttweens, value)
 	bindings = bindings or S.themebindings[role]
@@ -2197,25 +2210,21 @@ function S.applythemerole(role, animate, bindings, target, objecttweens, value)
 		else
 			target = S.panelcolor(object, role, S.theme[role])
 			for property in pairs(properties) do
-				objecttweens = S.themetweens[object]
-				if objecttweens and objecttweens[property] then
-					objecttweens[property]:Cancel()
-					objecttweens[property] = nil
-				end
+
+
 				value = property == "TextColor3"
 						and S.__blush_gradientstates[object]
 						and Color3.new(1, 1, 1)
 					or target
 				if object[property] ~= value then
 					if animate == true and S.animationsenabled and not S.constructing then
-						objecttweens = objecttweens or {}
-						S.themetweens[object] = objecttweens
-						objecttweens[property] =
-							S.tweenservice:Create(object, S.fastti, { [property] = value })
-						objecttweens[property]:Play()
+						S.tween(object, { [property] = value }, S.fastti, true)
 					else
+						local running = S.activetweens[object]
+						if running and running[property] then running[property]:Cancel() end
 						object[property] = value
 					end
+
 				end
 			end
 		end
@@ -2282,7 +2291,7 @@ function S.registeraccentalpha(object, colorproperty, role, property, entries, o
 	end
 
 	if entries[property] == nil then
-		ok, value = S.invoke(function() return object[property] end)
+		ok, value = pcall(function() return object[property] end)
 
 		if ok then entries[property] = value end
 	end
@@ -2336,7 +2345,7 @@ function S.registerfontalpha(object, colorproperty, role, property, entries, ok,
 	end
 
 	if entries[property] == nil then
-		ok, value = S.invoke(function() return object[property] end)
+		ok, value = pcall(function() return object[property] end)
 
 		if ok then entries[property] = value end
 	end
@@ -2427,7 +2436,7 @@ function S.registermainalpha(object, colorproperty, role, property, entries, ok,
 	end
 
 	if entries[property] == nil then
-		ok, value = S.invoke(function() return object[property] end)
+		ok, value = pcall(function() return object[property] end)
 		if ok then entries[property] = value end
 	end
 end
@@ -2473,7 +2482,7 @@ function S.registerhighlightalpha(object, colorproperty, role, property, entries
 		S.__blush_highlight_alpha[object] = entries
 	end
 	if entries[property] == nil then
-		ok, value = S.invoke(function() return object[property] end)
+		ok, value = pcall(function() return object[property] end)
 		if ok then entries[property] = value end
 	end
 end
@@ -2536,7 +2545,50 @@ S.transparencybase = setmetatable({}, {
 	__mode = "k",
 })
 
-S.__blush_background_visibility = S.__blush_background_visibility or 0
+
+
+S.shadowchildren = setmetatable({}, { __mode = "k" })
+S.groupdecorationconnections = setmetatable({}, { __mode = "k" })
+
+function S.syncgroupdecorations(group)
+	for object in pairs(S.shadowchildren[group] or {}) do
+		if not object.Parent then
+			S.shadowchildren[group][object] = nil
+		else
+			local alpha = 1
+			local parent = object.Parent
+			if object:GetAttribute("BlushIgnoreGroupTransparency") ~= true then
+				while parent do
+					if parent:IsA("CanvasGroup") then alpha *= 1 - parent.GroupTransparency end
+					parent = parent.Parent
+				end
+			end
+			local base = object:GetAttribute("BlushGroupBaseTransparency") or 0
+			local value = 1 - (1 - base) * alpha
+			if object.Transparency ~= value then object.Transparency = value end
+		end
+	end
+end
+
+function S.registergroupdecoration(object, parent)
+	if not parent then return end
+	local base = object:GetAttribute("BlushBaseTransparency") or object.Transparency
+	object:SetAttribute("BlushGroupBaseTransparency", base)
+	while parent do
+		if parent:IsA("CanvasGroup") then
+			local group = parent
+			S.shadowchildren[group] = S.shadowchildren[group] or setmetatable({}, { __mode = "k" })
+			S.shadowchildren[group][object] = true
+			if not S.groupdecorationconnections[group] then
+				S.groupdecorationconnections[group] = S.connect(group:GetPropertyChangedSignal("GroupTransparency"), function()
+					S.syncgroupdecorations(group)
+				end, group)
+			end
+			S.syncgroupdecorations(group)
+		end
+		parent = parent.Parent
+	end
+end
 
 function S.effectivetransparency(
 	value,
@@ -2571,7 +2623,7 @@ function S.applyuitransparency(value)
 end
 
 function S.rawnew(class, properties, object2)
-	object2 = Instance.new(class)
+	object2 = S.trackobject(Instance.new(class))
 
 	for property, value in pairs(properties or {}) do
 		if property ~= "Parent" then object2[property] = value end
@@ -2579,11 +2631,16 @@ function S.rawnew(class, properties, object2)
 
 	S.panelowners[object2] = properties and S.panelowners[properties.Parent]
 	object2.Parent = properties and properties.Parent
+
+	if class == "UIStroke" or class == "UIShadow" then
+		S.registergroupdecoration(object2, object2.Parent)
+	end
+
 	return object2
 end
 
 function S.new(class, properties, roles, object3, backgroundrole, base)
-	object3 = Instance.new(class)
+	object3 = S.trackobject(Instance.new(class))
 	S.panelowners[object3] = properties and S.panelowners[properties.Parent]
 
 	for property, value in pairs(properties or {}) do
@@ -2600,7 +2657,7 @@ function S.new(class, properties, roles, object3, backgroundrole, base)
 	for property, value in pairs(properties or {}) do
 		if
 			property == "BackgroundColor3"
-			or property == "TextColor3"
+			or property == "PlaceholderColor3" or property == "TextColor3"
 			or property == "ImageColor3"
 			or property == "ScrollBarImageColor3"
 			or (class == "UIStroke" and property == "Color")
@@ -2631,10 +2688,16 @@ function S.new(class, properties, roles, object3, backgroundrole, base)
 	end
 
 	object3.Parent = properties and properties.Parent
+
+	if class == "UIStroke" or class == "UIShadow" then
+		S.registergroupdecoration(object3, object3.Parent)
+	end
+
 	return object3
 end
 
 S.activetweens = setmetatable({}, { __mode = "k" })
+S.tweengoals = setmetatable({}, { __mode = 'k' })
 
 function S.tween(
 	object,
@@ -2652,7 +2715,7 @@ function S.tween(
 	tracked,
 	previous
 )
-	if not object or not object.Parent then return end
+	if not S.alive or not object or not object.Parent then return end
 
 	goals = {}
 
@@ -2662,7 +2725,7 @@ function S.tween(
 		else
 			if
 				property == "BackgroundColor3"
-				or property == "TextColor3"
+				or property == "PlaceholderColor3" or property == "TextColor3"
 				or property == "ImageColor3"
 				or property == "ScrollBarImageColor3"
 				or (object:IsA("UIStroke") and property == "Color")
@@ -2711,31 +2774,24 @@ function S.tween(
 	for property in pairs(properties) do
 		previous = tracked[property]
 		if previous then
+			for pending, target in pairs(S.tweengoals[previous] or {}) do
+				if properties[pending] == nil and tracked[pending] == previous then goals[pending] = target end
+			end
 			previous:Cancel()
 			tracked[property] = nil
 		end
 	end
+	if
+		(object:IsA("UIStroke") or object:IsA("UIShadow"))
+		and properties.Transparency ~= nil
+	then
+		object:SetAttribute("BlushGroupBaseTransparency", properties.Transparency)
+	end
+
 	groupshadows = nil
 
 	if object:IsA("CanvasGroup") and goals.GroupTransparency ~= nil then
 		grouptarget = math.clamp(goals.GroupTransparency, 0, 1)
-		groupshadows = {}
-
-		for child in pairs(S.shadowchildren[object] or {}) do
-			if child.Parent then
-				base = child:GetAttribute("BlushBaseTransparency")
-
-				if type(base) ~= "number" then
-					base = child.Transparency
-					child:SetAttribute("BlushBaseTransparency", base)
-				end
-
-				groupshadows[#groupshadows + 1] = {
-					object = child,
-					target = 1 - (1 - base) * (1 - grouptarget),
-				}
-			end
-		end
 	end
 
 	if not S.animationsenabled or S.constructing then
@@ -2743,8 +2799,8 @@ function S.tween(
 			object[property] = value
 		end
 
-		for _, shadow in ipairs(groupshadows or {}) do
-			shadow.object.Transparency = shadow.target
+		if object:IsA("CanvasGroup") and grouptarget ~= nil then
+			S.syncgroupdecorations(object)
 		end
 
 		return nil
@@ -2753,20 +2809,16 @@ function S.tween(
 	if next(goals) == nil then return nil end
 	tweeninfo = info or S.ti
 	animation = S.tweenservice:Create(object, tweeninfo, goals)
+	S.tweengoals[animation] = goals
 	for property in pairs(goals) do
 		tracked[property] = animation
 	end
 	animation.Completed:Once(function()
+		S.tweengoals[animation] = nil
 		for property in pairs(goals) do
 			if tracked[property] == animation then tracked[property] = nil end
 		end
 	end)
-
-	for _, shadow in ipairs(groupshadows or {}) do
-		shadowanimation =
-			S.tweenservice:Create(shadow.object, tweeninfo, { Transparency = shadow.target })
-		shadowanimation:Play()
-	end
 
 	animation:Play()
 	return animation
@@ -2832,7 +2884,7 @@ function S.buildtheme(
 		-- Main color is the base for the actual interactive/UI surfaces.
 		main = baseinput,
 		section = mainsurface(0.020, 0.92),
-		input = baseinput,
+		input = Color3.fromHSV(mh, math.clamp(ms * 0.96, 0, 1), math.clamp(mv - 0.020, 0, 1)),
 		hover = mainsurface(0.050, 0.86),
 		track = mainsurface(0.105, 0.72),
 		border = mainsurface(0.082, 0.68),
@@ -2905,8 +2957,8 @@ function S.applytheme(
 	fontchanged = oldfont ~= S.theme.font
 
 	S.indexthemecolors()
-	for _, role in ipairs(S.themekeys) do
-		S.applythemerole(role, animate)
+	for role in pairs(changedroles) do
+		S.applythemerole(role, animate and not S.continuouscolorupdate)
 	end
 
 	if backgroundalphachanged then S.applyuitransparency(S.uitransparency * 100) end
@@ -2928,8 +2980,8 @@ function S.applytheme(
 		S.refreshcheckboxcolors(animate == true)
 	end
 
-	if backgroundchanged and S.updatebackgroundtone then S.updatebackgroundtone() end
-	if S.updatebackgroundsurfaces then S.updatebackgroundsurfaces() end
+	
+	
 
 	if accentchanged and S.syncwindowglowcolor then S.syncwindowglowcolor(animate == true) end
 
@@ -2966,7 +3018,7 @@ end
 
 S.mainroles = {
 	main = { 0, 1 },
-	input = { 0, 1 },
+	input = { -0.020, 0.96 },
 	section = { 0.020, 0.92 },
 	hover = { 0.050, 0.86 },
 	track = { 0.105, 0.72 },
@@ -2982,19 +3034,28 @@ function S.applymaincolor(color, animate, h, saturation, value, direction, targe
 	h, saturation, value = color:ToHSV()
 	direction = value > 0.56 and -1 or 1
 	for role, offset in pairs(S.mainroles) do
-		target = (role == "main" or role == "input") and color
-			or Color3.fromHSV(
+		if role == "main" then
+			target = color
+		elseif role == "input" then
+			target = Color3.fromHSV(
+				h,
+				math.clamp(saturation * offset[2], 0, 1),
+				math.clamp(value - 0.020, 0, 1)
+			)
+		else
+			target = Color3.fromHSV(
 				h,
 				math.clamp(saturation * offset[2], 0, 1),
 				math.clamp(value + direction * offset[1], 0, 1)
 			)
+		end
 		if S.theme[role] ~= target then
 			S.theme[role] = target
 			S.applythemerole(role, animate)
 		end
 	end
 	S.indexthemecolors()
-	if S.updatebackgroundsurfaces then S.updatebackgroundsurfaces() end
+	
 	if
 		S.maincolorpicker
 		and not S.maincolorpicker.dragging
@@ -3114,11 +3175,12 @@ S.__blush_rgb = S.richrgb
 
 S.__blush_gradienttargets = setmetatable({}, { __mode = "k" })
 S.__blush_gradientstates = setmetatable({}, { __mode = "k" })
-S.__blush_rainbowgradients = setmetatable({}, { __mode = "k" })
-S.rainbowtextconnection = nil
-S.rainbowtextphase = 0
-S.rainbowtextpoints = table.create(13)
-S.rainbowtextsequence = ColorSequence.new({
+S.__blush_animatedgradients = setmetatable({}, { __mode = "k" })
+S.animatedgradientconnection = nil
+S.rainbowgradientphase = 0
+S.rainbowgradientpoints = table.create(13)
+
+S.rainbowgradientsequence = ColorSequence.new({
 	ColorSequenceKeypoint.new(0.00, Color3.fromRGB(255, 0, 0)),
 	ColorSequenceKeypoint.new(0.14, Color3.fromRGB(255, 128, 0)),
 	ColorSequenceKeypoint.new(0.28, Color3.fromRGB(255, 255, 0)),
@@ -3129,9 +3191,84 @@ S.rainbowtextsequence = ColorSequence.new({
 	ColorSequenceKeypoint.new(1.00, Color3.fromRGB(255, 0, 0)),
 })
 
+S.gradientthemes = {
+	Rainbow = S.rainbowgradientsequence,
+	Sunset = ColorSequence.new({
+		ColorSequenceKeypoint.new(0.00, Color3.fromRGB(255, 112, 72)),
+		ColorSequenceKeypoint.new(0.27, Color3.fromRGB(255, 74, 146)),
+		ColorSequenceKeypoint.new(0.57, Color3.fromRGB(155, 92, 255)),
+		ColorSequenceKeypoint.new(0.82, Color3.fromRGB(255, 151, 80)),
+		ColorSequenceKeypoint.new(1.00, Color3.fromRGB(255, 112, 72)),
+	}),
+	Ocean = ColorSequence.new({
+		ColorSequenceKeypoint.new(0.00, Color3.fromRGB(64, 224, 255)),
+		ColorSequenceKeypoint.new(0.28, Color3.fromRGB(47, 126, 255)),
+		ColorSequenceKeypoint.new(0.58, Color3.fromRGB(80, 65, 230)),
+		ColorSequenceKeypoint.new(0.82, Color3.fromRGB(65, 191, 255)),
+		ColorSequenceKeypoint.new(1.00, Color3.fromRGB(64, 224, 255)),
+	}),
+	Aurora = ColorSequence.new({
+		ColorSequenceKeypoint.new(0.00, Color3.fromRGB(81, 255, 188)),
+		ColorSequenceKeypoint.new(0.30, Color3.fromRGB(55, 224, 255)),
+		ColorSequenceKeypoint.new(0.62, Color3.fromRGB(170, 87, 255)),
+		ColorSequenceKeypoint.new(0.84, Color3.fromRGB(80, 255, 211)),
+		ColorSequenceKeypoint.new(1.00, Color3.fromRGB(81, 255, 188)),
+	}),
+	Fire = ColorSequence.new({
+		ColorSequenceKeypoint.new(0.00, Color3.fromRGB(255, 68, 50)),
+		ColorSequenceKeypoint.new(0.28, Color3.fromRGB(255, 132, 31)),
+		ColorSequenceKeypoint.new(0.57, Color3.fromRGB(255, 221, 72)),
+		ColorSequenceKeypoint.new(0.82, Color3.fromRGB(255, 92, 38)),
+		ColorSequenceKeypoint.new(1.00, Color3.fromRGB(255, 68, 50)),
+	}),
+	Ice = ColorSequence.new({
+		ColorSequenceKeypoint.new(0.00, Color3.fromRGB(224, 248, 255)),
+		ColorSequenceKeypoint.new(0.28, Color3.fromRGB(127, 221, 255)),
+		ColorSequenceKeypoint.new(0.58, Color3.fromRGB(110, 151, 255)),
+		ColorSequenceKeypoint.new(0.82, Color3.fromRGB(191, 237, 255)),
+		ColorSequenceKeypoint.new(1.00, Color3.fromRGB(224, 248, 255)),
+	}),
+	Rose = ColorSequence.new({
+		ColorSequenceKeypoint.new(0.00, Color3.fromRGB(255, 193, 218)),
+		ColorSequenceKeypoint.new(0.30, Color3.fromRGB(255, 101, 162)),
+		ColorSequenceKeypoint.new(0.62, Color3.fromRGB(206, 83, 255)),
+		ColorSequenceKeypoint.new(0.84, Color3.fromRGB(255, 151, 196)),
+		ColorSequenceKeypoint.new(1.00, Color3.fromRGB(255, 193, 218)),
+	}),
+	Lavender = ColorSequence.new({
+		ColorSequenceKeypoint.new(0.00, Color3.fromRGB(218, 205, 255)),
+		ColorSequenceKeypoint.new(0.28, Color3.fromRGB(154, 119, 255)),
+		ColorSequenceKeypoint.new(0.58, Color3.fromRGB(111, 163, 255)),
+		ColorSequenceKeypoint.new(0.82, Color3.fromRGB(196, 162, 255)),
+		ColorSequenceKeypoint.new(1.00, Color3.fromRGB(218, 205, 255)),
+	}),
+	Mono = ColorSequence.new({
+		ColorSequenceKeypoint.new(0.00, Color3.fromRGB(248, 248, 250)),
+		ColorSequenceKeypoint.new(0.34, Color3.fromRGB(156, 156, 164)),
+		ColorSequenceKeypoint.new(0.66, Color3.fromRGB(225, 225, 230)),
+		ColorSequenceKeypoint.new(1.00, Color3.fromRGB(248, 248, 250)),
+	}),
+}
+
+S.gradientthemealiases = {}
+for name in pairs(S.gradientthemes) do
+	S.gradientthemealiases[string.lower(name)] = name
+end
+
+S.gradientthemenames = {
+	"Rainbow",
+	"Sunset",
+	"Ocean",
+	"Aurora",
+	"Fire",
+	"Ice",
+	"Rose",
+	"Lavender",
+	"Mono",
+}
+
 function S.registergradienttarget(target, textobject)
 	if target and textobject then S.__blush_gradienttargets[target] = textobject end
-
 	return target
 end
 
@@ -3166,66 +3303,110 @@ function S.resolvegradienttarget(target, mapped)
 	return nil
 end
 
-function S.normalizetextgradient(value, keypoints)
-	if value == nil or value == false then return nil, false end
+function S.resolvegradienttheme(value, key)
+	if type(value) ~= "string" then return nil end
+	key = S.gradientthemealiases[string.lower(value)]
+	return key and S.gradientthemes[key] or nil
+end
 
-	if type(value) == "string" and string.lower(value) == "rainbow" then
-		return S.rainbowtextsequence, true
-	end
+function S.normalizetextgradient(value, keypoints, sequence, animated, speed, theme, themename, rainbow)
+	if value == nil or value == false then return nil, false, 0.28, false end
 
-	if typeof(value) == "ColorSequence" then return value, false end
+	if typeof(value) == "ColorSequence" then return value, false, 0.28, false end
 
-	if type(value) == "table" then
-		if value.Rainbow == true or value.rainbow == true then
-			return S.rainbowtextsequence, true
+	if type(value) == "string" then
+		sequence = S.resolvegradienttheme(value)
+		if sequence then
+			themename = S.gradientthemealiases[string.lower(value)]
+			rainbow = themename == "Rainbow"
+			return sequence, rainbow, rainbow and 0.30 or 0.28, rainbow
 		end
-
-		keypoints = value.Keypoints or value.keypoints or value
-		if #keypoints >= 2 then return ColorSequence.new(keypoints), false end
+		return nil, false, 0.28, false
 	end
 
-	return nil, false
+	if type(value) ~= "table" then return nil, false, 0.28, false end
+
+	theme = value.Theme or value.theme
+	if type(theme) == "string" then
+		sequence = S.resolvegradienttheme(theme)
+		themename = S.gradientthemealiases[string.lower(theme)]
+	end
+
+	rainbow = themename == "Rainbow"
+
+	if not sequence then
+		keypoints = value.Colors or value.colors or value.Keypoints or value.keypoints or value
+		if typeof(keypoints) == "ColorSequence" then
+			sequence = keypoints
+		elseif #keypoints >= 2 then
+			sequence = ColorSequence.new(keypoints)
+		end
+	end
+
+	if not sequence then return nil, false, 0.28, false end
+
+	animated = value.Animated
+	if animated == nil then animated = value.animated end
+	if animated == nil then animated = rainbow end
+	animated = animated == true
+
+	speed = math.clamp(tonumber(value.Speed or value.speed) or (rainbow and 0.30 or 0.28), 0.04, 2.5)
+
+	return sequence, animated, speed, rainbow
 end
 
 function S.textgradientrole(textobject)
 	return S.objectbindings[textobject] and S.objectbindings[textobject].TextColor3
 end
 
-function S.stoprainbowtextloop()
-	if S.rainbowtextconnection and S.rainbowtextconnection.Connected then
-		S.rainbowtextconnection:Disconnect()
+function S.stopanimatedgradientloop()
+	if S.animatedgradientconnection and S.animatedgradientconnection.Connected then
+		S.animatedgradientconnection:Disconnect()
 	end
-	S.rainbowtextconnection = nil
+	S.animatedgradientconnection = nil
 end
 
-function S.ensurerainbowtextloop()
-	if S.rainbowtextconnection and S.rainbowtextconnection.Connected then return end
+function S.ensureanimatedgradientloop()
+	if S.animatedgradientconnection and S.animatedgradientconnection.Connected then return end
 
-	S.rainbowtextconnection = S.runservice.PreRender:Connect(
-		function(dt, colors, points, position, hue, sequence)
-			if next(S.__blush_rainbowgradients) == nil then
-				S.stoprainbowtextloop()
+	S.animatedgradientconnection = S.runservice.PreRender:Connect(
+		function(dt, animation, gradient, phase, rainbowsequence, position, hue)
+			if next(S.__blush_animatedgradients) == nil then
+				S.stopanimatedgradientloop()
 				return
 			end
 
-			S.rainbowtextphase = (S.rainbowtextphase + dt * 0.30) % 1
-			colors = S.rainbowtextpoints
-			points = 12
-
-			for index = 0, points do
-				position = index / points
-				hue = (position + S.rainbowtextphase) % 1
-				colors[index + 1] = ColorSequenceKeypoint.new(position, Color3.fromHSV(hue, 1, 1))
+			rainbowsequence = nil
+			if S.animationsenabled then
+				S.rainbowgradientphase = (S.rainbowgradientphase + dt * 0.30) % 1
 			end
 
-			sequence = ColorSequence.new(colors)
-			for textobject, gradient in pairs(S.__blush_rainbowgradients) do
-				if not textobject.Parent or not gradient.Parent then
-					S.__blush_rainbowgradients[textobject] = nil
-				else
+			for textobject, animation in pairs(S.__blush_animatedgradients) do
+				gradient = animation.gradient
+				if not textobject.Parent or not gradient or not gradient.Parent then
+					S.__blush_animatedgradients[textobject] = nil
+				elseif not S.animationsenabled then
 					gradient.Offset = Vector2.zero
+					if animation.rainbow then gradient.Color = S.rainbowgradientsequence end
+				elseif animation.rainbow then
+					if not rainbowsequence then
+						for index = 0, 12 do
+							position = index / 12
+							hue = (position + S.rainbowgradientphase) % 1
+							S.rainbowgradientpoints[index + 1] =
+								ColorSequenceKeypoint.new(position, Color3.fromHSV(hue, 1, 1))
+						end
+						rainbowsequence = ColorSequence.new(S.rainbowgradientpoints)
+					end
+
 					gradient.Rotation = 0
-					gradient.Color = sequence
+					gradient.Offset = Vector2.zero
+					gradient.Color = rainbowsequence
+				else
+					phase = ((animation.phase or 0) + dt * (animation.speed or 0.28)) % 1
+					animation.phase = phase
+					gradient.Rotation = 0
+					gradient.Offset = Vector2.new(-1 + phase * 2, 0)
 				end
 			end
 		end
@@ -3240,6 +3421,8 @@ function S.settextgradient(
 	role,
 	basecolor,
 	sequence,
+	animated,
+	speed,
 	rainbow,
 	gradient,
 	state
@@ -3256,15 +3439,15 @@ function S.settextgradient(
 	basecolor = previous and previous.basecolor or textobject.TextColor3
 
 	if previous then
-		S.__blush_rainbowgradients[textobject] = nil
+		S.__blush_animatedgradients[textobject] = nil
 		if previous.gradient and previous.gradient.Parent then previous.gradient:Destroy() end
 		S.__blush_gradientstates[textobject] = nil
 	end
 
-	sequence, rainbow = S.normalizetextgradient(value)
+	sequence, animated, speed, rainbow = S.normalizetextgradient(value)
 	if not sequence then
 		if textobject.Parent then textobject.TextColor3 = role and S.theme[role] or basecolor end
-		if next(S.__blush_rainbowgradients) == nil then S.stoprainbowtextloop() end
+		if next(S.__blush_animatedgradients) == nil then S.stopanimatedgradientloop() end
 		return value == nil or value == false
 	end
 
@@ -3273,34 +3456,35 @@ function S.settextgradient(
 		Parent = textobject,
 		Color = sequence,
 		Offset = Vector2.zero,
+		Rotation = 0,
 	})
-
-	if rainbow then
-		gradient.Rotation = 0
-		gradient.Offset = Vector2.zero
-	end
 
 	state = {
 		gradient = gradient,
 		role = role,
 		basecolor = basecolor,
+		animated = animated,
+		speed = speed,
 		rainbow = rainbow,
 	}
 
 	S.__blush_gradientstates[textobject] = state
 	textobject.TextColor3 = Color3.new(1, 1, 1)
 
-	if rainbow then
-		S.__blush_rainbowgradients[textobject] = gradient
-		S.ensurerainbowtextloop()
+	if animated then
+		gradient.Offset = rainbow and Vector2.zero or Vector2.new(-1, 0)
+		S.__blush_animatedgradients[textobject] = {
+			gradient = gradient,
+			speed = speed,
+			phase = 0,
+			rainbow = rainbow,
+		}
+		S.ensureanimatedgradientloop()
 	end
 
 	return true
 end
 
-function S.settextrainbow(target, enabled)
-	return S.settextgradient(target, enabled == true and "Rainbow" or nil)
-end
 
 function S.label(parentobject, value, size, face, color, object4)
 	object4 = S.new("TextLabel", {
@@ -3342,51 +3526,24 @@ function S.image(parentobject, asset, size, color, zindex)
 	})
 end
 
-S.shadowchildren = setmetatable({}, { __mode = "k" })
-
-function S.addshadow(
-	parentobject,
-	name,
-	transparency,
-	blur,
-	spread,
-	zindex,
-	color,
-	offset,
-	bindcolor,
-	success,
-	shadow
-)
-	success, shadow = S.invoke(function(object5, parentgroupalpha)
-		object5 = Instance.new("UIShadow")
-
-		object5.Name = name
-		object5.Color = color or S.theme.white
-		object5:SetAttribute("BlushBaseTransparency", transparency)
-
-		parentgroupalpha = 0
-		if parentobject:IsA("CanvasGroup") then
-			parentgroupalpha = parentobject.GroupTransparency
-		end
-
-		object5.Transparency = 1 - (1 - transparency) * (1 - parentgroupalpha)
-		object5.BlurRadius = UDim.new(0, blur)
-		object5.Spread = UDim2.fromOffset(spread, spread)
-		object5.Offset = offset or UDim2.fromOffset(0, 0)
-		object5.ZIndex = zindex or -1
-		object5.Parent = parentobject
-		S.shadowchildren[parentobject] = S.shadowchildren[parentobject]
-			or setmetatable({}, { __mode = "k" })
-		S.shadowchildren[parentobject][object5] = true
-
-		if bindcolor ~= false and object5.Color == S.theme.white then
-			S.bindtheme(object5, "Color", S.theme.white, "white")
-		end
-
-		return object5
-	end)
-
-	return success and shadow or nil
+function S.addshadow(parent, name, transparency, blur, spread, zindex, color, offset, bindcolor)
+	local ok, shadow = pcall(Instance.new, "UIShadow")
+	if not ok then return nil end
+	S.trackobject(shadow)
+	shadow.Name = name
+	shadow.Color = color or S.theme.white
+	shadow.Transparency = transparency
+	shadow.BlurRadius = UDim.new(0, blur)
+	shadow.Spread = UDim2.fromOffset(spread, spread)
+	shadow.Offset = offset or UDim2.fromOffset(0, 0)
+	shadow.ZIndex = zindex or -1
+	shadow:SetAttribute("BlushBaseTransparency", transparency)
+	shadow.Parent = parent
+	S.registergroupdecoration(shadow, parent)
+	if bindcolor ~= false and shadow.Color == S.theme.white then
+		S.bindtheme(shadow, "Color", S.theme.white, "white")
+	end
+	return shadow
 end
 
 function S.addglow(object, preset, shadow)
@@ -3513,6 +3670,7 @@ S.shell = S.new("Frame", {
 	ZIndex = 10,
 })
 
+
 S.modalguard = S.new("TextButton", {
 	Parent = S.gui,
 	Position = UDim2.fromOffset(-100, -100),
@@ -3544,11 +3702,12 @@ S.window = S.new("CanvasGroup", {
 }, { BackgroundColor3 = "window" })
 
 S.windowcorner = S.corner(S.window, 12)
-S.windowstroke = S.stroke(S.window, 1, S.theme.border, 1)
-S.windowstroke.Enabled = false
-S.windowshadow = S.adddepthshadow(S.window, "window")
+
+
+S.shellcorner = S.corner(S.shell, 12)
+S.windowshadow = S.adddepthshadow(S.shell, 'window')
 S.windowglow = S.addshadow(
-	S.window,
+	S.shell,
 	"WindowGlow",
 	0.88,
 	18,
@@ -3559,79 +3718,7 @@ S.windowglow = S.addshadow(
 	false
 )
 
--- Clip window effects to exterior bands so they cannot tint translucent image pixels.
-S.windoweffectsbands = {}
-for index = 1, 4 do
-	S.windoweffectsbands[index] = S.rawnew("Frame", {
-		Parent = S.shell,
-		BackgroundTransparency = 1,
-		BorderSizePixel = 0,
-		ClipsDescendants = true,
-		ZIndex = 9,
-	})
-end
-function S.exteriorwindowshadow(shadow, carrier, copies, sync)
-	if not shadow then return end
-	carrier = S.rawnew("Frame", { Parent = S.shell, Visible = false, BackgroundTransparency = 1 })
-	shadow.Parent = carrier
-	copies = {}
-	for index, band in ipairs(S.windoweffectsbands) do
-		copies[index] = S.rawnew(
-			"Frame",
-			{ Parent = band, BackgroundTransparency = 1, BorderSizePixel = 0, ZIndex = 9 }
-		)
-		S.corner(copies[index], S.windowcorner.CornerRadius.Offset)
-		shadow:Clone().Parent = copies[index]
-	end
-	sync = function(property)
-		for _, surface in ipairs(copies) do
-			surface:FindFirstChildOfClass("UIShadow")[property] = shadow[property]
-		end
-	end
-	for _, property in ipairs({
-		"Color",
-		"Transparency",
-		"BlurRadius",
-		"Spread",
-		"Offset",
-		"Enabled",
-	}) do
-		shadow:GetPropertyChangedSignal(property):Connect(function() sync(property) end)
-	end
-	return copies
-end
-S.windowshadowcopies = S.exteriorwindowshadow(S.windowshadow)
-S.windowglowcopies = S.exteriorwindowshadow(S.windowglow)
-function S.layoutwindoweffects(width, height, regions, region, surface)
-	width, height = S.shell.AbsoluteSize.X, S.shell.AbsoluteSize.Y
-	regions = {
-		{ -128, -128, width + 256, 128 },
-		{ -128, height, width + 256, 128 },
-		{ -128, 0, 128, height },
-		{ width, 0, 128, height },
-	}
-	for index, band in ipairs(S.windoweffectsbands) do
-		region = regions[index]
-		band.Position = UDim2.fromOffset(region[1], region[2])
-		band.Size = UDim2.fromOffset(region[3], region[4])
-		for _, copies in ipairs({ S.windowshadowcopies or {}, S.windowglowcopies or {} }) do
-			surface = copies[index]
-			if surface then
-				surface.Position = UDim2.fromOffset(-region[1], -region[2])
-				surface.Size = UDim2.fromOffset(width, height)
-				surface:FindFirstChildOfClass("UICorner").CornerRadius = S.windowcorner.CornerRadius
-			end
-		end
-	end
-end
-S.shell:GetPropertyChangedSignal("AbsoluteSize"):Connect(S.layoutwindoweffects)
-S.windowcorner:GetPropertyChangedSignal("CornerRadius"):Connect(S.layoutwindoweffects)
-S.layoutwindoweffects()
-
-S.windowresizeenabled = true
 S.windowdragenabled = true
-S.windowminsize = Vector2.new(620, 440)
-S.windowmaxsize = nil
 
 S.windowshadowenabled = true
 S.windowglowenabled = true
@@ -3699,7 +3786,7 @@ function S.syncwindowglowcolor(animate)
 	end
 
 	if S.windowglow and S.windowglow.Parent then
-		if animate == true and S.animationsenabled then
+		if animate == true and S.animationsenabled and not S.continuouscolorupdate then
 			S.tween(S.windowglow, { Color = S.windowglowcolor }, S.quart24)
 		else
 			S.windowglow.Color = S.windowglowcolor
@@ -3712,241 +3799,13 @@ end
 S.applywindowshadow()
 S.applywindowglow()
 
-S.backgroundholder = S.rawnew("Frame", {
-	Parent = S.window,
-	Position = UDim2.fromOffset(0, 0),
-	Size = UDim2.fromScale(1, 1),
-	BackgroundTransparency = 1,
-	BorderSizePixel = 0,
-	ClipsDescendants = true,
-	Active = false,
-	ZIndex = 9,
-})
-
-S.backgroundimage = S.rawnew("ImageLabel", {
-	Parent = S.backgroundholder,
-	AnchorPoint = Vector2.new(0.5, 0.5),
-	Position = UDim2.fromScale(0.5, 0.5),
-	Size = UDim2.fromScale(1, 1),
-	BackgroundTransparency = 1,
-	BorderSizePixel = 0,
-	Image = "",
-	ImageColor3 = Color3.new(1, 1, 1),
-	ImageTransparency = 1,
-	ScaleType = Enum.ScaleType.Crop,
-	Visible = false,
-	ZIndex = 9,
-})
-
-S.backgroundlayers = { S.backgroundimage }
-S.backgroundresolvedasset = nil
-S.backgroundeditable = nil
-S.backgroundblureditable = nil
-S.backgroundblurbaseasset = nil
-S.backgroundblurbasepixels = nil
-S.backgroundblurbasewidth = 0
-S.backgroundblurbaseheight = 0
-S.backgroundblurlastsignature = nil
-S.backgroundblurtoken = 0
-S.backgroundblurtask = nil
-S.backgroundsectionframes = setmetatable({}, { __mode = "k" })
-
-S.backgroundblurdisplay = S.rawnew("ImageLabel", {
-	Parent = S.backgroundholder,
-	AnchorPoint = Vector2.new(0.5, 0.5),
-	Position = UDim2.fromScale(0.5, 0.5),
-	Size = UDim2.fromScale(1, 1),
-	BackgroundTransparency = 1,
-	BorderSizePixel = 0,
-	Image = "",
-	ImageColor3 = Color3.new(1, 1, 1),
-	ImageTransparency = 1,
-	ScaleType = Enum.ScaleType.Crop,
-	Visible = false,
-	ZIndex = 9,
-})
-
-function S.destroybackgroundeditable()
-	S.backgroundblurtoken += 1
-	S.backgroundsourcegeneration = (S.backgroundsourcegeneration or 0) + 1
-	S.backgroundblurloading = nil
-	S.backgroundblurfailedasset = nil
-	if S.stopbackgroundblurjob then S.stopbackgroundblurjob() end
-
-	if S.backgroundblurtask and coroutine.status(S.backgroundblurtask) == "suspended" then
-		pcall(task.cancel, S.backgroundblurtask)
-	end
-	S.backgroundblurtask = nil
-
-	if S.backgroundeditable then
-		S.backgroundeditable:Destroy()
-		S.backgroundeditable = nil
-	end
-
-	S.backgroundblurbaseasset = nil
-	S.backgroundblurbasepixels = nil
-	S.backgroundblurbasewidth = 0
-	S.backgroundblurbaseheight = 0
-	S.backgroundblurlastsignature = nil
-
-	if S.backgroundblureditable then
-		S.backgroundblureditable:Destroy()
-		S.backgroundblureditable = nil
-	end
-
-	if S.backgroundblurdisplay and S.backgroundblurdisplay.Parent then
-		S.backgroundblurdisplay.Visible = false
-		S.backgroundblurdisplay.ImageTransparency = 1
-		S.backgroundblurdisplay.ImageContent = Content.none
-	end
-end
-
-S.backgroundtoneoverlay = S.rawnew("Frame", {
-	Parent = S.backgroundholder,
-	Position = UDim2.fromOffset(0, 0),
-	Size = UDim2.fromScale(1, 1),
-	BackgroundColor3 = Color3.new(1, 1, 1),
-	BackgroundTransparency = 1,
-	BorderSizePixel = 0,
-	Visible = false,
-	Active = false,
-	ZIndex = 9,
-})
-
-S.rawnew("UIGradient", {
-	Parent = S.backgroundtoneoverlay,
-	Rotation = 90,
-	Transparency = NumberSequence.new({
-		NumberSequenceKeypoint.new(0, 0.06),
-		NumberSequenceKeypoint.new(0.55, 0.22),
-		NumberSequenceKeypoint.new(1, 0.08),
-	}),
-})
-
-S.backgroundexcludesidebar = false
-S.autobackgroundcolors = false
-S.topnavigationenabled = false
-
-function S.updatebackgroundbounds(width)
-	if not S.backgroundholder or not S.backgroundholder.Parent then return end
-	width = S.backgroundexcludesidebar and math.max(0, (S.sidebarwidth or 215) - 1) or 0
-	S.backgroundholder.Position = UDim2.fromOffset(width, 0)
-	S.backgroundholder.Size = UDim2.new(1, -width, 1, 0)
-end
-
-function S.updatebackgroundtone(visible, luminance, lighttheme)
-	if not S.backgroundtoneoverlay or not S.backgroundtoneoverlay.Parent then return end
-
-	visible = S.backgroundimagesource ~= nil
-		and S.backgroundimagesource ~= ""
-		and S.backgroundresolvedasset ~= nil
-
-	if not visible then
-		S.backgroundtoneoverlay.Visible = false
-		S.backgroundtoneoverlay.BackgroundTransparency = 1
-		return
-	end
-
-	luminance = S.theme.window.R * 0.2126 + S.theme.window.G * 0.7152 + S.theme.window.B * 0.0722
-	lighttheme = luminance >= 0.62
-
-	-- Do not add contrast on top of the configured image opacity.
-	S.backgroundtoneoverlay.Visible = false
-	S.backgroundtoneoverlay.BackgroundTransparency = 1
-
-	if S.updatebackgroundsurfaces then S.updatebackgroundsurfaces() end
-end
-
-function S.setbackgroundexcludesidebar(value)
-	S.backgroundexcludesidebar = value == true
-	S.updatebackgroundbounds()
-	if S.updatebackgroundsurfaces then S.updatebackgroundsurfaces() end
-end
-
-S.reopengui = Instance.new("ScreenGui")
-S.reopengui.Name = "blush_reopen"
-S.reopengui.IgnoreGuiInset = true
-S.reopengui.ResetOnSpawn = false
-S.reopengui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-S.reopengui.DisplayOrder = 1001
-S.reopengui.Enabled = false
-S.reopengui.Parent = S.parent
-
-S.reopenbutton = S.new("TextButton", {
-	Parent = S.reopengui,
-	AnchorPoint = Vector2.new(0.5, 0),
-	Position = UDim2.new(0.5, 0, 0, 12),
-	Size = UDim2.fromOffset(112, 34),
-	BackgroundColor3 = S.theme.window,
-	BackgroundTransparency = 0.04,
-	BorderSizePixel = 0,
-	Text = "",
-	AutoButtonColor = false,
-	ZIndex = 10,
-}, { BackgroundColor3 = "window" })
-S.corner(S.reopenbutton, 9)
-S.reopenstroke = S.stroke(S.reopenbutton, 0.62, S.theme.border, 0.6)
-S.reopenshadow = S.adddepthshadow(S.reopenbutton, "floating")
-S.__blush_reopenanimations = {}
-S.__blush_reopen_fading = false
-
-S.reopenlabel = S.label(S.reopenbutton, "blush.", UDim2.new(1, -24, 1, 0), S.medium, S.theme.text)
-S.reopenlabel.Position = UDim2.fromOffset(12, 0)
-S.reopenlabel.TextSize = 15
-S.reopenlabel.TextXAlignment = Enum.TextXAlignment.Center
-S.reopenlabel.ZIndex = 11
-
-function S.updatereopenlayout(bounds, width, height)
-	if not S.reopenbutton or not S.reopenbutton.Parent then return end
-
-	bounds = S.measuretext(
-		S.reopenlabel.Text,
-		S.reopenlabel.TextSize,
-		S.reopenlabel.Font,
-		Vector2.new(100000, 34)
-	)
-	width = math.max(44, math.ceil(bounds.X) + 24)
-	height = 34
-
-	S.reopenbutton.Size = UDim2.fromOffset(width, height)
-	S.reopenlabel.Position = UDim2.fromOffset(12, 0)
-	S.reopenlabel.Size = UDim2.new(1, -24, 1, 0)
-end
-
-S.connect(S.reopenlabel:GetPropertyChangedSignal("Text"), S.updatereopenlayout)
-S.connect(S.reopenlabel:GetPropertyChangedSignal("TextSize"), S.updatereopenlayout)
-S.connect(S.reopenlabel:GetPropertyChangedSignal("Font"), S.updatereopenlayout)
-S.updatereopenlayout()
-
-S.reopenarrow = S.image(S.reopenbutton, S.icons.down, 13, S.theme.text3, 11)
-S.reopenarrow.AnchorPoint = Vector2.new(1, 0.5)
-S.reopenarrow.Position = UDim2.new(1, -10, 0.5, 0)
-S.reopenarrow.Rotation = 180
-S.reopenarrow.Visible = false
-
-S.reopenbutton.MouseEnter:Connect(function()
-	if S.__blush_reopen_fading then return end
-
-	S.tween(S.reopenlabel, { TextColor3 = S.theme.white }, S.hoverti, nil, { TextColor3 = "white" })
-end)
-
-S.reopenbutton.MouseLeave:Connect(function()
-	if S.__blush_reopen_fading then return end
-
-	S.tween(S.reopenlabel, { TextColor3 = S.theme.text }, S.hoverti, nil, { TextColor3 = "text" })
-end)
-
-S.reopenbutton.Activated:Connect(function() S.requestvisibilitytoggle() end)
+S.topnavigationenabled = true
 
 S.sidebarwidth = 215
 S.sidebarcompactthreshold = 118
 S.sidebarminwidth = 68
 S.sidebarmaxwidth = 300
-S.sidebarresize = nil
-S.sidebarresizelasttap = 0
 S.sidebarcompact = false
-S.__blush_nextwindowresize = 0
-S.__blush_nextsidebarresize = 0
 
 S.sidebar = S.new("Frame", {
 	Parent = S.window,
@@ -3971,68 +3830,7 @@ S.main = S.new("Frame", {
 	ZIndex = 10,
 }, { BackgroundColor3 = "window" })
 
-function S.updatebackgroundsurfaces(
-	visible,
-	luminance,
-	lighttheme,
-	wallpaperbase,
-	mainbase,
-	sidebarbase,
-	sectionbase,
-	maindata,
-	sidebardata,
-	base,
-	data
-)
-	if not S.main or not S.main.Parent or not S.sidebar or not S.sidebar.Parent then return end
 
-	visible = S.backgroundimagesource ~= nil
-		and S.backgroundimagesource ~= ""
-		and S.backgroundresolvedasset ~= nil
-
-	luminance = S.theme.window.R * 0.2126 + S.theme.window.G * 0.7152 + S.theme.window.B * 0.0722
-	lighttheme = luminance >= 0.62
-
-	-- Surface transparency follows the actual image visibility/opacity.
-	wallpaperbase = visible
-			and (lighttheme and 0.68 or 0.74) * math.clamp(
-				S.__blush_background_visibility or 0,
-				0,
-				1
-			)
-		or 0
-	mainbase = wallpaperbase
-	sidebarbase = visible and not S.backgroundexcludesidebar and wallpaperbase or 0
-	sectionbase = 0
-
-	maindata = S.transparencybase[S.main]
-	if maindata then
-		maindata.base = mainbase
-		S.main.BackgroundTransparency = S.effectivetransparency(mainbase, maindata.role, S.main)
-	else
-		S.main.BackgroundTransparency = mainbase
-	end
-
-	sidebardata = S.transparencybase[S.sidebar]
-	if sidebardata then
-		sidebardata.base = sidebarbase
-		S.sidebar.BackgroundTransparency =
-			S.effectivetransparency(sidebarbase, sidebardata.role, S.sidebar)
-	else
-		S.sidebar.BackgroundTransparency = sidebarbase
-	end
-
-	for frame in pairs(S.backgroundsectionframes) do
-		if frame and frame.Parent then
-			data = S.transparencybase[frame]
-			if data then
-				frame.BackgroundTransparency = S.effectivetransparency(data.base, data.role, frame)
-			end
-		else
-			S.backgroundsectionframes[frame] = nil
-		end
-	end
-end
 
 S.sidebardivider = S.new("Frame", {
 	Parent = S.window,
@@ -4048,62 +3846,12 @@ S.sidebardivider = S.new("Frame", {
 	ZIndex = 12,
 }, { BackgroundColor3 = "border" })
 
--- resize
 
-S.resizehandlesize = 28
-S.windowresize = nil
-S.lastresizetap = 0
-
-S.resizehandle = S.new("TextButton", {
-	Parent = S.window,
-	AnchorPoint = Vector2.new(1, 1),
-	Position = UDim2.new(1, 0, 1, -1),
-	Size = UDim2.fromOffset(S.resizehandlesize, S.resizehandlesize),
-	BackgroundTransparency = 1,
-	BorderSizePixel = 0,
-	Text = "",
-	AutoButtonColor = false,
-	Active = true,
-	ZIndex = 80,
-})
-
-S.resizeicon = S.image(S.resizehandle, S.icons.resize, 14, S.theme.text3, 81)
-S.resizeicon.AnchorPoint = Vector2.new(0.5, 0.5)
-S.resizeicon.Position = UDim2.fromScale(0.62, 0.62)
-S.resizeicon.Rotation = -45
-S.resizeicon.ImageTransparency = 0.42
-S.addshadow(
-	S.resizeicon,
-	"ResizeGlow",
-	0.86,
-	10,
-	1,
-	-1,
-	S.theme.white,
-	UDim2.fromOffset(0, 0),
-	true
-)
-
-S.resizehandle.MouseEnter:Connect(
-	function()
-		S.tween(S.resizeicon, {
-			ImageColor3 = S.theme.text,
-			ImageTransparency = 0.05,
-		}, S.hoverti, nil, { ImageColor3 = "text" })
-	end
-)
-
-S.resizehandle.MouseLeave:Connect(
-	function()
-		S.tween(S.resizeicon, {
-			ImageColor3 = S.theme.text3,
-			ImageTransparency = 0.42,
-		}, S.hoverti, nil, { ImageColor3 = "text3" })
-	end
-)
 
 -- watermark
-
+S.watermarkshown = false
+function S.ensurewatermark()
+	if S.watermark then return end
 S.watermark = S.new("Frame", {
 	Parent = S.watermarkgui,
 
@@ -4118,19 +3866,20 @@ S.watermark = S.new("Frame", {
 	BorderSizePixel = 0,
 
 	Active = true,
-	Visible = true,
+	Visible = false,
 
 	ZIndex = 100,
 }, { BackgroundColor3 = "popup" })
 
 S.registerpanel(S.watermark, "Watermark")
-S.watermarkshown = true
+
 S.watermarkfadetoken = 0
 S.watermarkfadeanimations = {}
 S.watermarkstatsconnection = nil
 
 S.corner(S.watermark, 8)
 S.watermarkshadow = S.adddepthshadow(S.watermark, "floating")
+S.watermarkglow = S.addshadow(S.watermark, "WatermarkGlow", 0.9072, 12, 0, -2, S.theme.highlight, UDim2.fromOffset(0, 0), false)
 S.watermarkfadeparts = {
 	{ S.watermark, "BackgroundTransparency", 0, "background" },
 }
@@ -4161,7 +3910,7 @@ S.watermarklayout = S.new("UIListLayout", {
 
 	FillDirection = Enum.FillDirection.Horizontal,
 
-	HorizontalAlignment = Enum.HorizontalAlignment.Center,
+	HorizontalAlignment = Enum.HorizontalAlignment.Left,
 
 	VerticalAlignment = Enum.VerticalAlignment.Center,
 
@@ -4171,6 +3920,68 @@ S.watermarklayout = S.new("UIListLayout", {
 })
 
 S.watermarkorder = 0
+
+S.__blush_watermark_title = S.watermarktext("blush.", true, 48)
+
+S.__blush_watermark_divider_player = S.watermarkdivider()
+S.__blush_watermark_player = S.watermarktext(S.player.DisplayName, false, 64)
+
+S.__blush_watermark_divider_fps = S.watermarkdivider()
+S.__blush_watermark_fps = S.watermarktext("0 fps", false, 48)
+
+S.__blush_watermark_divider_ping = S.watermarkdivider()
+S.__blush_watermark_ping = S.watermarktext("0 ms", false, 48)
+
+S.__blush_watermark_divider_time = S.watermarkdivider()
+S.__blush_watermark_time = S.watermarktext(os.date("%H:%M"), false, 42)
+S.watermarkgamename = game.Name ~= "" and game.Name or "Game"
+S.__blush_watermark_divider_game = S.watermarkdivider()
+S.__blush_watermark_game = S.watermarktext(S.watermarkgamename, false, 100)
+
+S.watermarkdragarea = S.new("TextButton", {
+	Parent = S.watermark,
+
+	Size = UDim2.fromScale(1, 1),
+
+	BackgroundTransparency = 1,
+	BorderSizePixel = 0,
+
+	Text = "",
+	AutoButtonColor = false,
+
+	ZIndex = 110,
+})
+
+S.watermarkdragarea.InputBegan:Connect(function(input)
+	if
+		input.UserInputType ~= Enum.UserInputType.MouseButton1
+		and input.UserInputType ~= Enum.UserInputType.Touch
+	then
+		return
+	end
+
+	if not S.acquireinteraction("watermarkdrag", input) then return end
+
+	S.closepopup()
+
+	S.watermarkdrag = {
+		input = input,
+
+		start = S.point(input),
+		current = S.point(input),
+
+		startposition = S.watermark.Position,
+	}
+
+	S.ensureinteractionrenderloop()
+end)
+
+S.connect(S.watermarklayout:GetPropertyChangedSignal("AbsoluteContentSize"), S.updatewatermarksize, S.watermark)
+S.setwatermarktitle(S.watermarktitle or 'blush.')
+S.updatewatermarklayout()
+end
+
+
 
 function S.setwatermarkvisible(
 	value,
@@ -4184,6 +3995,10 @@ function S.setwatermarkvisible(
 	finish
 )
 	value = value == true
+	if not S.watermark then
+		if not value then S.watermarkshown = false; return end
+		S.ensurewatermark()
+	end
 	changed = S.watermarkshown ~= value
 	S.watermarkshown = value
 	S.watermark.Active = value
@@ -4239,7 +4054,7 @@ function S.setwatermarkvisible(
 	end
 
 	if primary then
-		primary.Completed:Connect(finish)
+		primary.Completed:Once(finish)
 	else
 		finish()
 	end
@@ -4304,50 +4119,13 @@ function S.watermarkdivider(object8)
 	return object8
 end
 
-S.watermarkconfig = {
-	Player = true,
-	FPS = true,
-	Ping = true,
-	Time = true,
-	Game = true,
-	PlayerMode = "Display",
-}
-
-S.__blush_watermark_title = S.watermarktext("blush.", true, 48)
-
-S.__blush_watermark_divider_player = S.watermarkdivider()
-S.__blush_watermark_player = S.watermarktext(S.player.DisplayName, false, 64)
-
-S.__blush_watermark_divider_fps = S.watermarkdivider()
-S.__blush_watermark_fps = S.watermarktext("0 fps", false, 48)
-
-S.__blush_watermark_divider_ping = S.watermarkdivider()
-S.__blush_watermark_ping = S.watermarktext("0 ms", false, 48)
-
-S.__blush_watermark_divider_time = S.watermarkdivider()
-S.__blush_watermark_time = S.watermarktext(os.date("%H:%M"), false, 42)
-S.watermarkgamename = game.Name ~= "" and game.Name or "Game"
-S.__blush_watermark_divider_game = S.watermarkdivider()
-S.__blush_watermark_game = S.watermarktext(S.watermarkgamename, false, 100)
+S.watermarkconfig = { DisplayName = true, Username = false, FPS = true, Ping = true, Time = true, Game = true }
 
 function S.watermarkplayertext()
-	if S.watermarkconfig.PlayerMode == "Username" then
-		return S.player.Name
-	elseif S.watermarkconfig.PlayerMode == "Both" then
-		return S.player.DisplayName .. " @" .. S.player.Name
-	end
-
-	return S.player.DisplayName
-end
-
-function S.normalizewatermarkplayermode(value)
-	value = tostring(value or "Display")
-
-	if value == "DisplayName" or value == "Display name" then value = "Display" end
-
-	if value ~= "Display" and value ~= "Username" and value ~= "Both" then value = "Display" end
-
-	return value
+	if S.watermarkconfig.DisplayName and S.watermarkconfig.Username then return S.player.DisplayName .. " @" .. S.player.Name end
+	if S.watermarkconfig.DisplayName then return S.player.DisplayName end
+	if S.watermarkconfig.Username then return S.player.Name end
+	return ""
 end
 
 function S.resizewatermarktext(object, value, strong, size, fontface, bounds)
@@ -4373,10 +4151,11 @@ function S.updatewatermarksize(width)
 	S.watermark.Size = UDim2.fromOffset(math.max(84, width), 38)
 end
 
-S.connect(S.watermarklayout:GetPropertyChangedSignal("AbsoluteContentSize"), S.updatewatermarksize)
+
 
 function S.updatewatermarklayout(playerenabled, fpsenabled, pingenabled, timeenabled)
-	playerenabled = S.watermarkconfig.Player == true
+	if not S.watermark then return end
+	playerenabled = S.watermarkconfig.DisplayName or S.watermarkconfig.Username
 
 	fpsenabled = S.watermarkconfig.FPS == true
 
@@ -4409,6 +4188,8 @@ function S.updatewatermarklayout(playerenabled, fpsenabled, pingenabled, timeena
 end
 
 function S.setwatermarktitle(value)
+	S.watermarktitle = value
+	if not S.watermark then return end
 	value = tostring(value or "blush.")
 
 	S.resizewatermarktext(S.__blush_watermark_title, value, true)
@@ -4418,22 +4199,25 @@ end
 
 S.updatewatermarklayout()
 
-task.spawn(function(ok, info)
-	ok, info = pcall(
-		function() return game:GetService("MarketplaceService"):GetProductInfoAsync(game.PlaceId) end
-	)
-	if ok and info and info.Name then
-		S.watermarkgamename = tostring(info.Name)
-		if S.__blush_watermark_game.Parent then S.updatewatermarklayout() end
-	end
-end)
+function S.requestwatermarkmetadata()
+	if S.watermarkmetadatarequested or not S.watermarkconfig.Game then return end
+	S.watermarkmetadatarequested = true
+	S.watermarkmetadatatask = task.spawn(function()
+		local ok, info = pcall(function() return game:GetService("MarketplaceService"):GetProductInfoAsync(game.PlaceId) end)
+		S.watermarkmetadatatask = nil
+		if S.alive and ok and info and info.Name then
+			S.watermarkgamename = tostring(info.Name)
+			S.updatewatermarklayout()
+		end
+	end)
+end
 
 S.__blush_watermark_frames = 0
 S.__blush_watermark_elapsed = 0
 S.__blush_last_ping = 0
 
 function S.calculatewatermarkping(ok, value)
-	ok, value = S.invoke(function(network, serverstats, dataping, measured)
+	ok, value = pcall(function(network, serverstats, dataping, measured)
 		network = S.stats:FindFirstChild("Network")
 		serverstats = network and network:FindFirstChild("ServerStatsItem")
 		dataping = serverstats and serverstats:FindFirstChild("Data Ping")
@@ -4487,6 +4271,7 @@ end
 
 function S.setwatermarkstatsactive(value)
 	if value then
+		S.requestwatermarkmetadata()
 		if not S.watermarkstatsconnection or not S.watermarkstatsconnection.Connected then
 			S.watermarkstatsconnection = S.runservice.PreRender:Connect(S.updatewatermarkstats)
 		end
@@ -4502,22 +4287,7 @@ function S.setwatermarkstatsactive(value)
 	S.__blush_watermark_elapsed = 0
 end
 
-S.setwatermarkstatsactive(S.watermarkshown)
-S.calculatewatermarkping()
 
-S.watermarkdragarea = S.new("TextButton", {
-	Parent = S.watermark,
-
-	Size = UDim2.fromScale(1, 1),
-
-	BackgroundTransparency = 1,
-	BorderSizePixel = 0,
-
-	Text = "",
-	AutoButtonColor = false,
-
-	ZIndex = 110,
-})
 
 -- sidebar
 
@@ -4526,7 +4296,7 @@ S.avat = S.new("ImageLabel", {
 
 	AnchorPoint = Vector2.new(0.5, 0.5),
 
-	Position = UDim2.fromOffset(39, 45),
+	Position = UDim2.fromOffset(37, 45),
 
 	Size = UDim2.fromOffset(30, 30),
 
@@ -4605,7 +4375,7 @@ function S.updatebrandlayout(
 	width = math.max(1, S.sidebar.AbsoluteSize.X)
 	if S.sidebarcompact then
 		if S.avat.Visible and S.avat.Image ~= "" then
-			S.avat.Position = UDim2.fromOffset(math.floor(width * 0.5) + 1, 45)
+			S.avat.Position = UDim2.fromOffset(math.floor(width * 0.5) - 1, 45)
 		end
 		return
 	end
@@ -4660,7 +4430,7 @@ function S.updatebrandlayout(
 	textleft = startx + iconwidth + icongap
 
 	if hasicon then
-		S.avat.Position = UDim2.fromOffset(startx + iconwidth * 0.5, (23 + 48 + 18) * 0.5)
+		S.avat.Position = UDim2.fromOffset(startx + iconwidth * 0.5 - 4, (23 + 48 + 18) * 0.5)
 	end
 
 	-- Left-align title and subtitle block to the widest rendered line.
@@ -4687,14 +4457,14 @@ function S.updatebrandlayout(
 end
 
 for _, object in ipairs({ S.brand, S.subtitle, S.username }) do
-	S.connect(object:GetPropertyChangedSignal("Text"), S.updatebrandlayout)
-	S.connect(object:GetPropertyChangedSignal("TextSize"), S.updatebrandlayout)
-	S.connect(object:GetPropertyChangedSignal("Font"), S.updatebrandlayout)
-	S.connect(object:GetPropertyChangedSignal("Visible"), S.updatebrandlayout)
+	S.connect(object:GetPropertyChangedSignal("Text"), S.updatebrandlayout, object)
+	S.connect(object:GetPropertyChangedSignal("TextSize"), S.updatebrandlayout, object)
+	S.connect(object:GetPropertyChangedSignal("Font"), S.updatebrandlayout, object)
+	S.connect(object:GetPropertyChangedSignal("Visible"), S.updatebrandlayout, object)
 end
-S.connect(S.sidebar:GetPropertyChangedSignal("AbsoluteSize"), S.updatebrandlayout)
-S.connect(S.avat:GetPropertyChangedSignal("Image"), S.updatebrandlayout)
-S.connect(S.avat:GetPropertyChangedSignal("Visible"), S.updatebrandlayout)
+S.connect(S.sidebar:GetPropertyChangedSignal("AbsoluteSize"), S.updatebrandlayout, S.sidebar)
+S.connect(S.avat:GetPropertyChangedSignal("Image"), S.updatebrandlayout, S.avat)
+S.connect(S.avat:GetPropertyChangedSignal("Visible"), S.updatebrandlayout, S.avat)
 S.updatebrandlayout()
 
 S.sideheaderdrag = S.new("TextButton", {
@@ -4713,27 +4483,7 @@ S.sideheaderdrag = S.new("TextButton", {
 	ZIndex = 13,
 })
 
-S.category = S.new("TextButton", {
-	Parent = S.sidebar,
-	Position = UDim2.fromOffset(14, 92),
-	Size = UDim2.new(1, -28, 0, 28),
-	BackgroundTransparency = 1,
-	BorderSizePixel = 0,
-	Text = "",
-	AutoButtonColor = false,
-	Visible = false,
-	ZIndex = 13,
-})
 
-S.categorytext = S.label(S.category, "Main", UDim2.new(1, -30, 1, 0), S.medium, S.theme.text3)
-S.categorytext.Position = UDim2.fromOffset(8, 0)
-S.categorytext.TextSize = 14
-S.categorytext.ZIndex = 14
-
-S.categoryarrow = S.image(S.category, S.icons.down, 11, S.theme.text3, 14)
-S.categoryarrow.AnchorPoint = Vector2.new(1, 0.5)
-S.categoryarrow.Position = UDim2.new(1, -7, 0.5, 0)
-S.categoryarrow.ImageTransparency = 0.18
 
 S.nav = S.new("ScrollingFrame", {
 	Parent = S.sidebar,
@@ -4756,27 +4506,7 @@ S.new("UIPadding", {
 	PaddingBottom = UDim.new(0, 10),
 })
 
-S.maingroup = S.new("Frame", {
-	Parent = S.nav,
-	Size = UDim2.new(1, 0, 0, 0),
-	BackgroundTransparency = 1,
-	BorderSizePixel = 0,
-	ClipsDescendants = true,
-	LayoutOrder = 1,
-	ZIndex = 12,
-})
 
-S.maincontent = S.new("Frame", {
-	Parent = S.maingroup,
-	Size = UDim2.new(1, 0, 0, 0),
-	AutomaticSize = Enum.AutomaticSize.Y,
-	BackgroundTransparency = 1,
-	BorderSizePixel = 0,
-	ZIndex = 12,
-})
-
-S.maincontentlayout = S.list(S.maincontent, 3)
-S.maincategorycollapsed = false
 
 -- main header
 
@@ -4818,7 +4548,7 @@ S.new("UIListLayout", {
 	SortOrder = Enum.SortOrder.LayoutOrder,
 })
 
-S.titleprimary = S.label(S.breadcrumb, "Combat", UDim2.fromOffset(0, 28), S.bold)
+S.titleprimary = S.label(S.breadcrumb, "", UDim2.fromOffset(0, 28), S.bold)
 
 S.titleprimary.LayoutOrder = 1
 
@@ -4843,7 +4573,7 @@ S.breadcrumbarrow.AnchorPoint = Vector2.new(0.5, 0.5)
 
 S.breadcrumbarrow.Position = UDim2.new(0.5, 0, 0.5, 1)
 
-S.titlesecondary = S.label(S.breadcrumb, "Main", UDim2.fromOffset(0, 28), S.medium, S.theme.text3)
+S.titlesecondary = S.label(S.breadcrumb, "", UDim2.fromOffset(0, 28), S.medium, S.theme.text3)
 
 S.titlesecondary.LayoutOrder = 3
 
@@ -4857,7 +4587,7 @@ S.searchholder = S.new("Frame", {
 
 	Position = UDim2.new(1, -52, 0.5, 0),
 
-	Size = UDim2.fromOffset(150, 38),
+	Size = UDim2.fromOffset(112, 38),
 
 	BackgroundColor3 = S.theme.input,
 
@@ -4964,15 +4694,15 @@ function S.updateheadercontrols(width, rightinset, searchwidth)
 	S.updatebreadcrumblayout()
 end
 
-S.connect(S.header:GetPropertyChangedSignal("AbsoluteSize"), S.updateheadercontrols)
+S.connect(S.header:GetPropertyChangedSignal("AbsoluteSize"), S.updateheadercontrols, S.header)
 
 S.updateheadercontrols()
 
 for _, object in ipairs({ S.titleprimary, S.titlesecondary }) do
-	S.connect(object:GetPropertyChangedSignal("Text"), S.updatebreadcrumblayout)
-	S.connect(object:GetPropertyChangedSignal("TextSize"), S.updatebreadcrumblayout)
-	S.connect(object:GetPropertyChangedSignal("Font"), S.updatebreadcrumblayout)
-	S.connect(object:GetPropertyChangedSignal("Visible"), S.updatebreadcrumblayout)
+	S.connect(object:GetPropertyChangedSignal("Text"), S.updatebreadcrumblayout, object)
+	S.connect(object:GetPropertyChangedSignal("TextSize"), S.updatebreadcrumblayout, object)
+	S.connect(object:GetPropertyChangedSignal("Font"), S.updatebreadcrumblayout, object)
+	S.connect(object:GetPropertyChangedSignal("Visible"), S.updatebreadcrumblayout, object)
 end
 
 function S.setsearchvisible(
@@ -5054,7 +4784,7 @@ function S.setsearchvisible(
 	end
 
 	if primary then
-		primary.Completed:Connect(finish)
+		primary.Completed:Once(finish)
 	else
 		finish()
 	end
@@ -5118,124 +4848,23 @@ S.popuplayer = S.new("Frame", {
 	ZIndex = 500,
 })
 
-S.draglayer = S.new("CanvasGroup", {
-	Parent = S.gui,
-
-	Size = UDim2.fromScale(1, 1),
-
-	BackgroundTransparency = 1,
-	BorderSizePixel = 0,
-	GroupTransparency = 0,
-
-	ClipsDescendants = false,
-
-	ZIndex = 400,
-})
-
-function S.makedragghost(source, zindex, absolute, size, holder, clone)
-	absolute = source.AbsolutePosition - S.draglayer.AbsolutePosition
-	size = source.AbsoluteSize
-	holder = S.rawnew("Frame", {
-		Parent = S.draglayer,
-		Position = UDim2.fromOffset(absolute.X, absolute.Y),
-		Size = UDim2.fromOffset(size.X, size.Y),
-		BackgroundTransparency = 1,
-		BorderSizePixel = 0,
-		ClipsDescendants = false,
-		ZIndex = zindex or 460,
-	})
-
-	clone = source:Clone()
-	clone.Parent = holder
-	clone.AnchorPoint = Vector2.zero
-	clone.Position = UDim2.fromOffset(0, 0)
-	clone.Size = UDim2.fromScale(1, 1)
-	clone.LayoutOrder = 0
-
-	for _, object in ipairs(clone:GetDescendants()) do
-		if object:IsA("GuiObject") then
-			object.ZIndex += (zindex or 460)
-			if object.Name == "TabActiveIndicator" then object.BackgroundTransparency = 1 end
-		end
-	end
-	clone.ZIndex += (zindex or 460)
-
-	return holder, clone
-end
-
-function S.hideforghost(source, state, objects, props)
-	state = {}
-	objects = { source }
-	for _, object in ipairs(source:GetDescendants()) do
-		objects[#objects + 1] = object
-	end
-
-	for _, object in ipairs(objects) do
-		if object:IsA("GuiObject") then
-			if object.Name == "TabActiveIndicator" then continue end
-
-			props = {}
-			if object.BackgroundTransparency ~= nil then
-				props.BackgroundTransparency = object.BackgroundTransparency
-				object.BackgroundTransparency = 1
-			end
-			if object:IsA("TextLabel") or object:IsA("TextButton") then
-				props.TextTransparency = object.TextTransparency
-				object.TextTransparency = 1
-			end
-			if object:IsA("ImageLabel") or object:IsA("ImageButton") then
-				props.ImageTransparency = object.ImageTransparency
-				object.ImageTransparency = 1
-			end
-			if next(props) then state[#state + 1] = { object = object, props = props } end
-		elseif object:IsA("UIStroke") or object:IsA("UIShadow") then
-			state[#state + 1] = { object = object, props = { Transparency = object.Transparency } }
-			object.Transparency = 1
-		end
-	end
-
-	return state
-end
-
-function S.restorefromghost(state, object9)
-	for _, entry in ipairs(state or {}) do
-		object9 = entry.object
-		if object9 and object9.Parent then
-			for property, value in pairs(entry.props) do
-				object9[property] = value
-			end
-		end
-	end
-end
-
 -- notifications
 
 S.notificationdrag = nil
 
-S.notificationholder = S.new("Frame", {
-	Parent = S.gui,
-
-	AnchorPoint = Vector2.new(1, 0),
-	Position = UDim2.new(1, -18, 0, 18),
-	Size = UDim2.fromOffset(336, 560),
-
-	BackgroundTransparency = 1,
-	BorderSizePixel = 0,
-
-	ClipsDescendants = false,
-	ZIndex = 700,
-})
-
-S.new("UIListLayout", {
-	Parent = S.notificationholder,
-
-	FillDirection = Enum.FillDirection.Vertical,
-	HorizontalAlignment = Enum.HorizontalAlignment.Right,
-	VerticalAlignment = Enum.VerticalAlignment.Top,
-
-	Padding = UDim.new(0, 8),
-	SortOrder = Enum.SortOrder.LayoutOrder,
-})
+function S.ensurenotifications()
+	if S.notificationholder then return end
+	S.notificationholder = S.new("Frame", {
+		Parent = S.watermarkgui, AnchorPoint = Vector2.new(1, 0),
+		Position = UDim2.new(1, -18, 0, 18), Size = UDim2.fromOffset(336, 560),
+		BackgroundTransparency = 1, BorderSizePixel = 0, ClipsDescendants = false, ZIndex = 700,
+	})
+	S.new("UIListLayout", {
+		Parent = S.notificationholder, FillDirection = Enum.FillDirection.Vertical,
+		HorizontalAlignment = Enum.HorizontalAlignment.Right, VerticalAlignment = Enum.VerticalAlignment.Top,
+		Padding = UDim.new(0, 8), SortOrder = Enum.SortOrder.LayoutOrder,
+	})
+end
 
 S.notifications = {}
 S.notificationorder = 0
@@ -5259,7 +4888,7 @@ function S.notificationasset(value, result)
 
 	if string.match(result, "^%d+$") then return "rbxassetid://" .. result end
 
-	return result ~= "" and result or nil
+	return S.librarynormalizeicon(result) or (result ~= "" and result or nil)
 end
 
 function S.removenotification(data)
@@ -5271,34 +4900,24 @@ function S.removenotification(data)
 	end
 end
 
-function S.dismissnotification(data, velocity, wrapper, card, animation, destroy)
-	if not data or data.closing then return end
-
+function S.dismissnotification(data, velocity)
+	if not data or data.closing or data.destroyed then return end
 	data.closing = true
 	S.removenotification(data)
-
-	if S.notificationdrag and S.notificationdrag.data == data then S.notificationdrag = nil end
-
-	wrapper = data.wrapper
-	card = data.card
-
+	S.cancelthread(data.timeout)
+	data.timeout = nil
+	if S.notificationdrag and S.notificationdrag.data == data then
+		S.releaseinteraction(S.notificationdrag.input)
+		S.notificationdrag = nil
+	end
+	local wrapper = data.wrapper
 	if not wrapper or not wrapper.Parent then return end
-
-	animation = nil
-
-	if card and card.Parent then
-		animation = S.tween(card, { GroupTransparency = 1 }, S.notificationout)
+	local animation = S.tween(data.card, { GroupTransparency = 1 }, S.notificationout, true)
+	if velocity then
+		S.tween(data.card, { Position = UDim2.fromOffset(data.card.Size.X.Offset, 0) }, S.notificationout)
 	end
-
-	destroy = function()
-		if wrapper and wrapper.Parent then wrapper:Destroy() end
-	end
-
-	if animation then
-		animation.Completed:Connect(destroy)
-	else
-		destroy()
-	end
+	local function finish() if not data.destroyed then wrapper:Destroy() end end
+	if animation then animation.Completed:Once(finish) else finish() end
 end
 
 function S.notify(
@@ -5316,7 +4935,6 @@ function S.notify(
 	iconvalue,
 	hasaction,
 	hasicon,
-	viewportwidth,
 	cardwidth,
 	leftpadding,
 	rightpadding,
@@ -5333,32 +4951,52 @@ function S.notify(
 	actionbutton,
 	data
 )
-	if S.notificationsenabled == false then return end
+	if not S.alive or S.notificationsenabled == false then return nil end
+	S.ensurenotifications()
+	if S.watermarkgui and S.watermarkgui.Parent then S.watermarkgui.Enabled = true end
 
 	options = nil
 
 	if type(titletext) == "table" then
 		options = titletext
-		titletext = options.Title or options.title
-		bodytext = options.Content or options.content or options.Body or options.body or options.Description or options.description
+		titletext = options.Title or options.title or "blush."
+		bodytext = options.Content
+			or options.content
+			or options.Description
+			or options.description
+			or options.Text
+			or options.text
+			or ""
 		duration = options.Duration or options.duration
-		actiontext = options.Action or options.action or options.Button or options.button or options.ActionText or options.actiontext
+		actiontext = options.Action
+			or options.action
+			or options.Button
+			or options.button
+			or options.ActionText
+			or options.actiontext
 		actioncallback = options.Callback or options.callback or options.ActionCallback or options.actioncallback
+		if type(actiontext) == "table" then
+			actioncallback = actiontext.Callback or actiontext.callback or actioncallback
+			actiontext = actiontext.Text or actiontext.text or actiontext.Name or actiontext.name
+		end
 		iconasset = options.Icon or options.icon
+
+		if options.Player ~= nil or options.player ~= nil then
+			iconasset = options.Player ~= nil and options.Player or options.player
+			if typeof(iconasset) == "Instance" and iconasset:IsA("Player") then
+				iconasset = S.getplayerthumbnail(iconasset)
+			elseif tonumber(iconasset) then
+				iconasset = string.format(
+					"rbxthumb://type=AvatarHeadShot&id=%d&w=150&h=150",
+					tonumber(iconasset)
+				)
+			end
+		end
 	elseif type(actiontext) == "table" then
 		options = actiontext
-		actiontext = options.Action or options.action or options.Button or options.button or options.ActionText or options.actiontext
-		actioncallback = options.Callback or options.callback or options.ActionCallback or options.actioncallback
-		iconasset = options.Icon or options.icon
-	end
-
-	if options then
-		local playericon = options.Player or options.player
-		if typeof(playericon) == "Instance" and playericon:IsA("Player") then
-			iconasset = S.getplayerthumbnail(playericon)
-		elseif type(playericon) == "number" then
-			iconasset = string.format("rbxthumb://type=AvatarHeadShot&id=%d&w=150&h=150", playericon)
-		end
+		actiontext = options.action or options.button or options.actiontext
+		actioncallback = options.callback or options.actioncallback
+		iconasset = options.icon
 	end
 
 	S.notificationorder += 1
@@ -5366,16 +5004,16 @@ function S.notify(
 	titlevalue = tostring(titletext or "blush.")
 	bodyvalue = tostring(bodytext or "")
 	lifetime = math.max(1, tonumber(duration) or S.defaultnotificationduration)
-	actionvalue = actiontext and tostring(actiontext) or nil
+	if type(actioncallback) ~= "function" then actioncallback = nil end
+	actionvalue = actiontext ~= nil and type(actiontext) ~= "function" and tostring(actiontext) or nil
 	iconvalue = S.notificationasset(iconasset)
 
 	hasaction = actionvalue ~= nil and actionvalue ~= ""
 
 	hasicon = iconvalue ~= nil and iconvalue ~= ""
 
-	viewportwidth = workspace.CurrentCamera and workspace.CurrentCamera.ViewportSize.X or 360
 	cardwidth = 316
-	leftpadding = hasicon and 48 or 14
+	leftpadding = hasicon and 54 or 14
 	rightpadding = 14
 	textwidth = cardwidth - leftpadding - rightpadding
 
@@ -5417,7 +5055,6 @@ function S.notify(
 
 	S.corner(card, 9)
 	S.adddepthshadow(card, "floating")
-	S.stroke(card, 0.5, S.theme.border, 0.6)
 
 	dragarea = S.new("TextButton", {
 		Parent = card,
@@ -5438,9 +5075,14 @@ function S.notify(
 	iconobject = nil
 
 	if hasicon then
-		iconobject = S.image(card, iconvalue, 23, S.theme.text2, 704)
+		iconobject = S.image(card, iconvalue, 27, S.theme.text2, 704)
+		iconobject.AnchorPoint = Vector2.new(0.5, 0.5)
+		iconobject.Position = UDim2.fromOffset(28, 29)
 
-		iconobject.Position = UDim2.fromOffset(14, 10)
+		if string.find(iconvalue, "rbxthumb://", 1, true) == 1 then
+			iconobject.ScaleType = Enum.ScaleType.Crop
+			S.corner(iconobject, 999)
+		end
 	end
 
 	title = S.label(
@@ -5451,7 +5093,7 @@ function S.notify(
 		S.theme.text
 	)
 
-	title.Position = UDim2.fromOffset(leftpadding, 7)
+	title.Position = UDim2.fromOffset(leftpadding, 8)
 	title.TextSize = 16
 	title.TextTruncate = Enum.TextTruncate.AtEnd
 	title.ZIndex = 704
@@ -5464,7 +5106,7 @@ function S.notify(
 		S.theme.text3
 	)
 
-	bodytextobject.Position = UDim2.fromOffset(leftpadding, 29)
+	bodytextobject.Position = UDim2.fromOffset(leftpadding, 30)
 	bodytextobject.TextSize = 15
 	bodytextobject.TextWrapped = true
 	bodytextobject.TextYAlignment = Enum.TextYAlignment.Top
@@ -5511,14 +5153,30 @@ function S.notify(
 		closing = false,
 	}
 
-	table.insert(S.notifications, data)
+	S.own(wrapper, function()
+			data.destroyed = true
+			data.closing = true
+			S.cancelthread(data.timeout)
+			data.timeout = nil
+			S.removenotification(data)
+			if S.notificationdrag and S.notificationdrag.data == data then
+				S.releaseinteraction(S.notificationdrag.input)
+				S.notificationdrag = nil
+			end
+			data.wrapper = nil
+			data.card = nil
+			data.dragarea = nil
+		end)
+		data.Dismiss = function() S.dismissnotification(data) end
+		data.Destroy = function() if not data.destroyed then wrapper:Destroy() end end
+		table.insert(S.notifications, data)
 
 	while #S.notifications > S.maxnotifications do
 		S.dismissnotification(S.notifications[1])
 	end
 
 	dragarea.InputBegan:Connect(function(input, start)
-		if data.closing then return end
+		if not S.alive or data.closing then return end
 
 		if
 			input.UserInputType ~= Enum.UserInputType.MouseButton1
@@ -5527,6 +5185,7 @@ function S.notify(
 			return
 		end
 
+		if not S.acquireinteraction('notification', input) then return end
 		start = S.point(input)
 
 		S.notificationdrag = {
@@ -5550,18 +5209,18 @@ function S.notify(
 		)
 
 		actionbutton.Activated:Connect(function()
-			if data.closing then return end
-
-			if actioncallback then task.spawn(function() S.invoke(actioncallback) end) end
+			if not S.alive or data.closing then return end
 
 			S.dismissnotification(data)
+			if actioncallback then actioncallback() end
 		end)
 	end
 
 	S.tween(card, { GroupTransparency = 0 }, S.notificationin)
 
-	task.delay(lifetime, function()
-		if data and not data.closing and data.card and data.card.Parent then
+	data.timeout = task.delay(lifetime, function()
+		data.timeout = nil
+		if S.alive and not data.closing and data.card and data.card.Parent then
 			S.dismissnotification(data)
 		end
 	end)
@@ -5585,60 +5244,11 @@ S.topprimarygesture = nil
 S.windowdrag = nil
 S.watermarkdrag = nil
 S.sliderdrag = nil
-S.pickerdrag = nil
+
 
 S.animatedpickers = {}
 S.pickeranimationconnection = nil
 S.interactionrenderconnection = nil
-S.animateduielements = setmetatable({}, { __mode = "k" })
-S.animateduiconnection = nil
-
-function S.stopanimateduiloop(connection)
-	connection = S.animateduiconnection
-	S.animateduiconnection = nil
-
-	if connection and connection.Connected then connection:Disconnect() end
-end
-
-function S.ensureanimateduiloop()
-	if S.animateduiconnection and S.animateduiconnection.Connected then return end
-
-	S.animateduiconnection = S.runservice.RenderStepped:Connect(function(dt)
-		if next(S.animateduielements) == nil then
-			S.stopanimateduiloop()
-			return
-		end
-
-		for object, data in pairs(S.animateduielements) do
-			if not object.Parent then
-				S.animateduielements[object] = nil
-			elseif data.kind == "spinner" then
-				if S.animationsenabled then
-					data.value = (data.value + dt * 180) % 360
-					object.Rotation = data.value
-				end
-			elseif data.kind == "bar" then
-				if S.animationsenabled then
-					data.value = (data.value + dt * 0.7) % 1
-					object.Position = UDim2.new(-0.28 + data.value * 1.28, 0, 0, 0)
-				else
-					object.Position = UDim2.new(0.36, 0, 0, 0)
-				end
-			end
-		end
-	end)
-end
-
-function S.registeranimatedui(object, kind)
-	S.animateduielements[object] = { kind = kind, value = 0 }
-	S.ensureanimateduiloop()
-
-	object.Destroying:Connect(function()
-		S.animateduielements[object] = nil
-		if next(S.animateduielements) == nil then S.stopanimateduiloop() end
-	end)
-end
-
 function S.stoppickeranimationloop(connection)
 	connection = S.pickeranimationconnection
 	S.pickeranimationconnection = nil
@@ -5675,8 +5285,7 @@ end
 function S.releaseinteraction(owner)
 	if S.interactionowner and (owner == nil or S.interactionowner.owner == owner) then
 		S.interactionowner = nil
-		if S.pendingsettingssave then S.saveuisettings() end
-		if S.pendingconfigsave then S.requestconfigautosave() end
+		if S.persistencedirty then S.persistencedirty = false; S.requestconfigautosave() end
 	end
 end
 
@@ -5724,37 +5333,19 @@ function S.fadepopup(popup, target, objects, properties2, primary, goals, animat
 	return primary
 end
 
-function S.closepopup(popup, animation, destroy, completed)
-	if not S.activepopup then return end
-
-	popup = S.activepopup
+function S.closepopup(expected)
+	local popup = S.activepopup
+	if not popup or (expected and expected ~= popup) or popup.closing then return end
 	S.activepopup = nil
-
+	popup.closing = true
 	if popup.onclose then popup.onclose() end
-
-	if popup.blocker and popup.blocker.Parent then popup.blocker:Destroy() end
-
+	if popup.blocker then popup.blocker:Destroy(); popup.blocker = nil end
 	if not popup.panel or not popup.panel.Parent then return end
-
-	animation = S.fadepopup(popup, 1)
-
-	destroy = function()
-		if popup.panel and popup.panel.Parent then popup.panel:Destroy() end
-	end
-
-	if animation then
-		completed = nil
-		completed = animation.Completed:Connect(function()
-			if completed then
-				completed:Disconnect()
-				completed = nil
-			end
-
-			destroy()
-		end)
-	else
-		destroy()
-	end
+	local panel = popup.panel
+	panel.Active = false
+	local animation = S.alive and S.fadepopup(popup, 1)
+	local function destroy() if panel.Parent then panel:Destroy() end end
+	if animation then animation.Completed:Once(destroy) else destroy() end
 end
 
 function S.createpopup(
@@ -5781,7 +5372,7 @@ function S.createpopup(
 
 	x = math.clamp(position.X, 8, math.max(8, rootsize.X - width - 8))
 
-	y = position.Y
+	y = math.clamp(position.Y, 8, math.max(8, rootsize.Y - height - 8))
 
 	blocker = nil
 
@@ -5852,6 +5443,7 @@ function S.createpopup(
 		animationobject = panel
 	end
 
+	
 	popup = {
 		panel = animationobject,
 		content = panel,
@@ -5864,9 +5456,17 @@ function S.createpopup(
 	}
 
 	S.activepopup = popup
+	S.own(popup.panel, function()
+		if S.activepopup == popup then S.activepopup = nil end
+		if not popup.closing then
+			popup.closing = true
+			if popup.onclose then popup.onclose() end
+		end
+		popup.fadeentries = nil
+	end)
 
 	task.defer(function()
-		if S.activepopup == popup and popup.panel.Parent then S.fadepopup(popup, 0) end
+		if S.alive and S.activepopup == popup and popup.panel.Parent then S.fadepopup(popup, 0) end
 	end)
 
 	return panel, popup
@@ -6129,7 +5729,7 @@ function S.showmodal(
 		BorderSizePixel = 0,
 		ZIndex = 701,
 	}, { BackgroundColor3 = "popup" })
-	S.corner(card, 10)
+		S.corner(card, 10)
 	S.transparencybase[card] = nil
 	S.__blush_main_alpha[card] = nil
 	card.BackgroundTransparency = 0
@@ -6232,7 +5832,7 @@ function S.showmodal(
 		end)
 	end
 
-	blocker.Activated:Connect(S.closemodal)
+	blocker.Activated:Connect(function() S.closemodal() end)
 	S.__blush_modal = {
 		root = root,
 		blocker = blocker,
@@ -6242,7 +5842,7 @@ function S.showmodal(
 
 	modalinfo = S.dropti
 
-	S.tween(blocker, { BackgroundTransparency = 0.60 }, modalinfo, true)
+	S.tween(blocker, { BackgroundTransparency = 0.74 }, modalinfo, true)
 	S.__blush_modal.cardtween = S.fadepopup(S.__blush_modal, 0)
 
 	return root
@@ -6258,15 +5858,13 @@ end
 S.__blush_togglebindings = {}
 S.__blush_pending_keybinds = {}
 
-S.hotkeyfontsize = 14
-S.hotkeylistwidth = 288
-S.hotkeyminimized = false
-
-S.hotkeylist = S.new("CanvasGroup", {
+function S.ensurekeybindlist()
+	if S.keybindlist then return end
+S.keybindlist = S.new("CanvasGroup", {
 	Parent = S.gui,
 	AnchorPoint = Vector2.new(1, 0),
 	Position = UDim2.new(1, -18, 0.5, -27),
-	Size = UDim2.fromOffset(S.hotkeylistwidth, 54),
+	Size = UDim2.fromOffset(S.keybindlistwidth, 54),
 	BackgroundColor3 = S.theme.popup,
 	BackgroundTransparency = 0,
 	BorderSizePixel = 0,
@@ -6274,13 +5872,25 @@ S.hotkeylist = S.new("CanvasGroup", {
 	GroupTransparency = 0,
 	ZIndex = 320,
 }, { BackgroundColor3 = "popup" })
-S.registerpanel(S.hotkeylist, "Keybinds")
-S.corner(S.hotkeylist, 8)
-S.stroke(S.hotkeylist, 0.62, S.theme.border, 0.55)
-S.adddepthshadow(S.hotkeylist, "floating")
-S.hotkeyglow = S.addshadow(
-	S.hotkeylist,
-	"HotkeyPanelGlow",
+S.registerpanel(S.keybindlist, "Keybinds")
+S.corner(S.keybindlist, 8)
+S.stroke(S.keybindlist, 0.62, S.theme.border, 0.55)
+S.keybindshadowframe = S.new("Frame", {
+	Parent = S.gui, AnchorPoint = S.keybindlist.AnchorPoint, Position = S.keybindlist.Position,
+	Size = S.keybindlist.Size, BackgroundTransparency = 1, BorderSizePixel = 0,
+	Visible = false, ZIndex = 319,
+})
+S.corner(S.keybindshadowframe, 8)
+S.keybinddepthshadow = S.adddepthshadow(S.keybindshadowframe, "floating")
+for _, property in ipairs({ "Position", "Size", "Visible" }) do
+	S.connect(S.keybindlist:GetPropertyChangedSignal(property), function()
+		S.keybindshadowframe[property] = S.keybindlist[property]
+	end, S.keybindlist)
+end
+
+S.keybindglow = S.addshadow(
+	S.keybindlist,
+	"KeybindPanelGlow",
 	0.965,
 	12,
 	0,
@@ -6290,22 +5900,22 @@ S.hotkeyglow = S.addshadow(
 	true
 )
 
-S.hotkeyheadericon = S.image(S.hotkeylist, S.icons.keyboard, 15, S.theme.text3, 323)
-S.hotkeyheadericon.AnchorPoint = Vector2.new(0, 0.5)
-S.hotkeyheadericon.Position = UDim2.fromOffset(12, 16)
-S.hotkeyheadericon.ImageTransparency = 0.08
+S.keybindheadericon = S.image(S.keybindlist, S.icons.keyboard, 15, S.theme.text3, 323)
+S.keybindheadericon.AnchorPoint = Vector2.new(0, 0.5)
+S.keybindheadericon.Position = UDim2.fromOffset(12, 16)
+S.keybindheadericon.ImageTransparency = 0.08
 
-S.hotkeytitle = S.label(S.hotkeylist, "Keybinds", UDim2.new(1, -72, 0, 30), S.medium, S.theme.text)
-S.hotkeytitle.Position = UDim2.fromOffset(34, 1)
-S.hotkeytitle.TextXAlignment = Enum.TextXAlignment.Left
-S.hotkeytitle.TextSize = 16
-S.hotkeytitle.ZIndex = 321
+S.keybindtitle = S.label(S.keybindlist, "Keybinds", UDim2.new(1, -72, 0, 30), S.medium, S.theme.text)
+S.keybindtitle.Position = UDim2.fromOffset(34, 1)
+S.keybindtitle.TextXAlignment = Enum.TextXAlignment.Left
+S.keybindtitle.TextSize = 16
+S.keybindtitle.ZIndex = 321
 
-S.hotkeycollapse = S.new("ImageButton", {
-	Parent = S.hotkeylist,
+S.keybindcollapse = S.new("ImageButton", {
+	Parent = S.keybindlist,
 	AnchorPoint = Vector2.new(1, 0.5),
 	Position = UDim2.new(1, -8, 0, 16),
-	Size = UDim2.fromOffset(20, 20),
+	Size = UDim2.fromOffset(15, 15),
 	BackgroundColor3 = S.theme.hover,
 	BackgroundTransparency = 1,
 	BorderSizePixel = 0,
@@ -6315,10 +5925,10 @@ S.hotkeycollapse = S.new("ImageButton", {
 	AutoButtonColor = false,
 	ZIndex = 325,
 }, { BackgroundColor3 = "hover", ImageColor3 = "text3" })
-S.corner(S.hotkeycollapse, 6)
+S.corner(S.keybindcollapse, 5)
 
-S.hotkeydragarea = S.rawnew("TextButton", {
-	Parent = S.hotkeylist,
+S.keybinddragarea = S.rawnew("TextButton", {
+	Parent = S.keybindlist,
 	Position = UDim2.fromOffset(0, 0),
 	Size = UDim2.new(1, -36, 0, 31),
 	BackgroundTransparency = 1,
@@ -6329,8 +5939,8 @@ S.hotkeydragarea = S.rawnew("TextButton", {
 	ZIndex = 324,
 })
 
-S.hotkeycontent = S.new("CanvasGroup", {
-	Parent = S.hotkeylist,
+S.keybindcontent = S.new("CanvasGroup", {
+	Parent = S.keybindlist,
 	Position = UDim2.fromOffset(8, 32),
 	Size = UDim2.new(1, -16, 1, -39),
 	BackgroundTransparency = 1,
@@ -6340,8 +5950,8 @@ S.hotkeycontent = S.new("CanvasGroup", {
 	ZIndex = 321,
 })
 
-S.hotkeyscroll = S.new("ScrollingFrame", {
-	Parent = S.hotkeycontent,
+S.keybindscroll = S.new("ScrollingFrame", {
+	Parent = S.keybindcontent,
 	Size = UDim2.fromScale(1, 1),
 	BackgroundTransparency = 1,
 	BorderSizePixel = 0,
@@ -6351,157 +5961,43 @@ S.hotkeyscroll = S.new("ScrollingFrame", {
 	ElasticBehavior = Enum.ElasticBehavior.Never,
 	ZIndex = 322,
 })
-S.list(S.hotkeyscroll, 1)
-S.hotkeyshown = false
-S.hotkeytargetposition = S.hotkeylist.Position
-S.hotkeydrag = nil
-S.hotkeymoveanimation = nil
-S.hotkeycontentanimation = nil
-S.hotkeycollapseanimation = nil
-S.hotkeysizeanimation = nil
-S.hotkeyvisibilitytoken = 0
-S.hotkeyminimizetoken = 0
-S.hotkeyminimizeanimating = false
-S.hotkeyanimti = S.hoverti
-S.hotkeyfullheight = 54
-S.hotkeyrows = setmetatable({}, { __mode = "k" })
-S.hotkeygroups = {}
-S.hotkeyempty = nil
-S.hotkeydirty = false
+S.list(S.keybindscroll, 1)
+S.keybindshown = false
+S.keybindtargetposition = S.keybindlist.Position
+S.keybinddrag = nil
+S.keybindmoveanimation = nil
+S.keybindcontentanimation = nil
+S.keybindcollapseanimation = nil
+S.keybindsizeanimation = nil
+S.keybindvisibilitytoken = 0
+S.keybindminimizetoken = 0
+S.keybindminimizeanimating = false
+S.keybindanimti = S.hoverti
+S.keybindfullheight = 54
 
-function S.requesthotkeyrefresh(binding, data, active, ok, value)
-	if not S.hotkeylist.Visible then
-		S.hotkeydirty = true
-		return
-	end
 
-	if binding then
-		data = S.hotkeyrows[binding]
-		if data and data.row and data.row.Parent then
-			active = false
-			ok, value = S.invoke(binding.get)
-			if ok then active = value == true end
+S.keybindempty = nil
+S.keybinddirty = false
 
-			S.updatehotkeyrow(data, binding, active, data.row.LayoutOrder, true)
-			S.hotkeydirty = false
-			return
-		end
-	end
-
-	S.refreshhotkeylist()
-end
-
-function S.sethotkeyheight(targetheight)
-	targetheight = math.max(32, math.round(targetheight))
-	S.hotkeylist.Size = UDim2.fromOffset(S.hotkeylistwidth, targetheight)
-end
-
-function S.synchotkeyminimizedstate()
-	if S.hotkeyminimizeanimating then return end
-
-	if S.hotkeycontentanimation then
-		S.hotkeycontentanimation:Cancel()
-		S.hotkeycontentanimation = nil
-	end
-
-	if S.hotkeyminimized then
-		S.sethotkeyheight(32)
-		S.hotkeycontent.GroupTransparency = 1
-		S.hotkeycontent.Visible = false
-		S.hotkeycollapse.Rotation = -90
-	else
-		S.sethotkeyheight(S.hotkeyfullheight)
-		S.hotkeycontent.Visible = true
-		S.hotkeycontent.GroupTransparency = 0
-		S.hotkeycollapse.Rotation = 0
-	end
-end
-
-function S.sethotkeyminimized(value, animate, changed, token, targetheight, rotation)
-	value = value == true
-	changed = S.hotkeyminimized ~= value
-	S.hotkeyminimized = value
-	S.hotkeyminimizetoken += 1
-	token = S.hotkeyminimizetoken
-
-	if S.hotkeycontentanimation then
-		S.hotkeycontentanimation:Cancel()
-		S.hotkeycontentanimation = nil
-	end
-
-	if S.hotkeycollapseanimation then
-		S.hotkeycollapseanimation:Cancel()
-		S.hotkeycollapseanimation = nil
-	end
-
-	if S.hotkeysizeanimation then
-		S.hotkeysizeanimation:Cancel()
-		S.hotkeysizeanimation = nil
-	end
-
-	targetheight = value and 32 or S.hotkeyfullheight
-	rotation = value and -90 or 0
-
-	if not animate or not changed then
-		S.hotkeyminimizeanimating = false
-		S.sethotkeyheight(targetheight)
-		S.hotkeycontent.Visible = not value
-		S.hotkeycontent.GroupTransparency = value and 1 or 0
-		S.hotkeycollapse.Rotation = rotation
-		return
-	end
-
-	-- Keep the top-left position completely fixed. Only height/transparency/rotation animate.
-	S.hotkeyminimizeanimating = true
-	S.hotkeycontent.Visible = true
-
-	S.hotkeysizeanimation = S.tween(
-		S.hotkeylist,
-		{ Size = UDim2.fromOffset(S.hotkeylistwidth, targetheight) },
-		S.hoverti
-	)
-
-	S.hotkeycollapseanimation = S.tween(S.hotkeycollapse, { Rotation = rotation }, S.hoverti)
-
-	S.hotkeycontentanimation =
-		S.tween(S.hotkeycontent, { GroupTransparency = value and 1 or 0 }, S.hoverti)
-
-	if S.hotkeysizeanimation then
-		S.hotkeysizeanimation.Completed:Connect(function()
-			if token ~= S.hotkeyminimizetoken then return end
-
-			S.hotkeyminimizeanimating = false
-
-			if value then
-				S.hotkeycontent.Visible = false
-				S.hotkeycontent.GroupTransparency = 1
-			else
-				S.hotkeycontent.Visible = true
-				S.hotkeycontent.GroupTransparency = 0
-			end
-		end)
-	end
-end
-
-S.hotkeycollapse.MouseEnter:Connect(
+S.keybindcollapse.MouseEnter:Connect(
 	function()
-		S.tween(S.hotkeycollapse, {
+		S.tween(S.keybindcollapse, {
 			ImageColor3 = S.theme.text2,
 			ImageTransparency = 0,
 		}, S.hoverti, nil, { ImageColor3 = "text2" })
 	end
 )
-S.hotkeycollapse.MouseLeave:Connect(
+S.keybindcollapse.MouseLeave:Connect(
 	function()
-		S.tween(S.hotkeycollapse, {
+		S.tween(S.keybindcollapse, {
 			ImageColor3 = S.theme.text3,
 			ImageTransparency = 0.12,
 		}, S.hoverti, nil, { ImageColor3 = "text3" })
 	end
 )
-S.hotkeycollapse.Activated:Connect(function() S.sethotkeyminimized(not S.hotkeyminimized, true) end)
+S.keybindcollapse.Activated:Connect(function() S.setkeybindminimized(not S.keybindminimized, true) end)
 
-S.hotkeydragarea.InputBegan:Connect(function(input)
+S.keybinddragarea.InputBegan:Connect(function(input)
 	if
 		input.UserInputType ~= Enum.UserInputType.MouseButton1
 		and input.UserInputType ~= Enum.UserInputType.Touch
@@ -6509,80 +6005,188 @@ S.hotkeydragarea.InputBegan:Connect(function(input)
 		return
 	end
 
-	S.hotkeydrag = {
+	if not S.acquireinteraction("keybinddrag", input) then return end
+	S.keybinddrag = {
 		input = input,
 		start = S.point(input),
-		position = S.hotkeytargetposition,
+		position = S.keybindtargetposition,
 	}
 end)
 
-S.connect(S.uis.InputChanged, function(input, ismouse, istouch, delta, target, size, root, x, y)
-	if not S.hotkeydrag then return end
-	ismouse = input.UserInputType == Enum.UserInputType.MouseMovement
-	istouch = input.UserInputType == Enum.UserInputType.Touch and input == S.hotkeydrag.input
-	if not ismouse and not istouch then return end
 
-	delta = S.point(input) - S.hotkeydrag.start
-	target = S.offsetposition(S.hotkeydrag.position, delta)
-	size = S.hotkeylist.AbsoluteSize
-	root = S.popuplayer.AbsoluteSize
-	x = math.clamp(target.X.Offset, -root.X + size.X + 8, -8)
-	y = math.clamp(target.Y.Offset, -root.Y * 0.5 + 8, root.Y * 0.5 - size.Y - 8)
-	S.hotkeytargetposition = UDim2.new(1, x, 0.5, y)
-	S.hotkeylist.Position = S.hotkeytargetposition
-end)
 
-S.connect(S.uis.InputEnded, function(input)
-	if not S.hotkeydrag then return end
-	if input.UserInputType ~= Enum.UserInputType.MouseButton1 and input ~= S.hotkeydrag.input then
+
+end
+
+S.keybindrows = setmetatable({}, { __mode = "k" })
+S.keybindgroups = {}
+S.keybindshown = false
+S.keybindfontsize = 14
+S.keybindlistwidth = 288
+S.keybindminimized = false
+
+function S.requestkeybindrefresh(binding, data, active, ok, value)
+	if not S.keybindlist or not S.keybindlist.Visible then
+		S.keybinddirty = true
 		return
 	end
-	S.hotkeydrag = nil
-end)
 
-function S.sethotkeylistvisible(value, token, finish)
+	if binding then
+		data = S.keybindrows[binding]
+		if data and data.row and data.row.Parent then
+			active = false
+			ok, value = pcall(binding.get)
+			if ok then active = value == true end
+
+			S.updatekeybindrow(data, binding, active, data.row.LayoutOrder, true)
+			S.keybinddirty = false
+			return
+		end
+	end
+
+	S.refreshkeybindlist()
+end
+
+function S.setkeybindheight(targetheight)
+	targetheight = math.max(32, math.round(targetheight))
+	S.keybindlist.Size = UDim2.fromOffset(S.keybindlistwidth, targetheight)
+end
+
+function S.synckeybindminimizedstate()
+	if S.keybindminimizeanimating then return end
+
+	if S.keybindcontentanimation then
+		S.keybindcontentanimation:Cancel()
+		S.keybindcontentanimation = nil
+	end
+
+	if S.keybindminimized then
+		S.setkeybindheight(32)
+		S.keybindcontent.GroupTransparency = 1
+		S.keybindcontent.Visible = false
+		S.keybindcollapse.Rotation = -90
+	else
+		S.setkeybindheight(S.keybindfullheight)
+		S.keybindcontent.Visible = true
+		S.keybindcontent.GroupTransparency = 0
+		S.keybindcollapse.Rotation = 0
+	end
+end
+
+function S.setkeybindminimized(value, animate, changed, token, targetheight, rotation)
 	value = value == true
-	if value == S.hotkeyshown and S.hotkeylist.Visible == value then
-		if value then S.refreshhotkeylist() end
+	changed = S.keybindminimized ~= value
+	S.keybindminimized = value
+	S.keybindminimizetoken += 1
+	token = S.keybindminimizetoken
+
+	if S.keybindcontentanimation then
+		S.keybindcontentanimation:Cancel()
+		S.keybindcontentanimation = nil
+	end
+
+	if S.keybindcollapseanimation then
+		S.keybindcollapseanimation:Cancel()
+		S.keybindcollapseanimation = nil
+	end
+
+	if S.keybindsizeanimation then
+		S.keybindsizeanimation:Cancel()
+		S.keybindsizeanimation = nil
+	end
+
+	targetheight = value and 32 or S.keybindfullheight
+	rotation = value and -90 or 0
+
+	if not animate or not changed then
+		S.keybindminimizeanimating = false
+		S.setkeybindheight(targetheight)
+		S.keybindcontent.Visible = not value
+		S.keybindcontent.GroupTransparency = value and 1 or 0
+		S.keybindcollapse.Rotation = rotation
 		return
 	end
 
-	S.hotkeyshown = value
-	S.hotkeyvisibilitytoken += 1
-	token = S.hotkeyvisibilitytoken
+	-- Keep the top-left position completely fixed. Only height/transparency/rotation animate.
+	S.keybindminimizeanimating = true
+	S.keybindcontent.Visible = true
 
-	if S.hotkeymoveanimation then
-		S.hotkeymoveanimation:Cancel()
-		S.hotkeymoveanimation = nil
+	S.keybindsizeanimation = S.tween(
+		S.keybindlist,
+		{ Size = UDim2.fromOffset(S.keybindlistwidth, targetheight) },
+		S.hoverti
+	)
+
+	S.keybindcollapseanimation = S.tween(S.keybindcollapse, { Rotation = rotation }, S.hoverti)
+
+	S.keybindcontentanimation =
+		S.tween(S.keybindcontent, { GroupTransparency = value and 1 or 0 }, S.hoverti)
+
+	if S.keybindsizeanimation then
+		S.keybindsizeanimation.Completed:Connect(function()
+			if token ~= S.keybindminimizetoken then return end
+
+			S.keybindminimizeanimating = false
+
+			if value then
+				S.keybindcontent.Visible = false
+				S.keybindcontent.GroupTransparency = 1
+			else
+				S.keybindcontent.Visible = true
+				S.keybindcontent.GroupTransparency = 0
+			end
+		end)
+	end
+end
+
+function S.setkeybindlistvisible(value, token, finish)
+	if not S.keybindlist then
+		if not value then S.keybindshown = false; return end
+		S.ensurekeybindlist()
+	end
+	value = value == true
+	if value == S.keybindshown and S.keybindlist.Visible == value then
+		if value then S.refreshkeybindlist() end
+		return
+	end
+
+	S.keybindshown = value
+	S.refreshsettingsdependencies()
+	S.keybindvisibilitytoken += 1
+	token = S.keybindvisibilitytoken
+
+	if S.keybindmoveanimation then
+		S.keybindmoveanimation:Cancel()
+		S.keybindmoveanimation = nil
 	end
 
 	if value then
-		S.hotkeylist.Visible = true
-		S.hotkeylist.GroupTransparency = 1
-		S.refreshhotkeylist()
-		S.synchotkeyminimizedstate()
-		S.hotkeymoveanimation = S.tween(S.hotkeylist, { GroupTransparency = 0 }, S.hotkeyanimti)
+		S.keybindlist.Visible = true
+		S.keybindlist.GroupTransparency = 1
+		S.refreshkeybindlist()
+		S.synckeybindminimizedstate()
+		S.keybindmoveanimation = S.tween(S.keybindlist, { GroupTransparency = 0 }, S.keybindanimti)
 	else
-		if not S.hotkeylist.Visible then return end
+		if not S.keybindlist or not S.keybindlist.Visible then return end
 
-		S.hotkeymoveanimation = S.tween(S.hotkeylist, { GroupTransparency = 1 }, S.hotkeyanimti)
+		S.keybindmoveanimation = S.tween(S.keybindlist, { GroupTransparency = 1 }, S.keybindanimti)
 
 		finish = function()
-			if token ~= S.hotkeyvisibilitytoken or S.hotkeyshown then return end
+			if token ~= S.keybindvisibilitytoken or S.keybindshown then return end
 
-			S.hotkeylist.Visible = false
-			S.hotkeylist.GroupTransparency = 0
+			S.keybindlist.Visible = false
+			S.keybindlist.GroupTransparency = 0
 		end
 
-		if S.hotkeymoveanimation then
-			S.hotkeymoveanimation.Completed:Connect(finish)
+		if S.keybindmoveanimation then
+			S.keybindmoveanimation.Completed:Connect(finish)
 		else
 			finish()
 		end
 	end
 end
 
-function S.hotkeycategoryicon(binding)
+function S.keybindcategoryicon(binding)
 	if not binding then return nil end
 
 	if binding.page and binding.page.icon ~= nil then return binding.page.icon end
@@ -6590,8 +6194,8 @@ function S.hotkeycategoryicon(binding)
 	return binding.categoryicon
 end
 
-function S.updatehotkeygroup(data, category, binding, asset, textx)
-	asset = S.hotkeycategoryicon(binding)
+function S.updatekeybindgroup(data, category, binding, asset, textx)
+	asset = S.keybindcategoryicon(binding)
 	data.category = category
 
 	if data.asset ~= asset then
@@ -6615,9 +6219,9 @@ function S.updatehotkeygroup(data, category, binding, asset, textx)
 	data.text.Size = UDim2.new(1, -textx - 4, 0, 24)
 end
 
-function S.createhotkeygroup(key, category, binding, holder, textobject, data)
+function S.createkeybindgroup(key, category, binding, holder, textobject, data)
 	holder = S.new("Frame", {
-		Parent = S.hotkeyscroll,
+		Parent = S.keybindscroll,
 		Size = UDim2.new(1, 0, 0, 31),
 		BackgroundTransparency = 1,
 		BorderSizePixel = 0,
@@ -6640,12 +6244,12 @@ function S.createhotkeygroup(key, category, binding, holder, textobject, data)
 		key = key,
 	}
 
-	S.updatehotkeygroup(data, category, binding)
-	S.hotkeygroups[key] = data
+	S.updatekeybindgroup(data, category, binding)
+	S.keybindgroups[key] = data
 	return data
 end
 
-function S.createhotkeyrow(
+function S.createkeybindrow(
 	binding,
 	row,
 	checkbox,
@@ -6656,7 +6260,7 @@ function S.createhotkeyrow(
 	data
 )
 	row = S.new("TextButton", {
-		Parent = S.hotkeyscroll,
+		Parent = S.keybindscroll,
 		Size = UDim2.new(1, 0, 0, 25),
 		BackgroundColor3 = S.theme.hover,
 		BackgroundTransparency = 1,
@@ -6752,7 +6356,7 @@ function S.createhotkeyrow(
 		if data.listening then
 			data.listening = false
 			S.endkeycapture(keyholder, nil)
-			S.requesthotkeyrefresh(binding)
+			S.requestkeybindrefresh(binding)
 			return
 		end
 		data.listening = true
@@ -6762,12 +6366,12 @@ function S.createhotkeyrow(
 				keyholder,
 				function()
 					data.listening = false
-					S.requesthotkeyrefresh(binding)
+					S.requestkeybindrefresh(binding)
 				end,
 				function(selectedkey)
 					data.listening = false
 					S.setbindingkey(binding, selectedkey, true)
-					S.requesthotkeyrefresh(binding)
+					S.requestkeybindrefresh(binding)
 				end,
 				function(input)
 					return input.UserInputType == Enum.UserInputType.MouseButton1
@@ -6776,7 +6380,7 @@ function S.createhotkeyrow(
 			)
 		then
 			data.listening = false
-			S.requesthotkeyrefresh(binding)
+			S.requestkeybindrefresh(binding)
 		end
 	end)
 
@@ -6784,15 +6388,15 @@ function S.createhotkeyrow(
 		if S.inside(keyholder, S.uis:GetMouseLocation()) then return end
 		if binding.locked == true then return end
 
-		ok, current = S.invoke(binding.get)
+		ok, current = pcall(binding.get)
 		if ok and binding.set then binding.set(not (current == true), true) end
 	end)
 
-	S.hotkeyrows[binding] = data
+	S.keybindrows[binding] = data
 	return data
 end
 
-function S.updatehotkeyrow(
+function S.updatekeybindrow(
 	data,
 	binding,
 	active,
@@ -6843,18 +6447,18 @@ function S.updatehotkeyrow(
 	S.bindtheme(data.keytext, "TextColor3", S.theme.text3, "text3")
 
 	if changed and animate then
-		S.tween(data.nametext, { TextColor3 = color }, S.hotkeyanimti)
+		S.tween(data.nametext, { TextColor3 = color }, S.keybindanimti)
 		S.tween(
 			data.keytext,
 			{ TextColor3 = S.theme.text3 },
-			S.hotkeyanimti,
+			S.keybindanimti,
 			nil,
 			{ TextColor3 = "text3" }
 		)
 		S.tween(
 			data.keyholder,
 			{ BackgroundTransparency = active and 0.18 or 0.34 },
-			S.hotkeyanimti
+			S.keybindanimti
 		)
 	else
 		data.nametext.TextColor3 = color
@@ -6863,7 +6467,7 @@ function S.updatehotkeyrow(
 	end
 end
 
-function S.refreshhotkeylist(
+function S.refreshkeybindlist(
 	seen,
 	seengroups,
 	groups,
@@ -6883,12 +6487,12 @@ function S.refreshhotkeylist(
 	created,
 	maxcontent
 )
-	if not S.hotkeylist.Visible then
-		S.hotkeydirty = true
+	if not S.keybindlist or not S.keybindlist.Visible then
+		S.keybinddirty = true
 		return
 	end
 
-	S.hotkeydirty = false
+	S.keybinddirty = false
 
 	seen = {}
 	seengroups = {}
@@ -6928,12 +6532,12 @@ function S.refreshhotkeylist(
 	itemcount = 0
 
 	for _, group in ipairs(groups) do
-		groupdata = S.hotkeygroups[group.key]
+		groupdata = S.keybindgroups[group.key]
 
 		if not groupdata or not groupdata.holder or not groupdata.holder.Parent then
-			groupdata = S.createhotkeygroup(group.key, group.name, group.first)
+			groupdata = S.createkeybindgroup(group.key, group.name, group.first)
 		else
-			S.updatehotkeygroup(groupdata, group.name, group.first)
+			S.updatekeybindgroup(groupdata, group.name, group.first)
 		end
 
 		seengroups[group.key] = true
@@ -6945,74 +6549,76 @@ function S.refreshhotkeylist(
 		for _, binding in ipairs(group.bindings) do
 			seen[binding] = true
 			active = false
-			ok, value = S.invoke(binding.get)
+			ok, value = pcall(binding.get)
 
 			if ok then active = value == true end
 
-			data2 = S.hotkeyrows[binding]
+			data2 = S.keybindrows[binding]
 			created = false
 
 			if not data2 or not data2.row or not data2.row.Parent then
-				data2 = S.createhotkeyrow(binding)
+				data2 = S.createkeybindrow(binding)
 				created = true
 			end
 
 			layoutorder += 1
-			S.updatehotkeyrow(data2, binding, active, layoutorder, not created)
+			S.updatekeybindrow(data2, binding, active, layoutorder, not created)
 			contentheight += 25
 			itemcount += 1
 		end
 	end
 
-	for binding, data in pairs(S.hotkeyrows) do
+	for binding, data in pairs(S.keybindrows) do
 		if not seen[binding] then
 			if data.row and data.row.Parent then data.row:Destroy() end
 
-			S.hotkeyrows[binding] = nil
+			S.keybindrows[binding] = nil
 		end
 	end
 
-	for groupkey, data in pairs(S.hotkeygroups) do
+	for groupkey, data in pairs(S.keybindgroups) do
 		if not seengroups[groupkey] then
 			if data.holder and data.holder.Parent then data.holder:Destroy() end
 
-			S.hotkeygroups[groupkey] = nil
+			S.keybindgroups[groupkey] = nil
 		end
 	end
 
 	if count == 0 then
-		if not S.hotkeyempty or not S.hotkeyempty.Parent then
-			S.hotkeyempty = S.label(
-				S.hotkeyscroll,
+		if not S.keybindempty or not S.keybindempty.Parent then
+			S.keybindempty = S.label(
+				S.keybindscroll,
 				"No keybinds",
 				UDim2.new(1, 0, 0, 26),
 				S.font,
 				S.theme.text3
 			)
-			S.hotkeyempty.TextSize = S.hotkeyfontsize
-			S.hotkeyempty.ZIndex = 322
+			S.keybindempty.TextSize = S.keybindfontsize
+			S.keybindempty.ZIndex = 322
 		end
 
 		contentheight = 26
 		itemcount = 1
 	else
-		if S.hotkeyempty and S.hotkeyempty.Parent then S.hotkeyempty:Destroy() end
+		if S.keybindempty and S.keybindempty.Parent then S.keybindempty:Destroy() end
 
-		S.hotkeyempty = nil
+		S.keybindempty = nil
 	end
 
 	if itemcount > 1 then
 		contentheight += itemcount - 1
 	end
 
-	S.hotkeyscroll.CanvasSize = UDim2.fromOffset(0, math.max(26, contentheight))
+	S.keybindscroll.CanvasSize = UDim2.fromOffset(0, math.max(26, contentheight))
 
 	maxcontent = 340
 
-	S.hotkeyfullheight = 39 + math.min(math.max(26, contentheight), maxcontent)
+	S.keybindfullheight = 39 + math.min(math.max(26, contentheight), maxcontent)
 
-	S.synchotkeyminimizedstate()
+	S.synckeybindminimizedstate()
 end
+
+
 
 function S.togglekeyname(key, aliases)
 	if not key then return "None" end
@@ -7241,17 +6847,28 @@ function S.beginkeycapture(
 		options = captureoptions or {},
 	}
 	S.keypickercapturing = true
+	if not S.captureinputs then
+		S.captureinputs = Enum.KeyCode:GetEnumItems()
+		table.insert(S.captureinputs, Enum.UserInputType.MouseButton1)
+		table.insert(S.captureinputs, Enum.UserInputType.MouseButton2)
+		table.insert(S.captureinputs, Enum.UserInputType.MouseButton3)
+	end
+	-- Sink lower-priority ContextActionService actions during capture.
+	S.contextactionservice:BindActionAtPriority("__blush_capture", function(_, _, input)
+		if S.keycaptureowner or S.bindingmatchesinput(S.keypickersuppress, input) then return Enum.ContextActionResult.Sink end
+		return Enum.ContextActionResult.Pass
+	end, false, Enum.ContextActionPriority.High.Value + 2000, table.unpack(S.captureinputs))
 	return true
 end
 
 function S.endkeycapture(owner, suppresskey)
-	if S.keycaptureowner and S.keycaptureowner.owner ~= owner then return false end
+	if owner and S.keycaptureowner and S.keycaptureowner.owner ~= owner then return false end
 
 	S.keycaptureowner = nil
 	S.keypickercapturing = false
 	S.releaseinteraction(owner)
 
-	if suppresskey then S.keypickersuppress = suppresskey end
+	if suppresskey then S.keypickersuppress = suppresskey else S.contextactionservice:UnbindAction("__blush_capture") end
 
 	return true
 end
@@ -7292,7 +6909,7 @@ function S.setbindingkey(binding, key, persist, previous)
 
 		if binding.refreshkey then binding.refreshkey() end
 
-		S.requesthotkeyrefresh(binding)
+		S.requestkeybindrefresh(binding)
 		return
 	end
 
@@ -7300,7 +6917,7 @@ function S.setbindingkey(binding, key, persist, previous)
 	binding.held = false
 
 	if binding.refreshkey then binding.refreshkey() end
-	S.requesthotkeyrefresh(binding)
+	S.requestkeybindrefresh(binding)
 
 	if persist ~= false then S.requestconfigautosave() end
 end
@@ -7309,6 +6926,7 @@ function S.unregistertogglebinding(binding, previous, row)
 	if not binding then return end
 
 	previous = binding.key
+	if binding.id and S.__blush_pending_keybinds then S.__blush_pending_keybinds[binding.id] = nil end
 
 	for index = #S.__blush_togglebindings, 1, -1 do
 		if S.__blush_togglebindings[index] == binding then
@@ -7317,10 +6935,10 @@ function S.unregistertogglebinding(binding, previous, row)
 		end
 	end
 
-	row = S.hotkeyrows[binding]
+	row = S.keybindrows[binding]
 	if row and row.row and row.row.Parent then row.row:Destroy() end
-	S.hotkeyrows[binding] = nil
-	S.requesthotkeyrefresh()
+	S.keybindrows[binding] = nil
+	S.requestkeybindrefresh()
 end
 
 function S.opentoggleconfig(
@@ -7358,7 +6976,7 @@ function S.opentoggleconfig(
 )
 	if S.activepopup and S.activepopup.toggleconfig then
 		if S.activepopup.binding == binding then
-			if togglesame == true then S.closepopup() end
+			S.closepopup()
 			return
 		end
 
@@ -7609,7 +7227,7 @@ function S.opentoggleconfig(
 		iteration3.option.Activated:Connect(function()
 			binding.mode = mode
 			rendermode()
-			S.requesthotkeyrefresh(binding)
+			S.requestkeybindrefresh(binding)
 			S.requestconfigautosave()
 
 			if mode == "Always On" then
@@ -7702,7 +7320,7 @@ function S.opentoggleconfig(
 	renderkey()
 end
 
-function S.hotkeybindingid(binding)
+function S.keybindbindingid(binding)
 	return table.concat({
 		tostring(binding.kind or "Toggle"),
 		tostring(binding.category or ""),
@@ -7733,14 +7351,14 @@ function S.applysavedkeybind(binding, data, key, mode)
 	if binding.refreshkey then binding.refreshkey() end
 
 	if mode == "Always On" and binding.set then binding.set(true, false) end
-	S.requesthotkeyrefresh(binding)
+	S.requestkeybindrefresh(binding)
 end
 
 function S.currentkeybindpayload(payload, id)
 	payload = {}
 
 	for _, binding in ipairs(S.__blush_togglebindings or {}) do
-		id = binding.id or S.hotkeybindingid(binding)
+		id = binding.id or S.keybindbindingid(binding)
 
 		binding.id = id
 
@@ -7758,7 +7376,7 @@ function S.applykeybindpayload(payload, id, data)
 	S.__blush_pending_keybinds = type(payload) == "table" and payload or {}
 
 	for _, binding in ipairs(S.__blush_togglebindings or {}) do
-		id = binding.id or S.hotkeybindingid(binding)
+		id = binding.id or S.keybindbindingid(binding)
 
 		binding.id = id
 
@@ -7767,7 +7385,7 @@ function S.applykeybindpayload(payload, id, data)
 		if data then S.applysavedkeybind(binding, data) end
 	end
 
-	S.refreshhotkeylist()
+	S.refreshkeybindlist()
 end
 
 function S.registertogglebinding(binding, pending)
@@ -7777,14 +7395,14 @@ function S.registertogglebinding(binding, pending)
 		if current == binding then return end
 	end
 
-	binding.id = binding.id or S.hotkeybindingid(binding)
+	binding.id = binding.id or S.keybindbindingid(binding)
 
 	table.insert(S.__blush_togglebindings, binding)
 
 	pending = S.__blush_pending_keybinds and S.__blush_pending_keybinds[binding.id]
 
 	if pending then S.applysavedkeybind(binding, pending) end
-	S.requesthotkeyrefresh(binding)
+	S.requestkeybindrefresh(binding)
 end
 
 function S.attachtoggleconfig(anchor, binding, destroying)
@@ -7975,6 +7593,7 @@ S.connect(
 S.connect(S.uis.InputEnded, function(input, physical)
 	if S.bindingmatchesinput(S.keypickersuppress, input) then
 		S.keypickersuppress = nil
+		if not S.keycaptureowner then S.contextactionservice:UnbindAction('__blush_capture') end
 		return
 	end
 
@@ -8123,7 +7742,15 @@ function S.attachinlinekeypicker(
 	)
 
 	renderkey()
-	S.refreshhotkeylist()
+	S.refreshkeybindlist()
+
+	S.own(keybutton, function()
+		if S.inlinekeycapture == state then
+			S.stopinlinekeycapture(nil)
+		elseif S.keycaptureowner and S.keycaptureowner.owner == state then
+			S.endkeycapture(state)
+		end
+	end)
 
 	return keybutton, configbutton
 end
@@ -8131,82 +7758,64 @@ end
 -- page scrollbar
 
 function S.createscrollbar(page, scroll, side, track, thumb, update)
-	track = S.new("Frame", {
+	track = S.rawnew("Frame", {
 		Parent = page,
-
 		AnchorPoint = Vector2.new(1, 0),
-
 		Position = side == "left" and UDim2.new(0.5, -8, 0, 5) or UDim2.new(1, -2, 0, 5),
-
 		Size = UDim2.new(0, 2, 1, -10),
-
-		BackgroundColor3 = S.theme.scrollTrack,
-
-		BackgroundTransparency = 0.86,
-
+		BackgroundTransparency = 1,
 		BorderSizePixel = 0,
-
-		ZIndex = 40,
-	}, { BackgroundColor3 = "scrollTrack" })
-
-	S.corner(track, 999)
+		Visible = false,
+		ClipsDescendants = true,
+		ZIndex = 12,
+	})
 
 	thumb = S.new("Frame", {
 		Parent = track,
-
 		Position = UDim2.fromOffset(0, 0),
-
 		Size = UDim2.fromOffset(2, 24),
-
 		BackgroundColor3 = S.theme.scroll,
-
-		BackgroundTransparency = 0.38,
-
+		BackgroundTransparency = 0.42,
 		BorderSizePixel = 0,
-
 		Visible = false,
-
-		ZIndex = 41,
+		ZIndex = 13,
 	}, { BackgroundColor3 = "scroll" })
-
 	S.corner(thumb, 999)
 
 	update = function(viewport, total, trackheight, height, maxcanvas, ratio, travel)
+		if not scroll.Parent or not track.Parent then return end
+
 		viewport = scroll.AbsoluteSize.Y
-
 		total = scroll.CanvasSize.Y.Offset
-
 		trackheight = track.AbsoluteSize.Y
 
-		if viewport <= 0 or total <= viewport + 1 or trackheight <= 0 then
+		if viewport <= 0 or trackheight <= 0 or total <= viewport + 2 then
+			track.Visible = false
 			thumb.Visible = false
-			track.BackgroundTransparency = 1
 			return
 		end
 
-		thumb.Visible = true
-		track.BackgroundTransparency = 0.86
-
 		height = math.clamp(viewport / total * trackheight, 22, trackheight)
+		if height >= trackheight - 6 then
+			track.Visible = false
+			thumb.Visible = false
+			return
+		end
 
 		maxcanvas = math.max(1, total - viewport)
-
 		ratio = math.clamp(scroll.CanvasPosition.Y / maxcanvas, 0, 1)
-
 		travel = trackheight - height
 
+		track.Visible = true
+		thumb.Visible = true
 		thumb.Size = UDim2.fromOffset(2, height)
-
 		thumb.Position = UDim2.fromOffset(0, travel * ratio)
 	end
 
-	scroll:GetPropertyChangedSignal("CanvasPosition"):Connect(update)
-
-	scroll:GetPropertyChangedSignal("AbsoluteSize"):Connect(update)
-
-	scroll:GetPropertyChangedSignal("CanvasSize"):Connect(update)
-
-	track:GetPropertyChangedSignal("AbsoluteSize"):Connect(update)
+	S.connect(scroll:GetPropertyChangedSignal("CanvasPosition"), update, scroll)
+	S.connect(scroll:GetPropertyChangedSignal("AbsoluteSize"), update, scroll)
+	S.connect(scroll:GetPropertyChangedSignal("CanvasSize"), update, scroll)
+	S.connect(track:GetPropertyChangedSignal("AbsoluteSize"), update, track)
 
 	return update
 end
@@ -8232,7 +7841,7 @@ function S.flushpagelayouts()
 end
 
 function S.queuepagelayout(page, column, animate)
-	if not S.gui or not S.gui.Parent then return end
+	if not S.alive or not S.gui or not S.gui.Parent then return end
 	S.pendingpagelayouts[page] = S.pendingpagelayouts[page] or {}
 	S.pendingpagelayouts[page][column] = S.pendingpagelayouts[page][column] == true
 		or animate == true
@@ -8356,7 +7965,7 @@ function S.createpage(name, primary, secondary, pageframe, left, right, page, se
 			return
 		end
 		if S.pendingpagelayouts[self] then S.pendingpagelayouts[self][column] = nil end
-		animate = animate and not S.windowresize and not S.sidebarresize and not S.constructing
+		animate = animate and not S.constructing
 
 		y = 0
 
@@ -8410,13 +8019,13 @@ function S.createpage(name, primary, secondary, pageframe, left, right, page, se
 	end
 
 	left:GetPropertyChangedSignal("AbsoluteSize"):Connect(function()
-		if left.Parent and true and not S.windowresize and not S.sidebarresize then
+		if left.Parent then
 			page:reflow("left", false)
 		end
 	end)
 
 	right:GetPropertyChangedSignal("AbsoluteSize"):Connect(function()
-		if right.Parent and true and not S.windowresize and not S.sidebarresize then
+		if right.Parent then
 			page:reflow("right", false)
 		end
 	end)
@@ -8466,6 +8075,7 @@ function S.showpage(name, page, previous, hassubtitle, wasvisible)
 	S.titlesecondary.Visible = hassubtitle
 	S.titlesecondary.Text = page.secondary or ""
 
+	if S.syncsubtabnavigation then S.syncsubtabnavigation(true) end
 	if S.updatetopnavigationstate then S.updatetopnavigationstate() end
 
 	if previous then
@@ -8838,6 +8448,9 @@ function S.createcolorstate(color, callback, swatch, h, s, v, state)
 	}
 
 	function state:color()
+		self.h = math.clamp(tonumber(self.h) or 0, 0, 1)
+		self.s = math.clamp(tonumber(self.s) or 0, 0, 1)
+		self.v = math.clamp(tonumber(self.v) or 0, 0, 1)
 		if self.cachedh ~= self.h or self.cacheds ~= self.s or self.cachedv ~= self.v then
 			self.cachedh, self.cacheds, self.cachedv = self.h, self.s, self.v
 			self.cachedcolor = Color3.fromHSV(self.h, self.s, self.v)
@@ -8941,7 +8554,7 @@ function S.createcolorstate(color, callback, swatch, h, s, v, state)
 			end
 		end
 
-		if changed and self.hotkeybinding then S.requesthotkeyrefresh(self.hotkeybinding) end
+		if changed and self.keybindbinding then S.requestkeybindrefresh(self.keybindbinding) end
 
 		popup = self.popup
 
@@ -8990,7 +8603,11 @@ function S.createcolorstate(color, callback, swatch, h, s, v, state)
 	end
 
 	function state:Set(colorvalue, alphavalue, fire, callback2, propagate)
+		if typeof(colorvalue) ~= "Color3" then return false end
 		self.h, self.s, self.v = colorvalue:ToHSV()
+		self.h = math.clamp(self.h, 0, 1)
+		self.s = math.clamp(self.s, 0, 1)
+		self.v = math.clamp(self.v, 0, 1)
 
 		if alphavalue ~= nil then
 			self.alpha = math.clamp(alphavalue, 0, 1)
@@ -9007,6 +8624,7 @@ function S.createcolorstate(color, callback, swatch, h, s, v, state)
 			self:apply(true)
 			if self.onpersist then self.onpersist() end
 		end
+		return true
 	end
 
 	function state:update(dt, active, step, nextvalue)
@@ -9058,11 +8676,7 @@ function S.createcolorstate(color, callback, swatch, h, s, v, state)
 			state.dragging = false
 			state.dragtype = nil
 
-			if S.pickerdrag and S.pickerdrag.state == state then
-				input = S.pickerdrag.input
-				S.pickerdrag = nil
-				S.releaseinteraction(input)
-			end
+
 
 			if state.popup and S.activepopup == state.popup then S.closepopup() end
 
@@ -9552,33 +9166,23 @@ function S.opencolorpicker(
 		return true
 	end
 
-	rgba:GetPropertyChangedSignal("Text"):Connect(function()
-		if rgba:IsFocused() and state.popup and not state.popup.inputupdating then
-			commitcolorinput(rgba, S.parsergba, false)
-		end
-	end)
-
-	hex:GetPropertyChangedSignal("Text"):Connect(function()
-		if hex:IsFocused() and state.popup and not state.popup.inputupdating then
-			commitcolorinput(hex, S.parsehexalpha, false)
-		end
-	end)
 
 	rgba.FocusLost:Connect(function() commitcolorinput(rgba, S.parsergba, true) end)
 
 	hex.FocusLost:Connect(function() commitcolorinput(hex, S.parsehexalpha, true) end)
 
-	updatepicker = function(drag, position, localposition, value)
+	updatepicker = function(drag, position, localposition, value, width, height)
 		localposition = position - drag.holder.AbsolutePosition
+		width = math.max(1, drag.holder.AbsoluteSize.X)
+		height = math.max(1, drag.holder.AbsoluteSize.Y)
 
 		if drag.type == "sv" then
-			state.s = math.clamp(localposition.X / drag.holder.AbsoluteSize.X, 0, 1)
-
-			state.v = 1 - math.clamp(localposition.Y / drag.holder.AbsoluteSize.Y, 0, 1)
+			state.s = math.clamp(localposition.X / width, 0, 1)
+			state.v = 1 - math.clamp(localposition.Y / height, 0, 1)
 		elseif drag.type == "hue" then
-			state.h = math.clamp(localposition.X / drag.holder.AbsoluteSize.X, 0, 1)
+			state.h = math.clamp(localposition.X / width, 0, 1)
 		elseif drag.type == "alpha" then
-			value = math.clamp(localposition.X / drag.holder.AbsoluteSize.X, 0, 1)
+			value = math.clamp(localposition.X / width, 0, 1)
 
 			state.alpha = value
 			state.fadevalue = value
@@ -9588,29 +9192,24 @@ function S.opencolorpicker(
 	end
 
 	beginpicker = function(input, typename, holder, cursor)
-		if not S.acquireinteraction("colorpicker", input) then return end
-
+		local drag = { type = typename, holder = holder, cursor = cursor, state = state }
+		local pointer = S.beginpointer(popup.panel, input, function(position)
+			updatepicker(drag, position)
+		end, function(commit)
+			state.dragging = false
+			state.dragtype = nil
+			state:refresh()
+			if commit then state:emit(true); if state.onpersist then state.onpersist() end end
+		end, "colorpicker")
+		if not pointer then return end
+		pointer.state = state
 		state.dragging = true
 		state.dragtype = typename
 		state:refresh()
-
-		S.pickerdrag = {
-			input = input,
-
-			type = typename,
-
-			holder = holder,
-			cursor = cursor,
-
-			state = state,
-
-			update = updatepicker,
-		}
-
-		updatepicker(S.pickerdrag, S.point(input))
+		pointer.update(S.point(input))
 	end
 
-	svhit.InputBegan:Connect(function(input)
+svhit.InputBegan:Connect(function(input)
 		if
 			input.UserInputType ~= Enum.UserInputType.MouseButton1
 			and input.UserInputType ~= Enum.UserInputType.Touch
@@ -9643,19 +9242,10 @@ function S.opencolorpicker(
 		beginpicker(input, "alpha", alphaholder, alphacursor)
 	end)
 
-	popup.onclose = function(draginput)
-		draginput = S.pickerdrag and S.pickerdrag.state == state and S.pickerdrag.input or nil
-
-		state.dragging = false
-		state.dragtype = nil
-		state:emit(true)
-		S.saveuisettings()
-		if state.onpersist then state.onpersist() end
+	popup.onclose = function()
+		if S.pointerdrag and S.pointerdrag.state == state then S.endpointer(true) end
 		state.popup = nil
-
-		if S.pickerdrag and S.pickerdrag.state == state then S.pickerdrag = nil end
-
-		if draginput then S.releaseinteraction(draginput) end
+		S.requestconfigautosave()
 	end
 
 	state:refresh()
@@ -9663,6 +9253,45 @@ end
 
 -- section
 
+function S.beginpointer(owner, input, update, finish, kind, knobs)
+	if
+		input.UserInputType ~= Enum.UserInputType.MouseButton1
+		and input.UserInputType ~= Enum.UserInputType.Touch
+	then
+		return false
+	end
+
+	if S.pointerdrag then return false end
+	if not S.acquireinteraction(kind or "slider", input) then return false end
+
+	S.pointerdrag = {
+		owner = owner,
+		input = input,
+		update = update,
+		finish = finish,
+		knobs = knobs or {},
+	}
+	S.pointerdrag.destroying = owner.Destroying:Once(function()
+		if S.pointerdrag and S.pointerdrag.owner == owner then S.endpointer(false) end
+	end)
+	return S.pointerdrag
+end
+
+function S.endpointer(commit)
+	local pointer = S.pointerdrag
+	if not pointer then return false end
+
+	S.pointerdrag = nil
+	if pointer.destroying then pointer.destroying:Disconnect() end
+	if pointer.finish then pointer.finish(commit ~= false, pointer) end
+	for _, knob in ipairs(pointer.knobs) do
+		if knob and knob.Parent then
+			S.tween(knob, { Size = UDim2.fromOffset(13, 13) }, S.fastti)
+		end
+	end
+	S.releaseinteraction(pointer.input)
+	return true
+end
 function S.sliderbounds(minimum, maximum, round, factor)
 	factor = 10 ^ round
 	minimum, maximum = math.min(minimum, maximum), math.max(minimum, maximum)
@@ -9720,8 +9349,8 @@ function S.createsection(
 	}, { BackgroundColor3 = "section" })
 
 	S.corner(frame, 10)
-	S.backgroundsectionframes[frame] = 0.04
-	if S.updatebackgroundsurfaces then S.updatebackgroundsurfaces() end
+	
+	
 
 
 	headerobject = S.new("Frame", {
@@ -9787,23 +9416,6 @@ function S.createsection(
 		ZIndex = 17,
 	}, { ImageColor3 = "text3" })
 
-	divider = S.new("Frame", {
-		Name = "SectionDivider",
-		Parent = frame,
-
-		Position = UDim2.fromOffset(12, 42),
-
-		Size = UDim2.new(1, -24, 0, 1),
-
-		BackgroundColor3 = S.theme.border,
-
-		BackgroundTransparency = 0.52,
-
-		BorderSizePixel = 0,
-
-		ZIndex = 14,
-	}, { BackgroundColor3 = "border" })
-
 	clip = S.new("Frame", {
 		Name = "SectionClip",
 		Parent = frame,
@@ -9847,7 +9459,6 @@ function S.createsection(
 		body = body,
 		clip = clip,
 		collapse = collapse,
-		divider = divider,
 		TextObject = titleobject,
 		IconObject = sectionimage,
 
@@ -9962,7 +9573,6 @@ function S.createsection(
 
 		titleobject.Visible = visible
 		if sectionimage then sectionimage.Visible = visible end
-		divider.Visible = visible
 		clip.Position = UDim2.fromOffset(0, self.headerheight)
 
 		if visible then
@@ -9975,7 +9585,6 @@ function S.createsection(
 			collapse.Position = UDim2.new(1, -13, 0.5, 0)
 			collapse.ZIndex = 17
 			collapse.Visible = true
-			divider.BackgroundTransparency = self.collapsed and 1 or 0.52
 		else
 			headerobject.Visible = false
 			headerbutton.Parent = frame
@@ -10007,10 +9616,6 @@ function S.createsection(
 
 		sectiontransition("collapse", collapse, { Rotation = self.collapsed and -90 or 0 }, animate)
 
-		sectiontransition("divider", divider, {
-			BackgroundTransparency = self.subtabheaderhidden and 1
-				or (self.collapsed and 1 or 0.52),
-		}, animate)
 
 		sectiontransition("bodyalpha", body, { GroupTransparency = self.collapsed and 1 or 0 }, animate)
 
@@ -10089,8 +9694,8 @@ function S.createsection(
 					object10.Size = UDim2.new(1, 0, 0, height)
 				end
 			end
-			S.connect(object10:GetPropertyChangedSignal("AbsoluteSize"), resize)
-			S.connect(object10:GetPropertyChangedSignal("Text"), resize)
+			S.connect(object10:GetPropertyChangedSignal("AbsoluteSize"), resize, object10)
+			S.connect(object10:GetPropertyChangedSignal("Text"), resize, object10)
 			resize()
 		end
 
@@ -10233,7 +9838,7 @@ function S.createsection(
 		end
 
 		function row:AddButton(name, callback, button5)
-			button5 = section:AddButton(name, callback, holder)
+			button5 = (section.__builders or section).AddButton(section, name, callback, holder)
 			button5:SetAttribute("BlushRowHeight", button5.Size.Y.Offset)
 
 			table.insert(self.Items, button5)
@@ -10242,8 +9847,8 @@ function S.createsection(
 			return button5
 		end
 
-		function row:AddToggle(name, default, callback, keybindable, badge, control)
-			control = section:AddToggle(name, default, callback, holder, keybindable, badge)
+		function row:AddToggle(name, default, callback, keybindable, control)
+			control = (section.__builders or section).AddToggle(section, name, default, callback, holder, keybindable)
 			control.Object:SetAttribute("BlushRowHeight", control.Object.Size.Y.Offset)
 
 			table.insert(self.Items, control.Object)
@@ -10253,7 +9858,7 @@ function S.createsection(
 		end
 
 		function row:AddKeyPicker(name, defaultkey, callback, captureoptions, control)
-			control = section:AddKeyPicker(name, defaultkey, callback, holder, captureoptions)
+			control = (section.__builders or section).AddKeyPicker(section, name, defaultkey, callback, holder, captureoptions)
 			if control.Object then
 				control.Object:SetAttribute("BlushRowHeight", control.Object.Size.Y.Offset)
 				table.insert(self.Items, control.Object)
@@ -10263,7 +9868,7 @@ function S.createsection(
 		end
 
 		function row:AddDropdown(name, options, default, callback, config, control)
-			control = section:AddDropdown(name, options, default, callback, holder, config)
+			control = (section.__builders or section).AddDropdown(section, name, options, default, callback, holder, config)
 			control.Object:SetAttribute("BlushRowHeight", control.Object.Size.Y.Offset)
 			table.insert(self.Items, control.Object)
 			self:Refresh()
@@ -10271,7 +9876,7 @@ function S.createsection(
 		end
 
 		function row:AddMultiDropdown(name, options, default, callback, config, control)
-			control = section:AddMultiDropdown(name, options, default, callback, holder, config)
+			control = (section.__builders or section).AddMultiDropdown(section, name, options, default, callback, holder, config)
 			control.Object:SetAttribute("BlushRowHeight", control.Object.Size.Y.Offset)
 			table.insert(self.Items, control.Object)
 			self:Refresh()
@@ -10279,7 +9884,7 @@ function S.createsection(
 		end
 
 		function row:AddColorPicker(name, color, callback, control)
-			control = section:AddColorPicker(name, color, callback, holder)
+			control = (section.__builders or section).AddColorPicker(section, name, color, callback, holder)
 			if control.Object then
 				control.Object:SetAttribute("BlushRowHeight", control.Object.Size.Y.Offset)
 				table.insert(self.Items, control.Object)
@@ -10299,17 +9904,13 @@ function S.createsection(
 		callback,
 		target,
 		keybindable,
-		badge,
 		parentobject,
 		hasbinding,
 		row,
 		box,
 		render,
 		textobject,
-		badgetext,
 		textbounds,
-		badgebounds,
-		badgeobject,
 		enabled,
 		binding,
 		setenabled,
@@ -10376,34 +9977,6 @@ function S.createsection(
 			end
 		)
 
-		if badge then
-			badgetext = type(badge) == "table" and (badge.Text or badge.text or "NEW")
-				or tostring(badge)
-
-			textbounds = S.measuretext(S.plaintext(name), 17, S.font, Vector2.new(260, 24))
-
-			badgebounds = S.measuretext(badgetext, 11, S.bold, Vector2.new(100, 16))
-
-			badgeobject = S.new("TextLabel", {
-				Parent = row,
-				AnchorPoint = Vector2.new(0, 0.5),
-				Position = UDim2.fromOffset(29 + math.ceil(textbounds.X) + 7, 12),
-				Size = UDim2.fromOffset(math.ceil(badgebounds.X) + 10, 17),
-				BackgroundColor3 = type(badge) == "table" and (badge.Color or badge.color)
-					or S.theme.text,
-				BackgroundTransparency = 0.04,
-				BorderSizePixel = 0,
-				Text = badgetext,
-				TextColor3 = type(badge) == "table" and (badge.TextColor or badge.textcolor)
-					or S.theme.window,
-				Font = S.bold,
-				TextSize = 11,
-				ZIndex = 18,
-			})
-
-			S.corner(badgeobject, 4)
-		end
-
 		enabled = default == true
 
 		binding = nil
@@ -10411,7 +9984,7 @@ function S.createsection(
 		setenabled = function(value, fire)
 			enabled = value == true
 			render(enabled)
-			S.requesthotkeyrefresh(binding)
+			S.requestkeybindrefresh(binding)
 
 			if fire ~= false and callback then callback(enabled) end
 		end
@@ -10434,7 +10007,7 @@ function S.createsection(
 		S.registertogglebinding(binding)
 
 		if hasbinding then S.attachtoggleconfig(row, binding) end
-		row.Destroying:Connect(function() S.unregistertogglebinding(binding) end)
+		S.own(row, function() S.unregistertogglebinding(binding) end)
 
 		keyobject = nil
 		if hasbinding then keyobject = S.addtoggleconfigicon(row, binding, row, 0) end
@@ -10476,11 +10049,10 @@ function S.createsection(
 		callback,
 		keycallback,
 		target,
-		badge,
 		control,
 		keybutton
 	)
-		control = self:AddToggle(name, default, callback, target, false, badge)
+		control = self:AddToggle(name, default, callback, target, false)
 
 		keybutton = S.attachinlinekeypicker(
 			control.Object,
@@ -10638,7 +10210,7 @@ function S.createsection(
 		setenabled = function(value, fire)
 			enabled = value == true
 			render(enabled)
-			S.requesthotkeyrefresh(binding)
+			S.requestkeybindrefresh(binding)
 
 			if fire ~= false and togglecallback then togglecallback(enabled) end
 		end
@@ -10656,13 +10228,13 @@ function S.createsection(
 			suppressclick = false,
 			get = function() return enabled end,
 			set = setenabled,
-			hotkeycolor = function() return colorstate:color() end,
+			keybindcolor = function() return colorstate:color() end,
 		}
-		colorstate.hotkeybinding = binding
+		colorstate.keybindbinding = binding
 		S.registertogglebinding(binding)
 
 		if hasbinding then S.attachtoggleconfig(row, binding) end
-		row.Destroying:Connect(function() S.unregistertogglebinding(binding) end)
+		S.own(row, function() S.unregistertogglebinding(binding) end)
 
 		if hasbinding then
 			S.addtoggleconfigicon(togglebutton, binding, row, 0)
@@ -10821,7 +10393,7 @@ function S.createsection(
 			renderkey()
 		end)
 
-		S.connect(row.Destroying, function()
+		row.Destroying:Connect(function()
 			if listening then
 				listening = false
 				S.endkeycapture(row, nil)
@@ -10853,7 +10425,7 @@ function S.createsection(
 		)
 
 		renderkey()
-		S.refreshhotkeylist()
+		S.refreshkeybindlist()
 
 		control.KeyObject = keybutton
 		return control
@@ -10907,15 +10479,23 @@ function S.createsection(
 
 		title.TextSize = 17
 
-		valueobject = S.label(holder, "", UDim2.fromOffset(80, 19), S.medium, S.theme.text3)
-
-		valueobject.AnchorPoint = Vector2.new(1, 0)
-
-		valueobject.Position = UDim2.new(1, 0, 0, 0)
-
-		valueobject.TextXAlignment = Enum.TextXAlignment.Right
-
-		valueobject.TextSize = 16
+		valueobject = S.new("TextBox", {
+			Parent = holder,
+			AnchorPoint = Vector2.new(1, 0),
+			Position = UDim2.new(1, 0, 0, 0),
+			Size = UDim2.fromOffset(80, 19),
+			BackgroundTransparency = 1,
+			BorderSizePixel = 0,
+			Text = "",
+			TextColor3 = S.theme.text3,
+			Font = S.medium,
+			TextSize = 16,
+			TextXAlignment = Enum.TextXAlignment.Right,
+			TextYAlignment = Enum.TextYAlignment.Center,
+			ClearTextOnFocus = false,
+			MultiLine = false,
+			ZIndex = 20,
+		}, { TextColor3 = "text3" })
 
 		holder.MouseEnter:Connect(function()
 			S.tween(title, { TextColor3 = S.theme.text }, S.hoverti, nil, { TextColor3 = "text" })
@@ -11012,28 +10592,33 @@ function S.createsection(
 
 		format = function(number) return string.format("%." .. round .. "f", number) end
 
-		set = function(number, fire, alpha)
+		set = function(number, fire, alpha, changed)
 			number = S.roundslider(number, minimum, maximum, round)
-			if fire and number == value then return end
-
 			alpha = maximum == minimum and 0 or (number - minimum) / (maximum - minimum)
-
+			changed = number ~= value
 			value = number
 
 			fill.Size = UDim2.fromScale(alpha, 1)
-
 			knob.Position = UDim2.fromScale(alpha, 0.5)
-
 			valueobject.Text = format(number) .. (suffix or "")
 
-			if fire and callback then callback(number) end
+			if fire and changed and callback then callback(number) end
 		end
 
-		update = function(position, alpha)
-			alpha = math.clamp((position.X - track.AbsolutePosition.X) / track.AbsoluteSize.X, 0, 1)
-
+		update = function(position, alpha, width)
+			width = math.max(1, track.AbsoluteSize.X)
+			alpha = math.clamp((position.X - track.AbsolutePosition.X) / width, 0, 1)
 			set(minimum + (maximum - minimum) * alpha, true)
 		end
+
+		valueobject.FocusLost:Connect(function()
+			local parsed = tonumber(valueobject.Text:match("[%+%-]?%d*%.?%d+"))
+			if parsed == nil then
+				set(value, false)
+				return
+			end
+			set(parsed, true)
+		end)
 
 		sliderhit.InputBegan:Connect(function(input)
 			if
@@ -11043,16 +10628,9 @@ function S.createsection(
 				return
 			end
 
-			if not S.acquireinteraction("slider", input) then return end
 
-			S.sliderdrag = {
-				input = input,
-				update = update,
+			if not S.beginpointer(holder, input, update, nil, 'slider', { knob }) then return end
 
-				knobs = {
-					knob,
-				},
-			}
 
 			update(S.point(input))
 
@@ -11061,7 +10639,7 @@ function S.createsection(
 			}, S.fastti)
 		end)
 
-		set(default, false)
+		set(default ~= nil and default or minimum, false)
 
 		register(holder, name)
 
@@ -11130,15 +10708,23 @@ function S.createsection(
 
 		title.TextSize = 17
 
-		valueobject = S.label(holder, "", UDim2.fromOffset(130, 19), S.medium, S.theme.text3)
-
-		valueobject.AnchorPoint = Vector2.new(1, 0)
-
-		valueobject.Position = UDim2.new(1, 0, 0, 0)
-
-		valueobject.TextXAlignment = Enum.TextXAlignment.Right
-
-		valueobject.TextSize = 16
+		valueobject = S.new("TextBox", {
+			Parent = holder,
+			AnchorPoint = Vector2.new(1, 0),
+			Position = UDim2.new(1, 0, 0, 0),
+			Size = UDim2.fromOffset(130, 19),
+			BackgroundTransparency = 1,
+			BorderSizePixel = 0,
+			Text = "",
+			TextColor3 = S.theme.text3,
+			Font = S.medium,
+			TextSize = 16,
+			TextXAlignment = Enum.TextXAlignment.Right,
+			TextYAlignment = Enum.TextYAlignment.Center,
+			ClearTextOnFocus = false,
+			MultiLine = false,
+			ZIndex = 20,
+		}, { TextColor3 = "text3" })
 
 		holder.MouseEnter:Connect(function()
 			S.tween(title, { TextColor3 = S.theme.text }, S.hoverti, nil, { TextColor3 = "text" })
@@ -11243,6 +10829,9 @@ function S.createsection(
 			ZIndex = 19,
 		})
 
+		defaultmin = tonumber(defaultmin) or minimum
+		defaultmax = tonumber(defaultmax) or maximum
+
 		low = S.roundslider(math.min(defaultmin, defaultmax), minimum, maximum, round)
 
 		high = S.roundslider(math.max(defaultmin, defaultmax), minimum, maximum, round)
@@ -11298,10 +10887,12 @@ function S.createsection(
 			if fire and callback then callback(low, high) end
 		end
 
-		update = function(position, alpha, value)
-			alpha = math.clamp((position.X - track.AbsolutePosition.X) / track.AbsoluteSize.X, 0, 1)
-
+		update = function(position, alpha, value, width, previouslow, previoushigh)
+			width = math.max(1, track.AbsoluteSize.X)
+			alpha = math.clamp((position.X - track.AbsolutePosition.X) / width, 0, 1)
 			value = S.roundslider(minimum + (maximum - minimum) * alpha, minimum, maximum, round)
+			previouslow = low
+			previoushigh = high
 
 			if active == "low" then
 				low = math.clamp(value, minimum, math.max(minimum, high - minimumdistance))
@@ -11309,8 +10900,31 @@ function S.createsection(
 				high = math.clamp(value, math.min(maximum, low + minimumdistance), maximum)
 			end
 
-			render(true)
+			render(low ~= previouslow or high ~= previoushigh)
 		end
+
+		valueobject.FocusLost:Connect(function()
+			local values = {}
+			for token in string.gmatch(valueobject.Text, "[%+%-]?%d*%.?%d+") do
+				local number = tonumber(token)
+				if number ~= nil then values[#values + 1] = number end
+				if #values == 2 then break end
+			end
+
+			if #values < 2 then
+				render(false)
+				return
+			end
+
+			local previouslow = low
+			local previoushigh = high
+			local first = S.roundslider(values[1], minimum, maximum, round)
+			local second = S.roundslider(values[2], minimum, maximum, round)
+			low = math.min(first, second)
+			high = math.max(first, second)
+			enforcegap()
+			render(low ~= previouslow or high ~= previoushigh)
+		end)
 
 		rangehit.InputBegan:Connect(function(input, p, lowx, highx, knob)
 			if
@@ -11330,16 +10944,9 @@ function S.createsection(
 
 			knob = active == "low" and lowknob or highknob
 
-			if not S.acquireinteraction("slider", input) then return end
 
-			S.sliderdrag = {
-				input = input,
-				update = update,
+			if not S.beginpointer(holder, input, update, nil, 'slider', { knob }) then return end
 
-				knobs = {
-					knob,
-				},
-			}
 
 			update(p)
 
@@ -11400,7 +11007,7 @@ function S.createsection(
 
 		popupy = position.Y + size.Y + 6
 
-		wanted = count * 34 + 8
+		wanted = count * 34 + 4
 
 		available = S.popuplayer.AbsoluteSize.Y - popupy - 8
 
@@ -11611,7 +11218,7 @@ function S.createsection(
 			if fire ~= false and callback then callback(option) end
 
 			for _, binding in pairs(optionbindings) do
-				S.requesthotkeyrefresh(binding)
+				S.requestkeybindrefresh(binding)
 			end
 
 			return true
@@ -11660,6 +11267,15 @@ function S.createsection(
 			S.registertogglebinding(binding)
 			return binding
 		end
+
+		local function clearoptionbindings()
+			for option, binding in pairs(optionbindings) do
+				S.unregistertogglebinding(binding)
+				optionbindings[option] = nil
+			end
+		end
+
+		S.own(holder, clearoptionbindings)
 
 		for _, option in ipairs(options) do
 			optionbinding(option)
@@ -11767,7 +11383,7 @@ function S.createsection(
 				scroll = S.new("ScrollingFrame", {
 					Parent = panel,
 					Position = UDim2.fromOffset(6, 6 + searchheight),
-					Size = UDim2.new(1, -12, 1, -12 - searchheight),
+					Size = UDim2.new(1, -12, 1, -6 - searchheight),
 					BackgroundTransparency = 1,
 					BorderSizePixel = 0,
 					CanvasSize = UDim2.new(),
@@ -11857,7 +11473,7 @@ function S.createsection(
 					iteration5.optionbutton = S.new("TextButton", {
 						Parent = scroll,
 						Size = UDim2.new(1, 0, 0, 32),
-						BackgroundColor3 = S.theme.hover,
+						BackgroundColor3 = S.theme.input,
 						BackgroundTransparency = 1,
 						BorderSizePixel = 0,
 						Text = "",
@@ -12024,6 +11640,7 @@ function S.createsection(
 			Set = function(_, option, fire) setselected(option, fire) end,
 
 			SetOptions = function(_, newoptions, preferred)
+				clearoptionbindings()
 				options = newoptions or {}
 				dividercount = 0
 
@@ -12046,7 +11663,7 @@ function S.createsection(
 				updatepreview()
 
 				for _, binding in pairs(optionbindings) do
-					S.requesthotkeyrefresh(binding)
+					S.requestkeybindrefresh(binding)
 				end
 			end,
 			Object = holder,
@@ -12368,7 +11985,10 @@ function S.createsection(
 				rightline,
 				divlabel2,
 				line2,
-				empty
+				empty,
+				emptyicon,
+				emptytitle,
+				emptytext
 			)
 				if S.activepopup and S.activepopup.anchor == button7 then
 					S.closepopup()
@@ -12395,9 +12015,10 @@ function S.createsection(
 					#options * 34
 						+ #currentplayers * 44
 						+ (includeeveryone and 38 or 0)
+						+ (#currentplayers == 0 and 58 or 0)
 						+ dividerheight
 						+ (usesearch and 38 or 0)
-						+ 8
+						+ 4
 				)
 				available = S.popuplayer.AbsoluteSize.Y - popupy - 8
 				height = math.max(70, math.min(wanted, math.min(330, available)))
@@ -12449,7 +12070,7 @@ function S.createsection(
 				scroll = S.new("ScrollingFrame", {
 					Parent = panel,
 					Position = UDim2.fromOffset(6, 6 + searchheight),
-					Size = UDim2.new(1, -12, 1, -12 - searchheight),
+					Size = UDim2.new(1, -12, 1, -6 - searchheight),
 					BackgroundTransparency = 1,
 					BorderSizePixel = 0,
 					CanvasSize = UDim2.new(),
@@ -12478,12 +12099,13 @@ function S.createsection(
 					playericon,
 					rowlabel,
 					usernamelabel,
+					selectedstroke,
 					selectedicon,
 					data,
 					renderselected
 				)
 					iseveryone = value == everyonevalue
-					rowheight = playerrow and 42 or (iseveryone and 36 or 32)
+					rowheight = playerrow and 46 or (iseveryone and 36 or 32)
 					row = S.new("TextButton", {
 						Parent = scroll,
 						Size = UDim2.new(1, 0, 0, rowheight),
@@ -12501,15 +12123,15 @@ function S.createsection(
 							Parent = row,
 							AnchorPoint = Vector2.new(0, 0.5),
 							Position = UDim2.fromOffset(7, rowheight * 0.5),
-							Size = UDim2.fromOffset(30, 30),
+							Size = UDim2.fromOffset(34, 34),
 							BackgroundTransparency = 1,
 							BorderSizePixel = 0,
 							Image = S.getplayerthumbnail(value),
 							ScaleType = Enum.ScaleType.Crop,
 							ZIndex = 515,
 						})
-						S.corner(playericon, 999)
-						left = 43
+						S.corner(playericon, 7)
+						left = 47
 					elseif rowicon then
 						playericon = S.image(row, rowicon, 15, S.theme.text3, 515)
 						playericon.AnchorPoint = Vector2.new(0, 0.5)
@@ -12521,7 +12143,7 @@ function S.createsection(
 					rowlabel = S.label(
 						row,
 						textvalue,
-						UDim2.new(1, -(left + 31), 0, playerrow and 20 or rowheight),
+						UDim2.new(1, -(left + 38), 0, playerrow and 20 or rowheight),
 						playerrow and S.medium or S.font,
 						issel(value) and S.theme.text or S.theme.text2
 					)
@@ -12535,7 +12157,7 @@ function S.createsection(
 						usernamelabel = S.label(
 							row,
 							"@" .. tostring(usernamevalue or ""),
-							UDim2.new(1, -(left + 31), 0, 17),
+							UDim2.new(1, -(left + 38), 0, 17),
 							S.font,
 							S.theme.text3
 						)
@@ -12544,21 +12166,12 @@ function S.createsection(
 						usernamelabel.TextTruncate = Enum.TextTruncate.AtEnd
 						usernamelabel.ZIndex = 515
 					end
-
-					selectedicon = S.image(row, S.icons.check, 14, S.theme.highlight, 516)
-					selectedicon.Size = UDim2.fromOffset(17, 14)
-					selectedicon.ScaleType = Enum.ScaleType.Stretch
+					selectedstroke = nil
+					selectedicon = S.image(row, S.icons.check, 13, S.theme.text2, 516)
 					selectedicon.AnchorPoint = Vector2.new(1, 0.5)
-					selectedicon.Position = UDim2.new(1, -8, 0.5, 0)
+					selectedicon.Position = UDim2.new(1, -9, 0.5, 0)
 					selectedicon.ImageTransparency = issel(value) and 0 or 1
-					S.bindtheme(selectedicon, "ImageColor3", S.theme.highlight, "highlight")
-					S.sethighlightalphabase(
-						selectedicon,
-						"ImageTransparency",
-						issel(value) and 0 or 1
-					)
-					selectedicon.ImageTransparency =
-						S.effectivehighlightalpha(issel(value) and 0 or 1)
+					S.bindtheme(selectedicon, "ImageColor3", S.theme.text2, "text2")
 
 					data = {
 						value = value,
@@ -12566,6 +12179,7 @@ function S.createsection(
 						label = rowlabel,
 						username = usernamelabel,
 						icon = playericon,
+						selectedstroke = selectedstroke,
 						selectedicon = selectedicon,
 						search = string.lower(searchvalue),
 					}
@@ -12574,6 +12188,7 @@ function S.createsection(
 					renderselected = function(animate, selectednow, labelcolor)
 						selectednow = issel(value)
 						labelcolor = selectednow and S.theme.text or S.theme.text2
+
 						if animate then
 							S.tween(rowlabel, { TextColor3 = labelcolor }, S.hoverti)
 							S.tween(
@@ -12583,13 +12198,7 @@ function S.createsection(
 							)
 						else
 							rowlabel.TextColor3 = labelcolor
-							S.sethighlightalphabase(
-								selectedicon,
-								"ImageTransparency",
-								selectednow and 0 or 1
-							)
-							selectedicon.ImageTransparency =
-								S.effectivehighlightalpha(selectednow and 0 or 1)
+							selectedicon.ImageTransparency = selectednow and 0 or 1
 						end
 					end
 
@@ -12780,11 +12389,31 @@ function S.createsection(
 					)
 				end
 
-				if totalitems == 0 then
-					empty =
-						S.label(scroll, "No players", UDim2.new(1, 0, 0, 38), S.font, S.theme.text3)
-					empty.TextSize = 14
-					empty.TextXAlignment = Enum.TextXAlignment.Center
+				if #currentplayers == 0 then
+					empty = S.new("Frame", {
+						Parent = scroll,
+						Size = UDim2.new(1, 0, 0, 56),
+						BackgroundTransparency = 1,
+						BorderSizePixel = 0,
+						ZIndex = 514,
+					})
+
+					emptyicon = S.image(empty, S.icons.usersround, 17, S.theme.text3, 515)
+					emptyicon.AnchorPoint = Vector2.new(0.5, 0.5)
+					emptyicon.Position = UDim2.fromOffset(19, 28)
+					emptyicon.ImageTransparency = 0.08
+
+					emptytitle =
+						S.label(empty, "No other players", UDim2.new(1, -52, 0, 22), S.medium, S.theme.text2)
+					emptytitle.Position = UDim2.fromOffset(38, 8)
+					emptytitle.TextSize = 14
+					emptytitle.ZIndex = 515
+
+					emptytext =
+						S.label(empty, "You're the only player here", UDim2.new(1, -52, 0, 18), S.font, S.theme.text3)
+					emptytext.Position = UDim2.fromOffset(38, 28)
+					emptytext.TextSize = 12
+					emptytext.ZIndex = 515
 				end
 
 				if playersearch then
@@ -12803,6 +12432,31 @@ function S.createsection(
 		)
 
 		register(holder, name)
+
+		S.connect(S.players.PlayerAdded, function()
+			if S.activepopup and S.activepopup.anchor == button7 then
+				S.closepopup(S.activepopup)
+			end
+		end, holder)
+
+		S.connect(S.players.PlayerRemoving, function(leaving)
+			local changed = false
+			if multiselect then
+				if selected[leaving] then
+					selected[leaving] = nil
+					changed = true
+				end
+			elseif selected == leaving then
+				selected = nil
+				changed = true
+			end
+
+			refreshdisplay()
+			if changed then fireselection() end
+			if S.activepopup and S.activepopup.anchor == button7 then
+				S.closepopup(S.activepopup)
+			end
+		end, holder)
 
 		return {
 			Get = function() return selectedvalues() end,
@@ -13017,7 +12671,7 @@ function S.createsection(
 
 					Position = UDim2.fromOffset(4, 4),
 
-					Size = UDim2.new(1, -8, 1, -8),
+					Size = UDim2.new(1, -8, 1, -4),
 
 					BackgroundTransparency = 1,
 
@@ -13049,7 +12703,7 @@ function S.createsection(
 						Text = "",
 						AutoButtonColor = false,
 						ZIndex = 514,
-					}, { BackgroundColor3 = "hover" })
+					}, { BackgroundColor3 = "input" })
 					S.corner(pickerrow, 6)
 					S.keyeditbuttons[pickerrow] = true
 
@@ -13073,9 +12727,9 @@ function S.createsection(
 					)
 					pickerkey.AnchorPoint = Vector2.new(1, 0.5)
 					pickerkey.Position = UDim2.new(1, -7, 0.5, 0)
-					pickerkey.BackgroundColor3 = S.theme.popup
+					pickerkey.BackgroundColor3 = S.theme.window
 					pickerkey.BackgroundTransparency = 0
-					S.bindtheme(pickerkey, "BackgroundColor3", S.theme.popup, "popup")
+					S.bindtheme(pickerkey, "BackgroundColor3", S.theme.window, "window")
 					S.corner(pickerkey, 5)
 					pickerkey.TextSize = 13
 					pickerkey.TextXAlignment = Enum.TextXAlignment.Center
@@ -13645,7 +13299,7 @@ function S.createsection(
 			render()
 		end)
 
-		S.connect(row.Destroying, function()
+		row.Destroying:Connect(function()
 			if listening then
 				listening = false
 				S.endkeycapture(row, nil)
@@ -13826,416 +13480,6 @@ function S.createsection(
 
 	function section:AddSeparator(target) return self:AddDivider(nil, target) end
 
-	-- progress bar
-
-	function section:AddProgressBar(
-		name,
-		default,
-		suffix,
-		target,
-		parentobject,
-		holder,
-		titleobject2,
-		valueobject,
-		track,
-		fill,
-		glow,
-		value,
-		set
-	)
-		parentobject = target or body
-		holder = S.new("Frame", {
-			Parent = parentobject,
-			Size = UDim2.new(1, 0, 0, 43),
-			BackgroundTransparency = 1,
-			BorderSizePixel = 0,
-			ZIndex = 15,
-		})
-
-		titleobject2 = S.label(holder, name, UDim2.new(1, -80, 0, 19), S.font, S.theme.text2)
-		titleobject2.TextSize = 16
-		valueobject = S.label(holder, "", UDim2.fromOffset(76, 19), S.medium, S.theme.text3)
-		valueobject.AnchorPoint = Vector2.new(1, 0)
-		valueobject.Position = UDim2.new(1, 0, 0, 0)
-		valueobject.TextXAlignment = Enum.TextXAlignment.Right
-		valueobject.TextSize = 15
-
-		track = S.new("Frame", {
-			Parent = holder,
-			Position = UDim2.fromOffset(0, 30),
-			Size = UDim2.new(1, 0, 0, 6),
-			BackgroundColor3 = S.theme.track,
-			BorderSizePixel = 0,
-			ZIndex = 16,
-		}, { BackgroundColor3 = "track" })
-		S.corner(track, 999)
-
-		fill = S.new("Frame", {
-			Parent = track,
-			Size = UDim2.fromScale(0, 1),
-			BackgroundColor3 = S.theme.highlight,
-			BorderSizePixel = 0,
-			ZIndex = 17,
-		}, { BackgroundColor3 = "highlight" })
-		S.corner(fill, 999)
-		glow = S.addglow(fill, "active")
-		if glow then glow.Transparency = 0.7 end
-
-		value = 0
-		set = function(number)
-			value = math.clamp(tonumber(number) or 0, 0, 100)
-			fill.Size = UDim2.fromScale(value / 100, 1)
-			valueobject.Text = tostring(math.round(value)) .. (suffix or "%")
-		end
-		set(default or 0)
-		register(holder, name)
-
-		return {
-			Get = function() return value end,
-			Set = function(_, number) set(number) end,
-			Object = holder,
-			TextObject = titleobject2,
-		}
-	end
-
-	-- radio
-
-	function section:AddRadio(
-		name,
-		options,
-		default,
-		callback,
-		target,
-		multiselect,
-		holder,
-		titleobject3,
-		row,
-		grid,
-		buttons,
-		minwidth,
-		selected,
-		isactive,
-		values,
-		render,
-		layout,
-		cellwidth
-	)
-		options = table.clone(options or {})
-		while #options > 6 do
-			table.remove(options)
-		end
-		multiselect = multiselect == true
-		holder = S.new("Frame", {
-			Parent = target or body,
-			Size = UDim2.new(1, 0, 0, 50),
-			BackgroundTransparency = 1,
-			BorderSizePixel = 0,
-			ZIndex = 15,
-		})
-		titleobject3 = S.label(holder, name, UDim2.new(1, 0, 0, 18), S.font, S.theme.text2)
-		titleobject3.TextSize = 16
-		row = S.new("Frame", {
-			Parent = holder,
-			Position = UDim2.fromOffset(0, 22),
-			Size = UDim2.new(1, 0, 0, 28),
-			BackgroundTransparency = 1,
-			BorderSizePixel = 0,
-			ZIndex = 16,
-		})
-		grid = {}
-		buttons = {}
-		minwidth = 80
-		selected = multiselect and {} or (default or options[1])
-		if multiselect then
-			if type(default) == "table" then
-				for _, value in ipairs(default) do
-					selected[value] = true
-				end
-			elseif default ~= nil then
-				selected[default] = true
-			end
-		end
-
-		isactive = function(value)
-			return multiselect and selected[value] == true or selected == value
-		end
-
-		values = function(result)
-			if not multiselect then return selected end
-			result = {}
-			for _, option in ipairs(options) do
-				if selected[option] then result[#result + 1] = option end
-			end
-			return result
-		end
-
-		render = function(active)
-			for value, data in pairs(buttons) do
-				active = isactive(value)
-				if active ~= data.active then
-					data.active = active
-					S.tween(
-						data.text,
-						{ TextColor3 = active and S.theme.text or S.theme.text3 },
-						S.fastti
-					)
-					S.tween(
-						data.ring,
-						{ Color = active and S.theme.highlight or S.theme.border },
-						S.fastti,
-						nil,
-						{ Color = active and "highlight" or "border" }
-					)
-					S.tween(data.dot, { BackgroundTransparency = active and 0 or 1 }, S.fastti)
-				end
-			end
-		end
-
-		layout = function(width, rows, used, itemwidth, heights, start, finish, extra, x, y)
-			width = math.max(1, holder.AbsoluteSize.X)
-			if cellwidth == width then return end
-			cellwidth = width
-			rows = {}
-			used, start = 0, 1
-			for index, option in ipairs(options) do
-				itemwidth = #options >= 5 and math.max(1, (width - 8) / 2)
-					or math.min(width, grid[index])
-				if
-					index > start
-					and (
-						used + 8 + itemwidth > width + 0.01
-						or (#options >= 5 and index - start == 2)
-					)
-				then
-					table.insert(rows, { start, index - 1, used })
-					start, used = index, 0
-				end
-				used += (index > start and 8 or 0) + itemwidth
-			end
-			if #options > 0 then table.insert(rows, { start, #options, used }) end
-			for rowindex, items in ipairs(rows) do
-				extra = #options >= 5 and 0
-					or math.max(0, width - items[3]) / (items[2] - items[1] + 1)
-				x, y = 0, (rowindex - 1) * 34
-				for index = items[1], items[2] do
-					itemwidth = #options >= 5 and math.max(1, (width - 8) / 2)
-						or math.min(width, grid[index]) + extra
-					buttons[options[index]].button.Position = UDim2.fromOffset(x, y)
-					buttons[options[index]].button.Size = UDim2.fromOffset(itemwidth, 28)
-					x += itemwidth + 8
-				end
-			end
-			heights = math.max(0, #rows * 34 - 6)
-			row.Size = UDim2.new(1, 0, 0, heights)
-			holder.Size = UDim2.new(1, 0, 0, 22 + heights)
-		end
-
-		for index, option, iteration7 in S.scopediterator(2, ipairs(options)) do
-			iteration7.active = isactive(option)
-			iteration7.text = tostring(option)
-			grid[index] = math.ceil(
-				S.measuretext(iteration7.text, 14, S.font, Vector2.new(10000, 28)).X
-			) + 34
-			iteration7.button = S.new("TextButton", {
-				Parent = row,
-				LayoutOrder = index,
-				BackgroundTransparency = 1,
-				BorderSizePixel = 0,
-				Text = "",
-				AutoButtonColor = false,
-				ZIndex = 16,
-			})
-			iteration7.circle = S.new("Frame", {
-				Parent = iteration7.button,
-				AnchorPoint = Vector2.new(0, 0.5),
-				Position = UDim2.new(0, 4, 0.5, 0),
-				Size = UDim2.fromOffset(16, 16),
-				BackgroundColor3 = S.theme.input,
-				BorderSizePixel = 0,
-				ZIndex = 17,
-			}, { BackgroundColor3 = "input" })
-			S.corner(iteration7.circle, 999)
-			iteration7.ring = S.stroke(
-				iteration7.circle,
-				0.3,
-				iteration7.active and S.theme.highlight or S.theme.border,
-				1
-			)
-			S.bindtheme(
-				iteration7.ring,
-				"Color",
-				iteration7.active and S.theme.highlight or S.theme.border,
-				iteration7.active and "highlight" or "border"
-			)
-			iteration7.dot = S.new("Frame", {
-				Parent = iteration7.circle,
-				AnchorPoint = Vector2.new(0.5, 0.5),
-				Position = UDim2.fromScale(0.5, 0.5),
-				Size = UDim2.fromOffset(8, 8),
-				BackgroundColor3 = S.theme.highlight,
-				BackgroundTransparency = iteration7.active and 0 or 1,
-				BorderSizePixel = 0,
-				ZIndex = 18,
-			}, { BackgroundColor3 = "highlight" })
-			S.corner(iteration7.dot, 999)
-			iteration7.textobject = S.label(
-				iteration7.button,
-				iteration7.text,
-				UDim2.new(1, -30, 1, 0),
-				S.font,
-				iteration7.active and S.theme.text or S.theme.text3
-			)
-			iteration7.textobject.Position = UDim2.fromOffset(28, 0)
-			iteration7.textobject.TextSize = 14
-			iteration7.textobject.TextTruncate = Enum.TextTruncate.AtEnd
-			iteration7.textobject.ZIndex = 17
-			buttons[option] = {
-				button = iteration7.button,
-				dot = iteration7.dot,
-				ring = iteration7.ring,
-				text = iteration7.textobject,
-				active = iteration7.active,
-			}
-			iteration7.button.MouseEnter:Connect(
-				function()
-					S.tween(
-						iteration7.textobject,
-						{ TextColor3 = S.theme.text },
-						S.hoverti,
-						nil,
-						{ TextColor3 = "text" }
-					)
-				end
-			)
-			iteration7.button.MouseLeave:Connect(
-				function()
-					S.tween(
-						iteration7.textobject,
-						{ TextColor3 = isactive(option) and S.theme.text or S.theme.text3 },
-						S.hoverti
-					)
-				end
-			)
-			iteration7.button.Activated:Connect(function()
-				if multiselect then
-					selected[option] = not selected[option] or nil
-				elseif selected == option then
-					return
-				else
-					selected = option
-				end
-				render()
-				if callback then callback(values()) end
-			end)
-		end
-		S.connect(holder:GetPropertyChangedSignal("AbsoluteSize"), layout)
-		layout()
-		register(holder, name)
-		return {
-			Get = function() return values() end,
-			Set = function(_, value, fire)
-				if multiselect then
-					table.clear(selected)
-					if type(value) == "table" then
-						for _, item in ipairs(value) do
-							if buttons[item] then selected[item] = true end
-						end
-					elseif buttons[value] then
-						selected[value] = true
-					end
-				elseif buttons[value] then
-					selected = value
-				else
-					return
-				end
-				render()
-				if fire ~= false and callback then callback(values()) end
-			end,
-			Object = holder,
-			TextObject = titleobject3,
-			Multi = multiselect,
-		}
-	end
-
-	-- badge / status
-
-	function section:AddBadge(
-		name,
-		textvalue,
-		color,
-		target,
-		parentobject,
-		holder,
-		titleobject4,
-		customcolor,
-		badge,
-		textobject,
-		resizebadge
-	)
-		parentobject = target or body
-		holder = S.new("Frame", {
-			Parent = parentobject,
-			Size = UDim2.new(1, 0, 0, 30),
-			BackgroundTransparency = 1,
-			BorderSizePixel = 0,
-			ZIndex = 15,
-		})
-
-		titleobject4 = S.label(holder, name, UDim2.new(1, -88, 1, 0), S.font, S.theme.text2)
-		titleobject4.TextSize = 16
-		titleobject4.TextTruncate = Enum.TextTruncate.AtEnd
-		titleobject4.ZIndex = 16
-
-		customcolor = typeof(color) == "Color3"
-		badge = S.new("Frame", {
-			Parent = holder,
-			AnchorPoint = Vector2.new(1, 0.5),
-			Position = UDim2.new(1, 0, 0.5, 0),
-			Size = UDim2.fromOffset(52, 24),
-			BackgroundColor3 = customcolor and color or S.theme.input,
-			BackgroundTransparency = 0.02,
-			BorderSizePixel = 0,
-			ZIndex = 16,
-		})
-		if not customcolor then S.bindtheme(badge, "BackgroundColor3", S.theme.input, "input") end
-		S.corner(badge, 7)
-
-		textobject =
-			S.label(badge, textvalue or "Ready", UDim2.new(1, -20, 1, 0), S.medium, S.theme.text2)
-		textobject.Position = UDim2.fromOffset(10, 0)
-		textobject.TextXAlignment = Enum.TextXAlignment.Center
-		textobject.TextYAlignment = Enum.TextYAlignment.Center
-		textobject.TextSize = 13
-		textobject.TextTruncate = Enum.TextTruncate.AtEnd
-		textobject.ZIndex = 17
-
-		resizebadge = function(bounds, width)
-			bounds = S.measuretext(
-				S.plaintext(textobject.Text or ""),
-				textobject.TextSize,
-				S.medium,
-				Vector2.new(300, 24)
-			)
-			width = math.clamp(math.ceil(bounds.X) + 20, 34, 180)
-			badge.Size = UDim2.fromOffset(width, 24)
-			titleobject4.Size = UDim2.new(1, -width - 12, 1, 0)
-		end
-
-		S.connect(textobject:GetPropertyChangedSignal("Text"), resizebadge)
-		resizebadge()
-		register(holder, name .. " " .. tostring(textvalue or ""))
-
-		return {
-			SetText = function(_, value) textobject.Text = tostring(value) end,
-			SetColor = function(_, value)
-				if typeof(value) == "Color3" then badge.BackgroundColor3 = value end
-			end,
-			Object = holder,
-			Badge = badge,
-			TextObject = textobject,
-		}
-	end
-
 	-- image
 
 	function section:AddImage(
@@ -14332,66 +13576,6 @@ function S.createsection(
 		return holder
 	end
 
-	-- loading spinner
-
-	function section:AddLoadingSpinner(name, target, parentobject, holder, titleobject6, spinner)
-		parentobject = target or body
-		holder = S.new("Frame", {
-			Parent = parentobject,
-			Size = UDim2.new(1, 0, 0, 28),
-			BackgroundTransparency = 1,
-			BorderSizePixel = 0,
-			ZIndex = 15,
-		})
-		titleobject6 = S.label(holder, name, UDim2.new(1, -30, 1, 0), S.font, S.theme.text2)
-		titleobject6.TextSize = 16
-		spinner = S.image(holder, S.icons.settings, 18, S.theme.text2, 16)
-		spinner.AnchorPoint = Vector2.new(0.5, 0.5)
-		spinner.Position = UDim2.new(1, -10, 0.5, 0)
-		S.registeranimatedui(spinner, "spinner")
-
-		register(holder, name)
-		return spinner
-	end
-
-	-- loading bar
-
-	function section:AddLoadingBar(name, target, parentobject, holder, titleobject7, track, bar)
-		parentobject = target or body
-		holder = S.new("Frame", {
-			Parent = parentobject,
-			Size = UDim2.new(1, 0, 0, 42),
-			BackgroundTransparency = 1,
-			BorderSizePixel = 0,
-			ZIndex = 15,
-		})
-		titleobject7 = S.label(holder, name, UDim2.new(1, 0, 0, 18), S.font, S.theme.text2)
-		titleobject7.TextSize = 16
-		track = S.new("Frame", {
-			Parent = holder,
-			Position = UDim2.fromOffset(0, 29),
-			Size = UDim2.new(1, 0, 0, 6),
-			BackgroundColor3 = S.theme.track,
-			BorderSizePixel = 0,
-			ClipsDescendants = true,
-			ZIndex = 16,
-		}, { BackgroundColor3 = "track" })
-		S.corner(track, 999)
-		bar = S.new("Frame", {
-			Parent = track,
-			Position = UDim2.new(-0.28, 0, 0, 0),
-			Size = UDim2.new(0.28, 0, 1, 0),
-			BackgroundColor3 = S.theme.highlight,
-			BorderSizePixel = 0,
-			ZIndex = 17,
-		}, { BackgroundColor3 = "highlight" })
-		S.corner(bar, 999)
-		S.registeranimatedui(bar, "bar")
-
-		register(holder, name)
-		return bar
-	end
-
 	-- context / modal helpers
 
 	function section:AddContextMenu(name, entries, target, button11)
@@ -14438,10 +13622,10 @@ function S.createsection(
 		sidepadding,
 		wheelstep,
 		scrollti,
+		parentscroll,
 		taborder,
 		tabsclosed,
 		tabscroll,
-		tabdrag,
 		host,
 		tabviewport,
 		tabcontent,
@@ -14458,7 +13642,6 @@ function S.createsection(
 		scrollanimation,
 		scrollvalue,
 		resizehost,
-		applytaborder,
 		maxscroll,
 		updatescrollbar,
 		renderscroll,
@@ -14475,10 +13658,10 @@ function S.createsection(
 		sidepadding = 2
 		wheelstep = 75
 		scrollti = S.quart28
+		parentscroll = section.column == "right" and page.right or page.left
 		taborder = table.clone(names)
 		tabsclosed = false
 		tabscroll = nil
-		tabdrag = nil
 
 		host = S.new("Frame", {
 			Parent = body,
@@ -14631,13 +13814,6 @@ function S.createsection(
 			end
 		end
 
-		applytaborder = function(data)
-			for index, tabname in ipairs(taborder) do
-				data = buttons[tabname]
-				if data then data.button.LayoutOrder = index end
-			end
-		end
-
 		maxscroll = function() return math.max(0, contentwidth - tabviewport.AbsoluteSize.X) end
 
 		updatescrollbar = function(viewport, trackwidth, width, maximum, ratio)
@@ -14652,7 +13828,7 @@ function S.createsection(
 			end
 
 			scrollbarthumb.Visible = true
-			scrollbartrack.BackgroundTransparency = 0.72
+			scrollbartrack.BackgroundTransparency = 1
 
 			width = math.clamp(viewport / contentwidth * trackwidth, 20, trackwidth)
 
@@ -14762,14 +13938,28 @@ function S.createsection(
 			setscroll(scrolltarget + direction * wheelstep, true)
 		end
 
-		host.MouseWheelForward:Connect(function() wheel(-1) end)
+		tabviewport.MouseEnter:Connect(function()
+			if parentscroll and parentscroll.Parent then parentscroll.ScrollingEnabled = false end
+		end)
 
-		host.MouseWheelBackward:Connect(function() wheel(1) end)
+		tabviewport.MouseLeave:Connect(function()
+			if not tabscroll and parentscroll and parentscroll.Parent then
+				parentscroll.ScrollingEnabled = true
+			end
+		end)
+
+		tabviewport.InputChanged:Connect(function(input)
+			if input.UserInputType ~= Enum.UserInputType.MouseWheel then return end
+			if parentscroll and parentscroll.Parent then parentscroll.ScrollingEnabled = false end
+			wheel(-input.Position.Z)
+		end)
 
 		tabviewport.InputBegan:Connect(function(input, position)
 			if input.UserInputType ~= Enum.UserInputType.Touch then return end
 
 			position = S.point(input)
+
+			if parentscroll and parentscroll.Parent then parentscroll.ScrollingEnabled = false end
 
 			tabscroll = {
 				input = input,
@@ -14970,161 +14160,21 @@ function S.createsection(
 					if selected == tabname then resizehost(false) end
 				end)
 
-			iteration8.button.InputBegan:Connect(function(input, position)
-				if input.UserInputType ~= Enum.UserInputType.MouseButton1 then return end
 
-				tabdrag = {
-					input = input,
-					name = tabname,
-					button = iteration8.button,
-					start = S.point(input),
-					started = false,
-				}
-			end)
-
-			iteration8.button.Activated:Connect(function(data)
-				data = buttons[tabname]
-				if data and data.suppressactivate then
-					data.suppressactivate = false
-					return
-				end
-
+			iteration8.button.Activated:Connect(function()
 				select(tabname, true, true)
 			end)
 		end
 
-		applytaborder()
 
-		S.connect(
-			S.uis.InputChanged,
-			function(
-				input,
-				current,
-				total,
-				data,
-				delta,
-				current2,
-				root,
-				filtered,
-				targetindex,
-				data4,
-				center,
-				currentindex,
-				wanted,
-				oldpositions,
-				currentdata,
-				orderedbuttons,
-				currentdata2
-			)
-				if not tabdrag then return end
-
-				if input.UserInputType ~= Enum.UserInputType.MouseMovement then return end
-
-				current2 = S.point(input)
-				if not tabdrag.started and (current2 - tabdrag.start).Magnitude >= 6 then
-					tabdrag.started = true
-					buttons[tabdrag.name].suppressactivate = true
-					tabdrag.grab = current2 - tabdrag.button.AbsolutePosition
-					tabdrag.ghost, tabdrag.ghostclone, tabdrag.ghostscale =
-						S.makedragghost(tabdrag.button, 470)
-					tabdrag.hidden = S.hideforghost(tabdrag.button)
-				end
-
-				if not tabdrag.started then return end
-
-				if tabdrag.ghost and tabdrag.ghost.Parent then
-					root = S.draglayer.AbsolutePosition
-					tabdrag.ghost.Position = UDim2.fromOffset(
-						current2.X - tabdrag.grab.X - root.X,
-						current2.Y - tabdrag.grab.Y - root.Y
-					)
-				end
-
-				filtered = {}
-				for _, tabname in ipairs(taborder) do
-					if tabname ~= tabdrag.name then table.insert(filtered, tabname) end
-				end
-
-				targetindex = #filtered + 1
-				for index, tabname in ipairs(filtered) do
-					data4 = buttons[tabname]
-					center = data4.button.AbsolutePosition.X + data4.button.AbsoluteSize.X * 0.5
-					if current2.X < center then
-						targetindex = index
-						break
-					end
-				end
-
-				currentindex = table.find(taborder, tabdrag.name)
-				wanted = targetindex
-				if currentindex and currentindex ~= wanted then
-					oldpositions = {}
-
-					for _, currentname in ipairs(taborder) do
-						currentdata = buttons[currentname]
-						if currentdata and currentdata.button then
-							oldpositions[currentdata.button] = currentdata.button.AbsolutePosition
-						end
-					end
-
-					table.remove(taborder, currentindex)
-					wanted = math.clamp(wanted, 1, #taborder + 1)
-					table.insert(taborder, wanted, tabdrag.name)
-					applytaborder()
-					updatelayout()
-
-					orderedbuttons = {}
-					for _, currentname in ipairs(taborder) do
-						currentdata2 = buttons[currentname]
-						if currentdata2 and currentdata2.button then
-							orderedbuttons[#orderedbuttons + 1] = currentdata2.button
-						end
-					end
-
-					S.animatereorder(oldpositions, orderedbuttons, tabdrag.button)
+		S.connect(S.uis.InputEnded, function(input)
+			if tabscroll and input == tabscroll.input then
+				tabscroll = nil
+				if parentscroll and parentscroll.Parent then
+					parentscroll.ScrollingEnabled = true
 				end
 			end
-		)
-
-		S.connect(
-			S.uis.InputEnded,
-			function(input, data, dragged, drag, target, finished, finish, animation)
-				if not tabdrag or input.UserInputType ~= Enum.UserInputType.MouseButton1 then
-					return
-				end
-
-				drag = tabdrag
-				tabdrag = nil
-
-				if drag.started then
-					target = drag.button.AbsolutePosition - S.draglayer.AbsolutePosition
-					finished = false
-					finish = function(data5)
-						if finished then return end
-						finished = true
-						S.restorefromghost(drag.hidden)
-						if drag.ghost and drag.ghost.Parent then drag.ghost:Destroy() end
-						data5 = buttons[drag.name]
-						if data5 then data5.suppressactivate = false end
-					end
-
-					if drag.ghost and drag.ghost.Parent then
-						animation = S.tween(
-							drag.ghost,
-							{ Position = UDim2.fromOffset(target.X, target.Y) },
-							S.quart24
-						)
-						if animation then
-							animation.Completed:Connect(finish)
-						else
-							finish()
-						end
-					else
-						finish()
-					end
-				end
-			end
-		)
+		end, host)
 
 		tablayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(updatelayout)
 
@@ -15161,1393 +14211,266 @@ function S.createsection(
 	return section
 end
 
--- pages
 
-S.home = S.createpage("home", "Home", nil)
 
-S.combatmain = S.createpage("combat_main", "Combat", "Main")
+-- Settings and preset storage. Settings controls are built on first access.
 
-S.combatvisuals = S.createpage("combat_visuals", "Combat", "Visuals")
-
-S.combatextras = S.createpage("combat_extras", "Combat", "Extras")
-
-S.farming = S.createpage("farming", "Farming", nil)
-
-S.settings = S.createpage("settings", "Settings", nil)
-
-S.components = S.createpage("components", "Components", nil)
-
-S.home.icon = S.icons.home
-S.combatmain.icon = S.icons.target
-S.combatvisuals.icon = S.icons.visuals
-S.combatextras.icon = S.icons.extras
-S.farming.icon = S.icons.farming
-S.settings.icon = S.icons.settings
-S.components.icon = S.icons.sliders
-
--- library runtime
-
-S.legacysettingspath = "blush_ui_settings.json"
 S.storagefolder = "blush"
-S.configfolder = S.storagefolder .. "/configs"
-S.themefolder = S.storagefolder .. "/themes"
-S.backgroundfolder = S.storagefolder .. "/backgrounds"
+S.presetfolder = S.storagefolder .. "/presets"
 S.settingspath = S.storagefolder .. "/settings.json"
 S.savedsettings = {}
+S.savedsettingsloaded = false
+S.settingsready = false
+S.loadingsettings = false
+S.autosave = false
+S.pendingcontrolvalues = {}
+S.configcontrols = {}
+S.persistencetask = nil
 
-function S.configurestoragefolders(options, folders, root, subpath, settingsfile)
+function S.configurestoragefolders(options)
 	options = type(options) == "table" and options or {}
-	folders = type(options.Folders) == "table" and options.Folders or {}
-	root = options.StorageFolder or options.Folder or folders.Root or folders.Storage
+	local folders = type(options.Folders) == "table" and options.Folders or {}
+	local root = options.StorageFolder or options.Folder or folders.Root or folders.Storage
 	if type(root) == "string" and root ~= "" then S.storagefolder = root:gsub("[\\/]+$", "") end
 
-	subpath = function(value, fallback)
-		if type(value) ~= "string" or value == "" then return S.storagefolder .. "/" .. fallback end
-		value = value:gsub("^[\\/]+", ""):gsub("[\\/]+$", "")
-		if value:find("[\\/]") then return value end
-		return S.storagefolder .. "/" .. value
+	local presets = options.PresetsFolder or folders.Presets
+	if type(presets) == "string" and presets ~= "" then
+		presets = presets:gsub("^[\\/]+", ""):gsub("[\\/]+$", "")
+		S.presetfolder = presets:find("[\\/]") and presets or S.storagefolder .. "/" .. presets
+	else
+		S.presetfolder = S.storagefolder .. "/presets"
 	end
 
-	S.configfolder = subpath(options.ConfigFolder or folders.Configs or folders.Config, "configs")
-	S.themefolder = subpath(options.ThemeFolder or folders.Themes or folders.Theme, "themes")
-	S.backgroundfolder = subpath(
-		options.BackgroundFolder or folders.Backgrounds or folders.Background,
-		"backgrounds"
-	)
-
-	settingsfile = options.SettingsFile or folders.Settings
+	local settingsfile = options.SettingsFile or folders.Settings
 	if type(settingsfile) == "string" and settingsfile ~= "" then
 		settingsfile = settingsfile:gsub("^[\\/]+", "")
-		S.settingspath = settingsfile:find("[\\/]") and settingsfile
-			or (S.storagefolder .. "/" .. settingsfile)
+		S.settingspath = settingsfile:find("[\\/]") and settingsfile or S.storagefolder .. "/" .. settingsfile
 	else
 		S.settingspath = S.storagefolder .. "/settings.json"
 	end
+	S.savedsettingsloaded = false
 end
 
-function S.ensurefolder(path, ok, exists)
+function S.ensurefolder(path)
 	if typeof(isfolder) == "function" then
-		ok, exists = S.invoke(isfolder, path)
+		local ok, exists = pcall(isfolder, path)
 		if ok and exists then return true end
 	end
-
-	if typeof(makefolder) == "function" then return S.invoke(makefolder, path) end
-
+	if typeof(makefolder) == "function" then return pcall(makefolder, path) end
 	return false
 end
 
-function S.ensurestorage(oldok, oldexists, newok, newexists)
+function S.ensurestorage()
 	S.ensurefolder(S.storagefolder)
-	S.ensurefolder(S.configfolder)
-	S.ensurefolder(S.themefolder)
-	S.ensurefolder(S.backgroundfolder)
-
-	if
-		typeof(readfile) == "function"
-		and typeof(writefile) == "function"
-		and typeof(isfile) == "function"
-	then
-		oldok, oldexists = S.invoke(isfile, S.legacysettingspath)
-		newok, newexists = S.invoke(isfile, S.settingspath)
-
-		if oldok and oldexists and newok and not newexists then
-			writefile(S.settingspath, readfile(S.legacysettingspath))
-		end
-	end
+	S.ensurefolder(S.presetfolder)
 end
 
 function S.sanitizefilename(value)
-	value = tostring(value or "")
-	value = value:gsub("^%s+", ""):gsub("%s+$", "")
-	value = value:gsub('[\\/:*?"<>|]', "")
-	value = value:gsub("^%.*", "")
-	value = value:sub(1, 48)
-	return value
+	value = tostring(value or ""):gsub("^%s+", ""):gsub("%s+$", "")
+	value = value:gsub('[\\/:*?"<>|]', ""):gsub("^%.*", "")
+	return value:sub(1, 48)
 end
 
-function S.readjsonfile(path, ok, encoded, decodedok, decoded)
+function S.readjsonfile(path)
 	if typeof(readfile) ~= "function" then return nil end
-
-	ok, encoded = S.invoke(readfile, path)
-	if not ok or not encoded or encoded == "" then return nil end
-
-	decodedok, decoded = S.invoke(function() return S.httpservice:JSONDecode(encoded) end)
-
-	return decodedok and typeof(decoded) == "table" and decoded or nil
+	local ok, encoded = pcall(function()
+		if typeof(isfile) == "function" and not isfile(path) then return nil end
+		return readfile(path)
+	end)
+	if not ok or type(encoded) ~= "string" or encoded == "" then return nil end
+	local decodedok, decoded = pcall(function() return S.httpservice:JSONDecode(encoded) end)
+	return decodedok and type(decoded) == "table" and decoded or nil
 end
 
-function S.writejsonfile(path, data)
+function S.writejsonfile(path, payload)
 	if typeof(writefile) ~= "function" then return false end
-
-	return S.invoke(function() writefile(path, S.httpservice:JSONEncode(data)) end)
+	return pcall(function() writefile(path, S.httpservice:JSONEncode(payload)) end)
 end
 
-function S.listjsonnames(folder, result, ok, files, name6)
+function S.listpresetnames(result, ok, files, name)
 	result = {}
-
 	if typeof(listfiles) ~= "function" then return result end
-
-	ok, files = S.invoke(listfiles, folder)
-	if not ok or typeof(files) ~= "table" then return result end
-
+	ok, files = pcall(listfiles, S.presetfolder)
+	if not ok or type(files) ~= "table" then return result end
 	for _, path in ipairs(files) do
-		name6 = tostring(path):match("([^/\\]+)%.json$")
-		if name6 then table.insert(result, name6) end
+		name = tostring(path):match("([^/\\]+)%.json$")
+		if name then result[#result + 1] = name end
 	end
-
 	table.sort(result, function(a, b) return string.lower(a) < string.lower(b) end)
-
 	return result
 end
 
-S.ensurestorage()
-
-S.backgroundimagesource = ""
-S.backgroundimageopacity = 65
-S.backgroundimageblur = 0
-S.backgroundimageblurmax = 100
-S.backgroundimagemode = "Crop"
-S.__blush_background_token = 0
-
-function S.trimbackgroundsource(value, markdownurl)
-	value = tostring(value or "")
-	value = value:gsub("^%s+", ""):gsub("%s+$", "")
-
-	markdownurl = value:match("^%[[^%]]-%]%((https?://.-)%)$")
-	if markdownurl then value = markdownurl end
-
-	if
-		(#value >= 2)
-		and (
-			(value:sub(1, 1) == '"' and value:sub(-1) == '"')
-			or (value:sub(1, 1) == "'" and value:sub(-1) == "'")
-			or (value:sub(1, 1) == "<" and value:sub(-1) == ">")
-		)
-	then
-		value = value:sub(2, -2)
-	end
-
-	value = value:gsub("&amp;", "&")
-	return value:gsub("^%s+", ""):gsub("%s+$", "")
+function S.readuisettingsfile()
+	if S.savedsettingsloaded then return S.savedsettings end
+	S.savedsettings = S.readjsonfile(S.settingspath) or {}
+	S.savedsettingsloaded = true
+	return S.savedsettings
 end
 
-function S.backgroundhash(value, hash)
-	hash = 5381
-	for index = 1, #value do
-		hash = (hash * 33 + string.byte(value, index)) % 4294967296
-	end
-	return string.format("%08x", hash)
-end
-
-function S.backgroundextension(source, headers, contenttype, typemap, clean, extension2)
-	contenttype = nil
-	if typeof(headers) == "table" then
-		for key, value in pairs(headers) do
-			if string.lower(tostring(key)) == "content-type" then
-				contenttype = string.lower(tostring(value))
-				break
-			end
-		end
-	end
-
-	typemap = {
-		["image/png"] = "png",
-		["image/jpeg"] = "jpg",
-		["image/jpg"] = "jpg",
-		["image/webp"] = "webp",
-		["image/avif"] = "avif",
-		["image/bmp"] = "bmp",
-		["image/gif"] = "gif",
-		["image/tga"] = "tga",
-	}
-
-	if contenttype then
-		for mime, extension in pairs(typemap) do
-			if contenttype:find(mime, 1, true) then return extension end
-		end
-	end
-
-	clean = tostring(source):match("^[^?#]+") or tostring(source)
-	extension2 = clean:match("%.([%w]+)$")
-	if extension2 then
-		extension2 = string.lower(extension2)
-		if extension2 == "jpeg" then extension2 = "jpg" end
-		if table.find({ "png", "jpg", "webp", "avif", "bmp", "gif", "tga" }, extension2) then
-			return extension2
-		end
-	end
-
-	return "png"
-end
-
-function S.backgroundcustomasset(path, providers, ok, asset)
-	providers = {}
-
-	if typeof(getcustomasset) == "function" then providers[#providers + 1] = getcustomasset end
-	if typeof(getsynasset) == "function" then providers[#providers + 1] = getsynasset end
-	if typeof(getasset) == "function" then providers[#providers + 1] = getasset end
-
-	for _, provider in ipairs(providers) do
-		ok, asset = S.invoke(provider, path)
-		if ok and type(asset) == "string" and asset ~= "" then return asset end
-	end
-
-	return nil, "custom asset API unavailable"
-end
-
-function S.backgroundrequest(url, requesters, ok, response, status, body, ok2, body2)
-	requesters = {}
-
-	if typeof(request) == "function" then requesters[#requesters + 1] = request end
-	if typeof(http_request) == "function" then requesters[#requesters + 1] = http_request end
-	if syn and typeof(syn.request) == "function" then requesters[#requesters + 1] = syn.request end
-	if http and typeof(http.request) == "function" then
-		requesters[#requesters + 1] = http.request
-	end
-	if fluxus and typeof(fluxus.request) == "function" then
-		requesters[#requesters + 1] = fluxus.request
-	end
-
-	for _, requester in ipairs(requesters) do
-		ok, response = S.invoke(requester, {
-			Url = url,
-			Method = "GET",
-			Headers = {
-				["User-Agent"] = "Mozilla/5.0",
-				Accept = "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
-			},
-		})
-
-		if ok and typeof(response) == "table" then
-			status = tonumber(response.StatusCode or response.Status or response.status_code) or 200
-			body = response.Body or response.body
-
-			if status >= 200 and status < 400 and type(body) == "string" and #body > 0 then
-				return body, response.Headers or response.headers or {}, nil
-			end
-		end
-	end
-
-	ok2, body2 = S.invoke(function() return game:HttpGet(url) end)
-
-	if ok2 and type(body2) == "string" and #body2 > 0 then return body2, {}, nil end
-
-	return nil, nil, "download failed"
-end
-
-function S.backgroundbase64decode(data, ok, decoded, ok3, decoded2, ok4, decoded3, alphabet, bits)
-	if crypt and crypt.base64 and typeof(crypt.base64.decode) == "function" then
-		ok, decoded = S.invoke(crypt.base64.decode, data)
-		if ok then return decoded end
-	end
-
-	if syn and syn.crypt and syn.crypt.base64 and typeof(syn.crypt.base64.decode) == "function" then
-		ok3, decoded2 = S.invoke(syn.crypt.base64.decode, data)
-		if ok3 then return decoded2 end
-	end
-
-	if typeof(base64_decode) == "function" then
-		ok4, decoded3 = S.invoke(base64_decode, data)
-		if ok4 then return decoded3 end
-	end
-
-	alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
-	data = tostring(data):gsub("[^" .. alphabet .. "=]", "")
-
-	bits = data:gsub(".", function(character, index, result, set)
-		if character == "=" then return "" end
-
-		index = alphabet:find(character, 1, true)
-		if not index then return "" end
-
-		index -= 1
-		result = ""
-		for bit = 6, 1, -1 do
-			set = index % 2 ^ bit - index % 2 ^ (bit - 1) > 0
-			result ..= set and "1" or "0"
-		end
-		return result
-	end)
-
-	return bits:gsub("%d%d%d?%d?%d?%d?%d?%d?", function(chunk, value)
-		if #chunk ~= 8 then return "" end
-
-		value = 0
-		for index = 1, 8 do
-			if chunk:sub(index, index) == "1" then
-				value += 2 ^ (8 - index)
-			end
-		end
-		return string.char(value)
-	end)
-end
-
-function S.backgroundlocalpath(source, lower)
-	lower = string.lower(source)
-
-	if lower:sub(1, 8) == "file:///" then
-		source = source:sub(9)
-	elseif lower:sub(1, 7) == "file://" then
-		source = source:sub(8)
-	end
-
-	source = source:gsub("%%20", " ")
-	return source
-end
-
-function S.resolvebackgroundimage(
-	source,
-	force,
-	lower,
-	robloxid,
-	mime,
-	encoded,
-	extension3,
-	path,
-	decoded,
-	ok,
-	cachedprefix,
-	extensions,
-	path2,
-	ok5,
-	exists,
-	asset,
-	body,
-	headers,
-	err,
-	extension4,
-	path3,
-	ok6,
-	path4,
-	ok7,
-	exists2
-)
-	source = S.trimbackgroundsource(source)
-	if source == "" then return nil, "empty source" end
-
-	if source:match("^%d+$") then return "rbxassetid://" .. source end
-
-	lower = string.lower(source)
-	if
-		lower:match("^rbxassetid://")
-		or lower:match("^rbxthumb://")
-		or lower:match("^rbxasset://")
-	then
-		return source
-	end
-
-	robloxid = source:match("[?&]id=(%d+)")
-		or source:match("/asset/(%d+)")
-		or source:match("/library/(%d+)")
-		or source:match("/store/asset/(%d+)")
-	if robloxid and lower:find("roblox", 1, true) then return "rbxassetid://" .. robloxid end
-
-	if lower:match("^data:image/") then
-		if typeof(writefile) ~= "function" then return nil, "writefile unavailable" end
-
-		mime, encoded = source:match("^data:(image/[^;]+);base64,(.+)$")
-		if not mime or not encoded then return nil, "invalid data URI" end
-
-		extension3 = S.backgroundextension("", { ["Content-Type"] = mime })
-		path = S.backgroundfolder .. "/data_" .. S.backgroundhash(source) .. "." .. extension3
-
-		if force or typeof(isfile) ~= "function" or not isfile(path) then
-			decoded = S.backgroundbase64decode(encoded)
-			if type(decoded) ~= "string" or #decoded == 0 then
-				return nil, "base64 decode failed"
-			end
-
-			ok = S.invoke(writefile, path, decoded)
-			if not ok then return nil, "could not write image" end
-		end
-
-		return S.backgroundcustomasset(path)
-	end
-
-	if lower:match("^https?://") then
-		if typeof(writefile) ~= "function" then return nil, "writefile unavailable" end
-
-		cachedprefix = S.backgroundfolder .. "/url_" .. S.backgroundhash(source)
-		extensions = { "png", "jpg", "webp", "avif", "bmp", "gif", "tga" }
-
-		if not force and typeof(isfile) == "function" then
-			for _, extension in ipairs(extensions) do
-				path2 = cachedprefix .. "." .. extension
-				ok5, exists = S.invoke(isfile, path2)
-				if ok5 and exists then
-					asset = S.backgroundcustomasset(path2)
-					if asset then return asset end
-				end
-			end
-		end
-
-		body, headers, err = S.backgroundrequest(source)
-		if not body then return nil, err or "download failed" end
-
-		extension4 = S.backgroundextension(source, headers)
-		path3 = cachedprefix .. "." .. extension4
-		ok6 = S.invoke(writefile, path3, body)
-		if not ok6 then return nil, "could not cache image" end
-
-		return S.backgroundcustomasset(path3)
-	end
-
-	path4 = S.backgroundlocalpath(source)
-	if typeof(isfile) == "function" then
-		ok7, exists2 = S.invoke(isfile, path4)
-		if ok7 and not exists2 then return nil, "file not found" end
-	end
-
-	return S.backgroundcustomasset(path4)
-end
-
-function S.boxblurbackgroundbuffer(
-	source,
-	width,
-	height,
-	radius,
-	token,
-	horizontal,
-	output,
-	sum,
-	offset,
-	remove,
-	add,
-	deadline,
-	count
-)
-	radius = math.max(0, math.floor(radius))
-	if radius == 0 then return source end
-	horizontal = buffer.create(width * height * 16)
-	output = buffer.create(width * height * 4)
-	count = (2 * radius + 1) ^ 2
-	deadline = os.clock() + 0.002
-	-- Keep integer sums until the final pass; clamped edges match the reference kernel.
-	for y = 0, height - 1 do
-		for channel = 0, 3 do
-			sum = 0
-			for dx = -radius, radius do
-				sum += buffer.readu8(
-					source,
-					(y * width + math.clamp(dx, 0, width - 1)) * 4 + channel
-				)
-			end
-			for x = 0, width - 1 do
-				buffer.writeu32(horizontal, (y * width + x) * 16 + channel * 4, sum)
-				remove = (y * width + math.clamp(x - radius, 0, width - 1)) * 4 + channel
-				add = (y * width + math.clamp(x + radius + 1, 0, width - 1)) * 4 + channel
-				sum += buffer.readu8(source, add) - buffer.readu8(source, remove)
-			end
-		end
-		if token and os.clock() >= deadline then
-			coroutine.yield()
-			if token ~= S.backgroundblurtoken then return nil end
-			deadline = os.clock() + 0.002
-		end
-	end
-	for x = 0, width - 1 do
-		for channel = 0, 3 do
-			sum = 0
-			for dy = -radius, radius do
-				sum += buffer.readu32(
-					horizontal,
-					(math.clamp(dy, 0, height - 1) * width + x) * 16 + channel * 4
-				)
-			end
-			for y = 0, height - 1 do
-				buffer.writeu8(output, (y * width + x) * 4 + channel, math.floor(sum / count))
-				remove = (math.clamp(y - radius, 0, height - 1) * width + x) * 16 + channel * 4
-				add = (math.clamp(y + radius + 1, 0, height - 1) * width + x) * 16 + channel * 4
-				sum += buffer.readu32(horizontal, add) - buffer.readu32(horizontal, remove)
-			end
-		end
-		if token and os.clock() >= deadline then
-			coroutine.yield()
-			if token ~= S.backgroundblurtoken then return nil end
-			deadline = os.clock() + 0.002
-		end
-	end
-	return output
-end
-
-function S.preparebackgroundblurbase(
-	asset,
-	token,
-	candidates,
-	ok,
-	content2,
-	ok8,
-	content3,
-	ok9,
-	content4,
-	editable,
-	ok10,
-	result,
-	ok11,
-	size,
-	pixels,
-	applied,
-	imageuri,
-	ok12,
-	content5
-)
-	if
-		S.backgroundblurbaseasset == asset
-		and S.backgroundblurbasepixels
-		and S.backgroundblurbasewidth > 0
-		and S.backgroundblurbaseheight > 0
-		and S.backgroundblureditable
-	then
-		return true
-	end
-	if S.backgroundblureditable then
-		pcall(function() S.backgroundblureditable:Destroy() end)
-		S.backgroundblureditable = nil
-	end
-	candidates = {}
-	if S.backgroundimage and S.backgroundimage.Parent then
-		ok, content2 = pcall(function() return S.backgroundimage.ImageContent end)
-		if ok and content2 and content2 ~= Content.none then
-			candidates[#candidates + 1] = content2
-		end
-		imageuri = S.backgroundimage.Image
-		if imageuri and imageuri ~= "" then
-			ok12, content5 = pcall(Content.fromUri, imageuri)
-			if ok12 and content5 and content5 ~= Content.none then
-				candidates[#candidates + 1] = content5
-			end
-		end
-	end
-	if asset and asset ~= "" then
-		ok8, content3 = pcall(Content.fromUri, asset)
-		if ok8 and content3 and content3 ~= Content.none then
-			candidates[#candidates + 1] = content3
-		end
-	end
-	if S.backgroundimagesource and S.backgroundimagesource ~= "" then
-		ok9, content4 = pcall(Content.fromUri, S.backgroundimagesource)
-		if ok9 and content4 and content4 ~= Content.none then
-			candidates[#candidates + 1] = content4
-		end
-	end
-	editable = nil
-	size = nil
-	pixels = nil
-	for _, content in ipairs(candidates) do
-		result = nil
-		ok10, result = pcall(function() return S.assetservice:CreateEditableImageAsync(content) end)
-		if ok10 and result and token == S.backgroundsourcegeneration then
-			ok11, size, pixels = pcall(function(imagesize)
-				imagesize = result.Size
-				return imagesize, result:ReadPixelsBuffer(Vector2.zero, imagesize)
-			end)
-			if ok11 and size and pixels and size.X > 0 and size.Y > 0 then
-				editable = result
-				break
-			end
-		end
-		if result then pcall(function() result:Destroy() end) end
-		result = nil
-		size = nil
-		pixels = nil
-		if token ~= S.backgroundsourcegeneration then return false end
-	end
-	if not editable or not size or not pixels or token ~= S.backgroundsourcegeneration then
-		return false
-	end
-	S.backgroundblurbaseasset = asset
-	S.backgroundblurbasepixels = pixels
-	S.backgroundblurbasewidth = size.X
-	S.backgroundblurbaseheight = size.Y
-	S.backgroundblureditable = editable
-	S.backgroundblurlastsignature = nil
-	applied = pcall(function()
-		S.backgroundblurdisplay.Image = ""
-		S.backgroundblurdisplay.ImageContent = Content.fromObject(editable)
-	end)
-	if not applied then
-		pcall(function() editable:Destroy() end)
-		S.backgroundblureditable = nil
-		S.backgroundblurbasepixels = nil
-		S.backgroundblurbasewidth = 0
-		S.backgroundblurbaseheight = 0
-		return false
-	end
-	return true
-end
-
-function S.buildbackgroundblur(
-	asset,
-	blur,
-	token,
-	width,
-	height,
-	sourcepixels,
-	editable,
-	radius,
-	signature,
-	output,
-	ok
-)
-	if not asset or asset == "" or blur <= 0 then return false end
-
-	if S.backgroundblurbaseasset ~= asset then return false end
-	if token ~= S.backgroundblurtoken then return false end
-
-	width = S.backgroundblurbasewidth
-	height = S.backgroundblurbaseheight
-	sourcepixels = S.backgroundblurbasepixels
-	editable = S.backgroundblureditable
-	if not editable or not sourcepixels or width < 1 or height < 1 then return false end
-
-	radius = math.clamp(math.round(blur), 1, S.backgroundimageblurmax)
-	signature = tostring(S.backgroundblurbaseasset) .. ":" .. tostring(radius)
-	if S.backgroundblurlastsignature == signature then return true end
-
-	output = S.boxblurbackgroundbuffer(sourcepixels, width, height, radius, token)
-	if not output or token ~= S.backgroundblurtoken then return false end
-
-	ok = pcall(
-		function() editable:WritePixelsBuffer(Vector2.zero, Vector2.new(width, height), output) end
-	)
-
-	if not ok or token ~= S.backgroundblurtoken then return false end
-
-	S.backgroundblurlastsignature = signature
-	S.backgroundblurdisplay.ImageContent = Content.fromObject(editable)
-	return true
-end
-
-function S.applybackgroundblurblend(opacity, blur, visible)
-	opacity = math.clamp(S.backgroundimageopacity / 100, 0, 1)
-	blur = math.clamp(S.backgroundimageblur, 0, S.backgroundimageblurmax)
-	visible = S.backgroundimagesource ~= "" and S.backgroundresolvedasset ~= nil
-
-	if not visible then
-		S.backgroundimage.Visible = false
-		S.backgroundblurdisplay.Visible = false
-		S.backgroundimage.ImageTransparency = 1
-		S.backgroundblurdisplay.ImageTransparency = 1
-		return
-	end
-
-	if blur <= 0 or not S.backgroundblureditable or not S.backgroundblurlastsignature then
-		S.backgroundimage.Visible = true
-		S.backgroundimage.ImageTransparency = 1 - opacity
-		S.backgroundblurdisplay.Visible = false
-		S.backgroundblurdisplay.ImageTransparency = 1
-		return
-	end
-
-	S.backgroundimage.Visible = false
-	S.backgroundimage.ImageTransparency = 1
-	S.backgroundblurdisplay.Visible = true
-	S.backgroundblurdisplay.ImageTransparency = 1 - opacity
-end
-
-function S.stopbackgroundblurjob()
-	if S.backgroundblurconnection then S.backgroundblurconnection:Disconnect() end
-	S.backgroundblurconnection = nil
-	S.backgroundblurjob = nil
-	S.backgroundblurrequest = nil
-end
-
-function S.schedulebackgroundblur(animate, requested, blur, asset, generation, job)
-	blur = math.clamp(math.round(S.backgroundimageblur), 0, S.backgroundimageblurmax)
-	asset = S.backgroundresolvedasset
-	if asset and S.backgroundblurfailedasset == asset then
-		S.applybackgroundblurblend()
-		return
-	end
-	if blur <= 0 or not asset or asset == "" then
-		S.backgroundblurtoken += 1
-		S.stopbackgroundblurjob()
-		S.applybackgroundblurblend()
-		return
-	end
-	requested = asset .. ":" .. tostring(blur)
-	if S.backgroundblurrequest == requested or S.backgroundblurlastsignature == requested then
-		S.applybackgroundblurblend()
-		return
-	end
-	S.backgroundblurtoken += 1
-	S.stopbackgroundblurjob()
-	if S.backgroundblurbaseasset ~= asset then
-		if S.backgroundblurloading == asset then return end
-		S.backgroundblurloading = asset
-		generation = S.backgroundsourcegeneration or 0
-		S.backgroundsourcegeneration = generation
-		S.backgroundblurtask = task.spawn(function(success)
-			success = S.preparebackgroundblurbase(asset, generation)
-			if generation ~= S.backgroundsourcegeneration then return end
-			S.backgroundblurloading = nil
-			S.backgroundblurtask = nil
-			if success then
-				S.schedulebackgroundblur(false)
-			else
-				S.backgroundblurfailedasset = asset
-				warn(
-					"blush: EditableImage could not read this image. Check asset access and EditableImage permissions; the original image remains visible."
-				)
-				S.applybackgroundblurblend()
-			end
-		end)
-		return
-	end
-	S.backgroundblurrequest = requested
-	job = { token = S.backgroundblurtoken }
-	job.thread = coroutine.create(function()
-		if S.buildbackgroundblur(asset, blur, job.token) then S.applybackgroundblurblend() end
-	end)
-	S.backgroundblurjob = job
-	S.backgroundblurconnection = S.runservice.PreRender:Connect(function(ok, message)
-		if job.token ~= S.backgroundblurtoken then
-			S.stopbackgroundblurjob()
-			return
-		end
-		ok, message = coroutine.resume(job.thread)
-		if not ok or coroutine.status(job.thread) == "dead" then
-			S.stopbackgroundblurjob()
-			if not ok then warn("blush image blur: " .. tostring(message)) end
-		end
-	end)
-end
-
-function S.renderbackgroundimage(animate, opacity, blur, visible, imageinfo, target)
-	opacity = math.clamp(S.backgroundimageopacity / 100, 0, 1)
-	blur = math.clamp(S.backgroundimageblur, 0, S.backgroundimageblurmax)
-	visible = S.backgroundimagesource ~= "" and S.backgroundresolvedasset ~= nil
-	imageinfo = S.quart26
-
-	S.__blush_background_visibility = visible and opacity or 0
-	S.updatebackgroundbounds()
-	S.updatebackgroundtone()
-	if S.updatebackgroundsurfaces then S.updatebackgroundsurfaces() end
-
-	S.backgroundimage.ScaleType = Enum.ScaleType.Crop
-	S.backgroundimage.Size = UDim2.fromScale(1, 1)
-	S.backgroundimage.Position = UDim2.fromScale(0.5, 0.5)
-	S.backgroundimage.ImageColor3 = Color3.new(1, 1, 1)
-	S.backgroundblurdisplay.ScaleType = Enum.ScaleType.Crop
-	S.backgroundblurdisplay.Size = UDim2.fromScale(1, 1)
-	S.backgroundblurdisplay.Position = UDim2.fromScale(0.5, 0.5)
-	S.backgroundblurdisplay.ImageColor3 = Color3.new(1, 1, 1)
-
-	if not visible then
-		S.backgroundblurtoken += 1
-		S.backgroundimage.Visible = false
-		S.backgroundblurdisplay.Visible = false
-		S.backgroundimage.ImageTransparency = 1
-		S.backgroundblurdisplay.ImageTransparency = 1
-		return
-	end
-
-	if blur <= 0 then
-		S.backgroundblurtoken += 1
-		S.backgroundblurdisplay.Visible = false
-		S.backgroundblurdisplay.ImageTransparency = 1
-		S.backgroundimage.Visible = true
-		target = 1 - opacity
-		if animate and S.animationsenabled then
-			S.tween(S.backgroundimage, { ImageTransparency = target }, imageinfo)
-		else
-			S.backgroundimage.ImageTransparency = target
-		end
-		return
-	end
-
-	S.backgroundimage.Visible = true
-	S.applybackgroundblurblend()
-	S.schedulebackgroundblur(animate)
-end
-
-function S.setbackgroundimageopacity(value, animate)
-	S.backgroundimageopacity = math.clamp(tonumber(value) or 65, 0, 100)
-	S.renderbackgroundimage(animate)
-end
-
-function S.setbackgroundimageblur(value, animate)
-	S.backgroundimageblur = math.clamp(tonumber(value) or 0, 0, S.backgroundimageblurmax)
-	S.renderbackgroundimage(animate)
-end
-
-function S.setbackgroundimagemode()
-	S.backgroundimagemode = "Crop"
-	for _, layer in ipairs(S.backgroundlayers) do
-		layer.ScaleType = Enum.ScaleType.Crop
-	end
-end
-
-function S.clearbackgroundimage(animate, finish, animation, current)
-	S.__blush_background_token += 1
-	S.backgroundimagesource = ""
-	S.backgroundresolvedasset = nil
-	S.backgroundpalette = nil
-	S.__blush_background_visibility = 0
-	S.destroybackgroundeditable()
-	if S.updatebackgroundsurfaces then S.updatebackgroundsurfaces() end
-
-	if S.autobackgroundcolors and S.backgroundautobase then S.restorebackgroundautobase(animate) end
-
-	finish = function()
-		if S.backgroundimagesource ~= "" then return end
-		for _, layer in ipairs(S.backgroundlayers) do
-			layer.Visible = false
-			layer.Image = ""
-			layer.ImageTransparency = 1
-		end
-	end
-
-	if S.backgroundimage.Visible and animate and S.animationsenabled then
-		animation = nil
-		for index, layer in ipairs(S.backgroundlayers) do
-			if layer.Visible then
-				current = S.tween(layer, { ImageTransparency = 1 }, S.quart26)
-				if index == 1 then animation = current end
-			end
-		end
-		if animation then
-			animation.Completed:Connect(finish)
-		else
-			finish()
-		end
-	else
-		finish()
-	end
-end
-
-S.backgroundpalette = nil
-S.backgroundautobase = nil
-
-function S.selectedthemebase(selected, preset2)
-	selected = S.themeselector and S.themeselector:Get() or "Default"
-	preset2 = S.themepresets and S.themepresets[selected]
-
-	if preset2 then return preset2 end
-
-	return {
-		background = S.theme.window,
-		accent = S.theme.white,
-		font = S.theme.font,
-	}
-end
-
-function S.buildbackgroundautocolors(
-	average,
-	sampledaccent,
-	base,
-	basebackground,
-	baseaccent,
-	ah,
-	as,
-	av,
-	sh,
-	ss,
-	sv,
-	_3,
-	bases,
-	basev,
-	_4,
-	baseas,
-	baseav,
-	baseluminance,
-	lighttheme,
-	hue,
-	background,
-	accent,
-	luminance,
-	fontcolor
-)
-	base = S.selectedthemebase()
-	basebackground = base.background or S.theme.window
-	baseaccent = base.accent or S.theme.white
-
-	ah, as, av = average:ToHSV()
-	sh, ss, sv = sampledaccent:ToHSV()
-	_3, bases, basev = basebackground:ToHSV()
-	_4, baseas, baseav = baseaccent:ToHSV()
-
-	baseluminance = basebackground.R * 0.2126
-		+ basebackground.G * 0.7152
-		+ basebackground.B * 0.0722
-	lighttheme = baseluminance >= 0.58
-	hue = as >= 0.05 and ah or sh
-
-	background = nil
-	accent = nil
-
-	if lighttheme then
-		background = Color3.fromHSV(
-			hue,
-			math.clamp(as * 0.16 + bases * 0.18, 0.015, 0.14),
-			math.clamp(math.max(basev, 0.90), 0.90, 0.975)
-		)
-		accent = Color3.fromHSV(
-			sh,
-			math.clamp(ss * 0.86 + baseas * 0.14, 0.42, 0.82),
-			math.clamp(math.min(sv, 0.68) * 0.72 + baseav * 0.28, 0.38, 0.68)
-		)
-	else
-		background = Color3.fromHSV(
-			hue,
-			math.clamp(as * 0.28 + bases * 0.32, 0.035, 0.24),
-			math.clamp(basev * 0.72 + 0.025, 0.045, 0.13)
-		)
-		accent = Color3.fromHSV(
-			sh,
-			math.clamp(ss * 0.86 + baseas * 0.14, 0.48, 0.88),
-			math.clamp(math.max(sv, 0.76) * 0.86 + baseav * 0.14, 0.72, 0.96)
-		)
-	end
-
-	luminance = background.R * 0.2126 + background.G * 0.7152 + background.B * 0.0722
-	fontcolor = luminance >= 0.55 and Color3.fromRGB(30, 31, 35) or Color3.fromRGB(240, 241, 244)
-
-	return background, accent, fontcolor
-end
-
-function S.applybackgroundautocolors(animate, background, accent, fontcolor)
-	if not S.autobackgroundcolors or not S.backgroundpalette then return false end
-
-	if not S.backgroundautobase then
-		S.backgroundautobase = {
-			background = S.theme.window,
-			accent = S.theme.white,
-			font = S.theme.font,
-			backgroundAlpha = S.theme.backgroundAlpha,
-			accentAlpha = S.theme.accentAlpha,
-			fontAlpha = S.theme.fontAlpha,
-		}
-	end
-
-	background, accent, fontcolor =
-		S.buildbackgroundautocolors(S.backgroundpalette.average, S.backgroundpalette.accent)
-
-	S.applytheme(background, accent, 1, 1, fontcolor, 1, animate == true)
-
-	if S.accentpicker then S.accentpicker:Set(accent, 1, false) end
-	if S.backgroundpicker then S.backgroundpicker:Set(background, 1, false) end
-	if S.fontpicker then S.fontpicker:Set(fontcolor, 1, false) end
-
-	return true
-end
-
-function S.restorebackgroundautobase(animate, base)
-	base = S.backgroundautobase or S.selectedthemebase()
-	S.backgroundautobase = nil
-
-	S.applytheme(
-		base.background or S.theme.window,
-		base.accent or S.theme.white,
-		base.backgroundAlpha or 1,
-		base.accentAlpha or 1,
-		base.font or S.theme.font,
-		base.fontAlpha or 1,
-		animate == true
-	)
-
-	if S.accentpicker then
-		S.accentpicker:Set(base.accent or S.theme.white, base.accentAlpha or 1, false)
-	end
-	if S.backgroundpicker then
-		S.backgroundpicker:Set(base.background or S.theme.window, base.backgroundAlpha or 1, false)
-	end
-	if S.fontpicker then S.fontpicker:Set(base.font or S.theme.font, base.fontAlpha or 1, false) end
-end
-
-function S.samplebackgroundpalette(asset, editable, ok, success, average, accent)
-	if not S.autobackgroundcolors or not asset or asset == "" then return false end
-
-	editable = nil
-	ok = S.invoke(
-		function() editable = S.assetservice:CreateEditableImageAsync(Content.fromUri(asset)) end
-	)
-
-	if not ok or not editable then return false end
-
-	success, average, accent = S.invoke(
-		function(
-			size,
-			totalr,
-			totalg,
-			totalb,
-			totalweight,
-			bestcolor,
-			bestscore,
-			steps,
-			px,
-			py,
-			pixels,
-			r,
-			g,
-			b,
-			a,
-			color,
-			h,
-			s,
-			v,
-			midvalue,
-			score
-		)
-			size = editable.Size
-			if size.X < 1 or size.Y < 1 then return nil, nil end
-
-			totalr, totalg, totalb, totalweight = 0, 0, 0, 0
-			bestcolor = Color3.new(1, 1, 1)
-			bestscore = -1
-			steps = 7
-
-			for y = 0, steps - 1 do
-				for x = 0, steps - 1 do
-					px = math.clamp(
-						math.floor((x + 0.5) / steps * size.X),
-						0,
-						math.max(0, size.X - 1)
-					)
-					py = math.clamp(
-						math.floor((y + 0.5) / steps * size.Y),
-						0,
-						math.max(0, size.Y - 1)
-					)
-					pixels = editable:ReadPixelsBuffer(Vector2.new(px, py), Vector2.new(1, 1))
-					r = buffer.readu8(pixels, 0) / 255
-					g = buffer.readu8(pixels, 1) / 255
-					b = buffer.readu8(pixels, 2) / 255
-					a = buffer.readu8(pixels, 3) / 255
-
-					if a > 0.05 then
-						color = Color3.new(r, g, b)
-						h, s, v = color:ToHSV()
-						midvalue = 1 - math.abs(v - 0.62)
-						score = s * (0.45 + math.max(0, midvalue)) * a
-
-						totalr += r * a
-						totalg += g * a
-						totalb += b * a
-						totalweight += a
-
-						if score > bestscore then
-							bestscore = score
-							bestcolor = Color3.fromHSV(
-								h,
-								math.clamp(math.max(s, 0.36), 0.36, 0.92),
-								math.clamp(v, 0.42, 0.94)
-							)
-						end
-					end
-				end
-			end
-
-			if totalweight <= 0 then return nil, nil end
-
-			return Color3.new(totalr / totalweight, totalg / totalweight, totalb / totalweight),
-				bestcolor
-		end
-	)
-
-	editable:Destroy()
-
-	if not success or not average or not accent then return false end
-
-	S.backgroundpalette = {
-		average = average,
-		accent = accent,
-	}
-
-	return S.applybackgroundautocolors(true)
-end
-
-function S.loadbackgroundimage(source, force, silent, token, asset, err)
-	source = S.trimbackgroundsource(source)
-
-	if source == "" then
-		S.clearbackgroundimage(true)
-		return true
-	end
-
-	S.__blush_background_token += 1
-	token = S.__blush_background_token
-	asset, err = S.resolvebackgroundimage(source, force == true)
-
-	if token ~= S.__blush_background_token then return false, "cancelled" end
-
-	if not asset then
-		if not silent then
-			S.notify(
-				"Background unavailable",
-				tostring(err or "Could not load image."),
-				3,
-				nil,
-				nil,
-				S.icons.wallpaper
-			)
-		end
-		return false, err
-	end
-
-	S.backgroundimagesource = source
-	if S.backgroundresolvedasset ~= asset then
-		S.backgroundblurbaseasset = nil
-		S.backgroundblurbasepixels = nil
-		S.backgroundblurbasewidth = 0
-		S.backgroundblurbaseheight = 0
-		S.backgroundblurlastsignature = nil
-		if S.backgroundblureditable then
-			S.backgroundblureditable:Destroy()
-			S.backgroundblureditable = nil
-		end
-	end
-	S.backgroundresolvedasset = asset
-	S.backgroundpalette = nil
-	S.backgroundimagemode = "Crop"
-	if S.updatebackgroundsurfaces then S.updatebackgroundsurfaces() end
-	for _, layer in ipairs(S.backgroundlayers) do
-		layer.Image = asset
-		layer.ScaleType = Enum.ScaleType.Crop
-		layer.ImageTransparency = 1
-		layer.Visible = true
-	end
-
-	S.backgroundimage.Image = asset
-	S.backgroundimage.Visible = true
-	S.renderbackgroundimage(S.animationsenabled)
-
-	if S.autobackgroundcolors then
-		task.spawn(function()
-			if S.samplebackgroundpalette(asset) then S.saveuisettings() end
-		end)
-	end
-
-	if not silent then
-		S.notify(
-			"Background loaded",
-			"Image applied to the interface.",
-			2.2,
-			nil,
-			nil,
-			S.icons.wallpaper
-		)
-	end
-
-	return true
-end
-
-S.__blush_background = {
-	Set = function(source, force) return S.loadbackgroundimage(source, force == true, true) end,
-	Clear = function() S.clearbackgroundimage(true) end,
-	SetOpacity = function(value) S.setbackgroundimageopacity(value, true) end,
-	SetBlur = function(value) S.setbackgroundimageblur(value, true) end,
-	SetScale = function() S.setbackgroundimagemode("Crop") end,
-}
-
-function S.decodecolor(value, r, g, b)
-	if typeof(value) ~= "table" then return nil end
-
-	r = tonumber(value.r or value[1])
-	g = tonumber(value.g or value[2])
-	b = tonumber(value.b or value[3])
-
+function S.decodecolor(value)
+	if type(value) ~= "table" then return nil end
+	local r = tonumber(value.r or value[1])
+	local g = tonumber(value.g or value[2])
+	local b = tonumber(value.b or value[3])
 	if not r or not g or not b then return nil end
-
-	return Color3.fromRGB(
-		math.clamp(math.round(r), 0, 255),
-		math.clamp(math.round(g), 0, 255),
-		math.clamp(math.round(b), 0, 255)
-	)
+	return Color3.fromRGB(math.clamp(math.round(r), 0, 255), math.clamp(math.round(g), 0, 255), math.clamp(math.round(b), 0, 255))
 end
 
 function S.encodecolor(color)
-	return {
-		r = math.round(color.R * 255),
-		g = math.round(color.G * 255),
-		b = math.round(color.B * 255),
-	}
+	return { r = math.round(color.R * 255), g = math.round(color.G * 255), b = math.round(color.B * 255) }
 end
 
 function S.keyfromname(name)
-	if typeof(name) ~= "string" then return nil end
-
-	for _, key in ipairs(Enum.KeyCode:GetEnumItems()) do
-		if key.Name == name then return key end
+	if type(name) ~= "string" then return nil end
+	for _, item in ipairs(Enum.KeyCode:GetEnumItems()) do
+		if item.Name == name then return item end
 	end
-
-	for _, inputtype in ipairs(Enum.UserInputType:GetEnumItems()) do
-		if inputtype.Name == name and S.validmousebind(inputtype) then return inputtype end
+	for _, item in ipairs(Enum.UserInputType:GetEnumItems()) do
+		if item.Name == name and S.validmousebind(item) then return item end
 	end
-
 	return nil
 end
 
-function S.readuisettingsfile(ok, encoded, decodedok, decoded)
-	if typeof(readfile) ~= "function" then return {} end
-
-	ok, encoded = S.invoke(function()
-		if typeof(isfile) == "function" and not isfile(S.settingspath) then return nil end
-
-		return readfile(S.settingspath)
-	end)
-
-	if not ok or not encoded or encoded == "" then return {} end
-
-	decodedok, decoded = S.invoke(function() return S.httpservice:JSONDecode(encoded) end)
-
-	if decodedok and typeof(decoded) == "table" then return decoded end
-
-	return {}
+function S.encodepersistentvalue(value)
+	local kind = typeof(value)
+	if kind == "Color3" then return { __blush_type = "Color3", r = value.R, g = value.G, b = value.B } end
+	if kind == "EnumItem" then
+		return { __blush_type = "EnumItem", enum = tostring(value.EnumType), name = value.Name }
+	end
+	if kind == "Instance" then
+		if value:IsA("Player") then return { __blush_type = "Player", userId = value.UserId, name = value.Name } end
+		return tostring(value)
+	end
+	if type(value) == "table" then
+		local result = {}
+		for key, child in pairs(value) do result[tostring(key)] = S.encodepersistentvalue(child) end
+		return result
+	end
+	if kind == "number" or kind == "string" or kind == "boolean" or kind == "nil" then return value end
+	return tostring(value)
 end
 
-S.savedsettings = S.readuisettingsfile()
-S.rawsavedsettings = S.savedsettings
-S.selectedconfig = S.sanitizefilename(S.rawsavedsettings.selectedConfig or "")
-S.selectedthemesave = S.sanitizefilename(S.rawsavedsettings.selectedThemeSave or "")
-
-S.animationsenabled = S.savedsettings.animations ~= false
-
-S.searchenabled = S.savedsettings.searchCurrentPage ~= false
-
-S.menukey = S.keyfromname(S.savedsettings.menuKey) or Enum.KeyCode.RightShift
-
-S.setkeybindblacklist(
-	type(S.savedsettings.keybindBlacklist) == "table" and S.savedsettings.keybindBlacklist
-		or S.keybindblacklistdefaults
-)
-
-S.initialtransparency = math.clamp(tonumber(S.savedsettings.uiTransparency) or 0, 0, 90)
-
-S.notificationsenabled = S.savedsettings.notifications ~= false
-
-S.defaultnotificationduration = 3.5
-S.maxnotifications = 5
-
-S.backgroundimagesource = type(S.savedsettings.backgroundImageSource) == "string"
-		and S.savedsettings.backgroundImageSource
-	or ""
-S.backgroundimageopacity =
-	math.clamp(tonumber(S.savedsettings.backgroundImageOpacity) or 65, 0, 100)
-S.backgroundimageblur =
-	math.clamp(tonumber(S.savedsettings.backgroundImageBlur) or 0, 0, S.backgroundimageblurmax)
-S.backgroundimagemode = "Crop"
-S.backgroundexcludesidebar = S.savedsettings.backgroundImageExcludeSidebar == true
-S.autobackgroundcolors = false
-S.topnavigationenabled = S.savedsettings.topNavigation == true
-
-S.windowglowenabled = S.savedsettings.windowGlow ~= false
-S.windowglowintensity =
-	math.clamp(tonumber(S.savedsettings.windowGlowIntensity) or 16, 0, S.windowglowintensitymax)
-S.windowglowsize =
-	math.clamp(tonumber(S.savedsettings.windowGlowSize) or 10, 0, S.windowglowsizemax)
-S.windowglowcolor = S.decodecolor(S.savedsettings.windowGlowColor) or S.theme.white
-S.windowglowcustom = S.savedsettings.windowGlowColor ~= nil
-S.windowglowalpha = math.clamp(tonumber(S.savedsettings.windowGlowAlpha) or 1, 0, 1)
-S.windowglowrenderalpha = S.windowglowalpha
-
-S.applywindowglow()
-
-S.setbackgroundimagemode("Crop")
-S.setbackgroundexcludesidebar(S.backgroundexcludesidebar)
-S.setbackgroundimageopacity(S.backgroundimageopacity, false)
-S.setbackgroundimageblur(S.backgroundimageblur, false)
-
-S.applyuitransparency(S.initialtransparency)
-
-S.loadingsettings = true
-S.watermarktoggle = nil
-S.watermarkinfocontrol = nil
-S.watermarkplayermodecontrol = nil
-S.themeselector = nil
-S.accentpicker = nil
-S.backgroundpicker = nil
-S.fontpicker = nil
-S.maincolorpicker = nil
-S.animationtoggle = nil
-S.searchtoggle = nil
-S.menukeypicker = nil
-S.keybindblacklistcontrol = nil
-S.hotkeylisttoggle = nil
-S.uitransparencycontrol = nil
-S.notificationtoggle = nil
-S.configselector = nil
-S.configinput = nil
-S.autosaveconfigcontrol = nil
-S.themfileselector = nil
-S.themefileinput = nil
-S.settingssection = nil
-S.themessection = nil
-S.backgroundimagesection = nil
-S.backgroundimageinput = nil
-S.backgroundimageopacitycontrol = nil
-S.backgroundimageblurcontrol = nil
-S.backgroundexcludecontrol = nil
-S.backgroundautocolorcontrol = nil
-S.topnavigationtoggle = nil
-S.windowglowtoggle = nil
-S.windowglowintensitycontrol = nil
-S.windowglowsizecontrol = nil
-S.windowglowcolorpicker = nil
-S.highlightpicker = nil
-S.keybindssection = nil
-S.windowsection = nil
-S.savessection = nil
-
-function S.panelthemepayload(result, colors)
-	result = {}
-	for name, panel in pairs(S.panelthemes) do
-		colors = {}
-		for role, color in pairs(panel.overrides) do
-			colors[role] = { color.R, color.G, color.B }
+function S.decodepersistentvalue(value)
+	if type(value) ~= "table" then return value end
+	if value.__blush_type == "Color3" then
+		return Color3.new(math.clamp(tonumber(value.r) or 1, 0, 1), math.clamp(tonumber(value.g) or 1, 0, 1), math.clamp(tonumber(value.b) or 1, 0, 1))
+	end
+	if value.__blush_type == "EnumItem" then
+		return S.keyfromname(value.name)
+	end
+	if value.__blush_type == "Player" then
+		local userId = tonumber(value.userId)
+		if userId then
+			for _, player in ipairs(S.players:GetPlayers()) do
+				if player.UserId == userId then return player end
+			end
 		end
-		result[name] = {
-			colors = colors,
-			opacity = panel.opacity,
-			glow = panel.glow and {
-				enabled = panel.glow.enabled,
-				intensity = panel.glow.intensity,
-				size = panel.glow.size,
-				alpha = panel.glow.alpha,
-				color = { panel.glow.color.R, panel.glow.color.G, panel.glow.color.B },
-			},
-		}
+		return value.name
+	end
+	local result = {}
+	for key, child in pairs(value) do
+		local index = type(key) == "string" and tonumber(key)
+		result[index and tostring(index) == key and index or key] = S.decodepersistentvalue(child)
 	end
 	return result
 end
 
-function S.loadpanelthemes(payload, panel)
-	for name, data in pairs(type(payload) == "table" and payload or {}) do
-		panel = S.panelthemes[name]
-		if panel and type(data) == "table" then
-			for role in pairs(panel.overrides) do
-				S.setpanelcolor(panel, role, nil)
+function S.registerpersistentcontrol(section, kind, name, control, config, inputcallback)
+	if not control then return control end
+	local id = type(config) == "table" and (config.Flag or config.SaveKey or config.Id or config.ID)
+	if id == nil or tostring(id) == "" then
+		id = table.concat({ tostring(section and section.page and section.page.name or ""), tostring(section and section.name or ""), tostring(kind), tostring(name) }, "|")
+	else
+		id = tostring(id)
+	end
+	local anchor = typeof(control) == "Instance" and control or (control.Object or control.swatch)
+	local entry = { id = id, kind = kind, control = control, anchor = anchor }
+	local colorstate = type(control) == "table" and (kind == "ColorPicker" and control or control.Color)
+	if colorstate then colorstate.onpersist = S.requestconfigautosave end
+	if kind == "Input" and typeof(control) == "Instance" and control:IsA("TextBox") then
+		entry.get = function() return control.Text end
+		entry.set = function(value)
+			control.Text = tostring(value or "")
+			if inputcallback then inputcallback(control.Text) end
+		end
+	elseif type(control) == "table" and (colorstate or (type(control.Get) == "function" and type(control.Set) == "function")) then
+		entry.get = function()
+			local snapshot = { __blush_control = 1 }
+			if control.Get then snapshot.values = table.pack(control:Get()) end
+			if colorstate then
+				snapshot.color = colorstate:color()
+				snapshot.alpha = colorstate.alpha
+				snapshot.rainbow = colorstate.rainbow
+				snapshot.fading = colorstate.fading
 			end
-			for role, rgb in pairs(data.colors or {}) do
-				if S.theme[role] and type(rgb) == "table" and #rgb == 3 then
-					S.setpanelcolor(panel, role, Color3.new(rgb[1], rgb[2], rgb[3]))
+			return snapshot
+		end
+		entry.set = function(value)
+			if type(value) == "table" and value.__blush_control == 1 then
+				if control.Set and type(value.values) == "table" then
+					local args = table.clone(value.values)
+					local count = tonumber(args.n) or #args
+					args[count + 1] = true
+					control:Set(table.unpack(args, 1, count + 1))
 				end
-			end
-			panel.opacity = math.clamp(tonumber(data.opacity) or 1, 0, 1)
-			panel.root.BackgroundTransparency = S.effectivetransparency(0, "popup", panel.root)
-			if panel.pickers then
-				for role, picker in pairs(panel.pickers) do
-					picker:Set(panel.overrides[role] or S.theme[role], 1, false)
+				if colorstate and typeof(value.color) == "Color3" then
+					colorstate.rainbow = value.rainbow == true
+					colorstate.fading = value.fading == true
+					colorstate:Set(value.color, math.clamp(tonumber(value.alpha) or 1, 0, 1), true)
+					colorstate:refresh()
 				end
-			end
-			if panel.opacitycontrol then panel.opacitycontrol:Set(panel.opacity * 100, false) end
-			if panel.glow and type(data.glow) == "table" then
-				panel.glow.enabled = data.glow.enabled ~= false
-				panel.glow.intensity = math.clamp(tonumber(data.glow.intensity) or 16, 0, 300)
-				panel.glow.size = math.clamp(tonumber(data.glow.size) or 12, 0, 25)
-				panel.glow.alpha = math.clamp(tonumber(data.glow.alpha) or 1, 0, 1)
-				if type(data.glow.color) == "table" then
-					panel.glow.color = Color3.new(table.unpack(data.glow.color))
-				end
-				panel.glowtoggle:Set(panel.glow.enabled, false)
-				panel.glowtoggle.Color:Set(panel.glow.color, panel.glow.alpha, false)
-				panel.glowintensity:Set(panel.glow.intensity, false)
-				panel.glowsize:Set(panel.glow.size, false)
-				if panel.updateglowsettings then panel.updateglowsettings(true) end
-				panel.applyglow()
+			elseif kind == "RangeSlider" and type(value) == "table" then
+				control:Set(value[1], value[2], true)
+			elseif colorstate and type(value) == "table" and typeof(value.color) == "Color3" then
+				colorstate:Set(value.color, tonumber(value.alpha) or 1, true)
+			elseif control.Set then
+				control:Set(value, true)
 			end
 		end
+	else
+		return control
 	end
+
+	S.configcontrols[id] = entry
+	if anchor and anchor.Destroying then
+		anchor.Destroying:Connect(function()
+			if S.configcontrols[id] == entry then S.configcontrols[id] = nil end
+		end)
+	end
+	local pending = S.pendingcontrolvalues[id]
+	if pending ~= nil then
+		local previous = S.loadingsettings
+		S.loadingsettings = true
+		entry.set(S.decodepersistentvalue(pending))
+		S.loadingsettings = previous
+	end
+	return control
+end
+
+function S.currentcontrolpayload()
+	local payload = {}
+	for id, entry in pairs(S.configcontrols) do
+		if entry.anchor and entry.anchor.Parent == nil then
+			S.configcontrols[id] = nil
+		elseif entry.get then
+			payload[id] = S.encodepersistentvalue(entry.get())
+		end
+	end
+	return payload
+end
+
+function S.applycontrolpayload(payload)
+	S.pendingcontrolvalues = type(payload) == "table" and payload or {}
+	local previous = S.loadingsettings
+	S.loadingsettings = true
+	for id, value in pairs(S.pendingcontrolvalues) do
+		local entry = S.configcontrols[id]
+		if entry and entry.set then
+			local ok, message = pcall(entry.set, S.decodepersistentvalue(value))
+			if not ok then warn("blush: preset control " .. id .. ": " .. tostring(message)) end
+		end
+	end
+	S.loadingsettings = previous
 end
 
 function S.addpanelsettings(section, panel, roles, shadow, control)
@@ -16560,7 +14483,7 @@ function S.addpanelsettings(section, panel, roles, shadow, control)
 			panel.overrides[definition[2]] or S.theme[definition[2]],
 			function(color)
 				S.setpanelcolor(panel, definition[2], color)
-				S.saveuisettings()
+				S.requestconfigautosave()
 			end
 		)
 		panel.pickers[definition[2]] = control
@@ -16576,7 +14499,7 @@ function S.addpanelsettings(section, panel, roles, shadow, control)
 		function(value)
 			panel.opacity = value / 100
 			panel.root.BackgroundTransparency = S.effectivetransparency(0, "popup", panel.root)
-			S.saveuisettings()
+			S.requestconfigautosave()
 		end
 	)
 	panel.settingsobjects[#panel.settingsobjects + 1] = panel.opacitycontrol.Object
@@ -16586,12 +14509,12 @@ function S.addpanelsettings(section, panel, roles, shadow, control)
 			S.setpanelcolor(panel, role, nil)
 			picker:Set(S.theme[role], 1, false)
 		end
-		S.saveuisettings()
+		S.requestconfigautosave()
 	end)
 	panel.settingsobjects[#panel.settingsobjects + 1] = control
 
 	if shadow then
-		panel.glow = { enabled = true, color = S.theme.white, intensity = 16, size = 12, alpha = 1 }
+		panel.glow = panel.glow or { enabled = true, color = S.theme.white, intensity = 16, size = 12, alpha = 1 }
 		panel.glowshadow = shadow
 		panel.applyglow = function()
 			S.applyglow(
@@ -16612,13 +14535,13 @@ function S.addpanelsettings(section, panel, roles, shadow, control)
 				panel.glow.enabled = value
 				if panel.updateglowsettings then panel.updateglowsettings(true) end
 				panel.applyglow()
-				S.saveuisettings()
+				S.requestconfigautosave()
 			end,
 			function(color, alpha)
 				panel.glow.color = color
 				panel.glow.alpha = alpha
 				panel.applyglow()
-				S.saveuisettings()
+				S.requestconfigautosave()
 			end
 		)
 		panel.settingsobjects[#panel.settingsobjects + 1] = panel.glowtoggle.Object
@@ -16626,14 +14549,14 @@ function S.addpanelsettings(section, panel, roles, shadow, control)
 		panel.glowintensity = section:AddSlider("Glow Intensity", 0, 300, 16, "%", function(value)
 			panel.glow.intensity = value
 			panel.applyglow()
-			S.saveuisettings()
+			S.requestconfigautosave()
 		end)
 		panel.settingsobjects[#panel.settingsobjects + 1] = panel.glowintensity.Object
 
 		panel.glowsize = section:AddSlider("Glow Size", 0, 25, 12, "px", function(value)
 			panel.glow.size = value
 			panel.applyglow()
-			S.saveuisettings()
+			S.requestconfigautosave()
 		end)
 		panel.settingsobjects[#panel.settingsobjects + 1] = panel.glowsize.Object
 
@@ -16654,2209 +14577,574 @@ function S.addpanelsettings(section, panel, roles, shadow, control)
 	end
 end
 
-function S.currentuipayload(
-	accent,
-	background,
-	maincolor,
-	highlightcolor,
-	fontcolor,
-	selectedmenukey
-)
-	accent = S.accentpicker and S.accentpicker:color() or S.theme.white
+function S.capturepanels()
+	local result = table.clone(S.savedpanels or {})
+	for name, panel in pairs(S.panelthemes) do
+		local data = { opacity = panel.opacity, colors = {} }
+		for role, color in pairs(panel.overrides) do data.colors[role] = S.encodecolor(color) end
+		if panel.glow then
+			data.glow = table.clone(panel.glow)
+			data.glow.color = S.encodecolor(panel.glow.color)
+		end
+		result[name] = data
+	end
+	return result
+end
 
-	background = S.backgroundpicker and S.backgroundpicker:color() or S.theme.window
+function S.restorepanels(data)
+	S.savedpanels = type(data) == "table" and data or {}
+	for name, panel in pairs(S.panelthemes) do
+		local saved = S.savedpanels[name]
+		if type(saved) == "table" then
+			for role in pairs(panel.overrides) do S.setpanelcolor(panel, role, nil) end
+			for role, color in pairs(type(saved.colors) == "table" and saved.colors or {}) do
+				if S.theme[role] then S.setpanelcolor(panel, role, S.decodecolor(color)) end
+			end
+			panel.opacity = math.clamp(tonumber(saved.opacity) or 1, 0, 1)
+			panel.root.BackgroundTransparency = S.effectivetransparency(0, "popup", panel.root)
+			if type(saved.glow) == "table" then
+				panel.glow = { enabled = saved.glow.enabled == true, color = S.decodecolor(saved.glow.color) or S.theme.white, intensity = math.clamp(tonumber(saved.glow.intensity) or 16, 0, 300), size = math.clamp(tonumber(saved.glow.size) or 12, 0, 25), alpha = math.clamp(tonumber(saved.glow.alpha) or 1, 0, 1) }
+			end
+			if panel.applyglow then panel.applyglow() end
+			for role, picker in pairs(panel.pickers or {}) do picker:Set(panel.overrides[role] or S.theme[role], 1, false) end
+			if panel.opacitycontrol then panel.opacitycontrol:Set(panel.opacity * 100, false) end
+		end
+	end
+end
 
-	maincolor = S.maincolorpicker and S.maincolorpicker:color() or S.theme.main
-
-	highlightcolor = S.highlightpicker and S.highlightpicker:color() or S.theme.highlight
-
-	fontcolor = S.fontpicker and S.fontpicker:color() or S.theme.font
-
-	selectedmenukey = S.menukeypicker and S.menukeypicker:Get() or S.menukey
-
+function S.currentuipayload()
 	return {
-		panelThemes = S.panelthemepayload(),
-		secondaryText = S.secondarytextoverride and {
-			S.secondarytextoverride.R,
-			S.secondarytextoverride.G,
-			S.secondarytextoverride.B,
-		} or nil,
-		secondaryTextAlpha = S.secondarytextalpha,
-		watermark = S.watermarktoggle and S.watermarktoggle:Get() or S.watermarkshown,
-
+		animations = S.animationsenabled,
+		search = S.searchenabled,
+		notifications = S.notificationsenabled,
+		topNavigation = S.topnavigationenabled,
+		keybinds = S.keybindshown,
+		watermark = S.watermarkshown,
 		watermarkInfo = {
-			Player = S.watermarkconfig.Player == true,
+			DisplayName = S.watermarkconfig.DisplayName == true,
+			Username = S.watermarkconfig.Username == true,
 			FPS = S.watermarkconfig.FPS == true,
 			Ping = S.watermarkconfig.Ping == true,
 			Time = S.watermarkconfig.Time == true,
 			Game = S.watermarkconfig.Game == true,
-			PlayerMode = S.watermarkconfig.PlayerMode,
 		},
-
-		animations = S.animationtoggle and S.animationtoggle:Get() or S.animationsenabled,
-
-		searchCurrentPage = S.searchtoggle and S.searchtoggle:Get() or S.searchenabled,
-
-		notifications = S.notificationtoggle and S.notificationtoggle:Get()
-			or S.notificationsenabled,
-
-		hotkeyList = S.hotkeylisttoggle and S.hotkeylisttoggle:Get() or S.hotkeylist.Visible,
-
-		backgroundImageSource = S.backgroundimagesource,
-
-		backgroundImageOpacity = S.backgroundimageopacitycontrol
-				and S.backgroundimageopacitycontrol:Get()
-			or S.backgroundimageopacity,
-
-		backgroundImageBlur = S.backgroundimageblurcontrol and S.backgroundimageblurcontrol:Get()
-			or S.backgroundimageblur,
-
-		backgroundImageMode = "Crop",
-		backgroundImageExcludeSidebar = S.backgroundexcludecontrol
-				and S.backgroundexcludecontrol:Get()
-			or S.backgroundexcludesidebar,
-		backgroundAutoColors = false,
-		topNavigation = S.topnavigationtoggle and S.topnavigationtoggle:Get()
-			or S.topnavigationenabled,
-
-		windowGlow = S.windowglowtoggle and S.windowglowtoggle:Get() or S.windowglowenabled,
-
-		windowGlowIntensity = S.windowglowintensitycontrol and S.windowglowintensitycontrol:Get()
-			or S.windowglowintensity,
-
-		windowGlowSize = S.windowglowsizecontrol and S.windowglowsizecontrol:Get()
-			or S.windowglowsize,
-
-		windowGlowColor = S.encodecolor(S.windowglowcolor),
-		windowGlowAlpha = S.windowglowcolorpicker and S.windowglowcolorpicker.alpha
-			or S.windowglowalpha,
-
-		uiTransparency = S.uitransparencycontrol and S.uitransparencycontrol:Get()
-			or math.floor(S.uitransparency * 100 + 0.5),
-
-		selectedConfig = S.selectedconfig,
-		selectedThemeSave = S.selectedthemesave,
-		autoSaveConfig = S.autosaveconfigcontrol and S.autosaveconfigcontrol:Get()
-			or S.rawsavedsettings.autoSaveConfig == true,
-
-		menuKey = selectedmenukey and selectedmenukey.Name or Enum.KeyCode.RightShift.Name,
-
+		menuKey = S.menukey and S.menukey.Name or "RightShift",
 		keybindBlacklist = S.getkeybindblacklistnames(),
-
-		theme = S.themeselector and S.themeselector:Get() or "Default",
-
-		main = S.encodecolor(maincolor),
-		highlight = S.encodecolor(highlightcolor),
-		accent = S.encodecolor(accent),
-		background = S.encodecolor(background),
-		font = S.encodecolor(fontcolor),
-
-		mainAlpha = S.maincolorpicker and S.maincolorpicker:currentalpha() or S.theme.mainAlpha,
-		highlightAlpha = S.highlightpicker and S.highlightpicker:currentalpha()
-			or S.theme.highlightAlpha,
-		accentAlpha = S.accentpicker and S.accentpicker:currentalpha() or S.theme.accentAlpha,
-
-		backgroundAlpha = S.backgroundpicker and S.backgroundpicker:currentalpha()
-			or S.theme.backgroundAlpha,
-
-		fontAlpha = S.fontpicker and S.fontpicker:currentalpha() or S.theme.fontAlpha,
+		autoSave = S.autosave == true,
+		uiTransparency = math.floor((S.uitransparency or 0) * 100 + 0.5),
+		windowGlow = S.windowglowenabled,
+		windowGlowIntensity = S.windowglowintensity,
+		windowGlowSize = S.windowglowsize,
+		windowGlowColor = S.encodecolor(S.windowglowcolor),
+		windowGlowAlpha = S.windowglowalpha,
+		theme = S.selectedtheme or "Default",
+		main = S.encodecolor(S.theme.main),
+		highlight = S.encodecolor(S.theme.highlight),
+		accent = S.encodecolor(S.theme.white),
+		background = S.encodecolor(S.theme.window),
+		font = S.encodecolor(S.theme.font),
+		mainAlpha = S.theme.mainAlpha,
+		highlightAlpha = S.theme.highlightAlpha,
+		accentAlpha = S.theme.accentAlpha,
+		backgroundAlpha = S.theme.backgroundAlpha,
+		fontAlpha = S.theme.fontAlpha,
+		secondaryTextAlpha = S.secondarytextalpha,
+		secondaryText = S.secondarytextoverride and { S.secondarytextoverride.R, S.secondarytextoverride.G, S.secondarytextoverride.B } or nil,
+		keybindValues = S.currentkeybindpayload and S.currentkeybindpayload() or {},
+		controls = S.currentcontrolpayload(),
+		panels = S.capturepanels(),
 	}
 end
 
-function S.currentthemepayload(payload)
-	payload = S.currentuipayload()
-	return {
-		theme = payload.theme,
-		main = payload.main,
-		highlight = payload.highlight,
-		accent = payload.accent,
-		background = payload.background,
-		font = payload.font,
-		secondaryText = payload.secondaryText,
-		secondaryTextAlpha = payload.secondaryTextAlpha,
-		mainAlpha = payload.mainAlpha,
-		highlightAlpha = payload.highlightAlpha,
-		accentAlpha = payload.accentAlpha,
-		backgroundAlpha = payload.backgroundAlpha,
-		fontAlpha = payload.fontAlpha,
-		backgroundImageSource = payload.backgroundImageSource,
-		backgroundImageOpacity = payload.backgroundImageOpacity,
-		backgroundImageBlur = payload.backgroundImageBlur,
-		backgroundImageMode = "Crop",
-		backgroundImageExcludeSidebar = payload.backgroundImageExcludeSidebar,
-		backgroundAutoColors = payload.backgroundAutoColors,
-	}
-end
-
-function S.autosaveenabled()
-	return S.autosaveconfigcontrol and S.autosaveconfigcontrol:Get() == true
-end
-
-function S.cancelautosaves(taskobject)
-	S.pendingconfigsave = false
-	S.pendingsettingssave = false
-
-	taskobject = S.__blush_autosave_task
-	if taskobject and coroutine.status(taskobject) == "suspended" then pcall(task.cancel, taskobject) end
-	S.__blush_autosave_task = nil
-
-	taskobject = S.__blush_save_task
-	if taskobject and coroutine.status(taskobject) == "suspended" then pcall(task.cancel, taskobject) end
-	S.__blush_save_task = nil
-end
-
-function S.commitsavedsettings()
-	S.__blush_save_task = nil
-	if
-		not S.pendingsettingssave
-		or S.loadingsettings
-		or S.constructing
-		or not S.autosaveenabled()
-	then
-		return
-	end
-	if S.interactionowner then return end
-	S.pendingsettingssave = false
-	writefile(S.settingspath, S.httpservice:JSONEncode(S.currentuipayload()))
-end
-
-function S.saveuisettings(force)
-	if
-		S.loadingsettings
-		or S.constructing
-		or typeof(writefile) ~= "function"
-		or not S.autosaveenabled()
-	then
-		return
-	end
-	if force then
-		S.pendingsettingssave = false
-		writefile(S.settingspath, S.httpservice:JSONEncode(S.currentuipayload()))
-		return
-	end
-	if S.continuouscolorupdate then return end
-	S.pendingsettingssave = true
-	if not S.interactionowner and not S.__blush_save_task then
-		S.__blush_save_task = task.defer(S.commitsavedsettings)
-	end
-end
-
-S.__blush_configcontrols = S.__blush_configcontrols or {}
-S.__blush_pending_controlvalues = S.__blush_pending_controlvalues or {}
-S.__blush_autosave_task = nil
-
-function S.encodepersistentvalue(value, kind, result)
-	kind = typeof(value)
-
-	if kind == "Color3" then
-		return {
-			__blush_type = "Color3",
-			r = value.R,
-			g = value.G,
-			b = value.B,
-		}
-	end
-
-	if kind == "EnumItem" then
-		return {
-			__blush_type = "EnumItem",
-			enum = tostring(value.EnumType),
-			name = value.Name,
-		}
-	end
-
-	if kind == "Instance" then
-		if value:IsA("Player") then
-			return {
-				__blush_type = "Player",
-				userId = value.UserId,
-				name = value.Name,
-			}
-		end
-
-		return tostring(value)
-	end
-
-	if type(value) == "table" then
-		result = {}
-
-		for key, child in pairs(value) do
-			result[tostring(key)] = S.encodepersistentvalue(child)
-		end
-
-		return result
-	end
-
-	if kind == "number" or kind == "string" or kind == "boolean" or kind == "nil" then
-		return value
-	end
-
-	return tostring(value)
-end
-
-function S.decodepersistentvalue(value, enumname, enumtype, userid, result)
-	if type(value) ~= "table" then return value end
-
-	if value.__blush_type == "Color3" then
-		return Color3.new(
-			math.clamp(tonumber(value.r) or 1, 0, 1),
-			math.clamp(tonumber(value.g) or 1, 0, 1),
-			math.clamp(tonumber(value.b) or 1, 0, 1)
-		)
-	end
-
-	if value.__blush_type == "EnumItem" then
-		enumname = tostring(value.enum or ""):gsub("^Enum%.", "")
-
-		enumtype = Enum[enumname]
-		return enumtype and enumtype[value.name] or nil
-	end
-
-	if value.__blush_type == "Player" then
-		userid = tonumber(value.userId)
-
-		if userid then
-			for _, targetplayer in ipairs(S.players:GetPlayers()) do
-				if targetplayer.UserId == userid then return targetplayer end
-			end
-		end
-
-		return value.name
-	end
-
-	result = {}
-
-	for key, child in pairs(value) do
-		result[key] = S.decodepersistentvalue(child)
-	end
-
-	return result
-end
-
-function S.persistentcontrolid(section, kind, name, config, explicit, page)
-	if type(config) == "table" then
-		explicit = config.Flag or config.SaveKey or config.Id or config.ID
-
-		if explicit ~= nil and tostring(explicit) ~= "" then return tostring(explicit) end
-	end
-
-	page = section and section.page
-	return table.concat({
-		page and tostring(page.name or page.primary or "") or "",
-		section and tostring(section.name or "") or "",
-		tostring(kind or "Control"),
-		tostring(name or ""),
-	}, "|")
-end
-
-function S.commitconfigautosave()
-	S.__blush_autosave_task = nil
-	if
-		not S.pendingconfigsave
-		or S.constructing
-		or S.loadingsettings
-		or not S.autosaveenabled()
-	then
-		return
-	end
-	if S.interactionowner then return end
-	S.pendingconfigsave = false
-	if S.selectedconfig ~= "" and S.selectedconfig ~= "None" then
-		S.saveconfigfile(S.selectedconfig, true)
-	end
+function S.saveuisettings(explicit)
+	if explicit ~= true then S.requestconfigautosave(); return false end
+	S.ensurestorage()
+	local payload = S.currentuipayload()
+	return S.writejsonfile(S.settingspath, payload)
 end
 
 function S.requestconfigautosave()
-	if
-		S.constructing
-		or S.loadingsettings
-		or S.continuouscolorupdate
-		or not S.autosaveenabled()
-	then
-		return
-	end
-	S.pendingconfigsave = true
-	if not S.interactionowner and not S.__blush_autosave_task then
-		S.__blush_autosave_task = task.defer(S.commitconfigautosave)
-	end
+	if not S.autosave or S.loadingsettings or S.constructing or S.continuouscolorupdate then return end
+	if S.interactionowner then S.persistencedirty = true; return end
+	if S.persistencetask or not S.alive then return end
+	S.persistencetask = task.defer(function()
+		S.persistencetask = nil
+		if S.alive and S.autosave and not S.loadingsettings then
+			S.saveuisettings(true)
+			if S.selectedpreset and S.selectedpreset ~= "" then S.savepreset(S.selectedpreset) end
+		end
+	end)
 end
 
 function S.persistentcallback(callback)
 	return function(...)
-		if S.constructing then return end
 		if callback then callback(...) end
-
 		S.requestconfigautosave()
 	end
 end
 
-function S.registerpersistentcontrol(
-	section,
-	kind,
-	name,
-	control,
-	config,
-	inputcallback,
-	id,
-	anchor,
-	entry,
-	destroying,
-	pending,
-	oldloading
-)
-	if not control then return control end
-
-	id = S.persistentcontrolid(section, kind, name, config)
-
-	anchor = typeof(control) == "Instance" and control or (control.Object or control.swatch)
-
-	entry = {
-		id = id,
-		kind = kind,
-		control = control,
-		anchor = anchor,
-	}
-
-	if kind == "Input" and control:IsA("TextBox") then
-		entry.get = function() return control.Text end
-
-		entry.set = function(value)
-			control.Text = tostring(value or "")
-
-			if inputcallback then inputcallback(control.Text) end
-		end
-	elseif kind == "ColorPicker" and type(control.color) == "function" then
-		entry.get = function()
-			return {
-				color = S.encodepersistentvalue(control:color()),
-				alpha = control.alpha,
-			}
-		end
-
-		entry.set = function(value, colorvalue)
-			if type(value) ~= "table" then return end
-
-			colorvalue = S.decodepersistentvalue(value.color)
-
-			if typeof(colorvalue) ~= "Color3" then return end
-
-			control:Set(colorvalue, math.clamp(tonumber(value.alpha) or 1, 0, 1), true)
-		end
-	elseif
-		(kind == "ToggleColor" or kind == "ToggleColorKey")
-		and type(control.Get) == "function"
-		and type(control.Set) == "function"
-		and control.Color
-		and type(control.Color.color) == "function"
-	then
-		entry.get = function()
-			return {
-				value = control:Get(),
-				color = S.encodepersistentvalue(control.Color:color()),
-				alpha = control.Color.alpha,
-			}
-		end
-
-		entry.set = function(value, colorvalue)
-			if type(value) ~= "table" then return end
-
-			control:Set(value.value == true, true)
-
-			colorvalue = S.decodepersistentvalue(value.color)
-
-			if typeof(colorvalue) == "Color3" then
-				control.Color:Set(colorvalue, math.clamp(tonumber(value.alpha) or 1, 0, 1), true)
-			end
-		end
-
-		control.Color.onpersist = S.requestconfigautosave
-	elseif
-		kind == "RangeSlider"
-		and type(control.Get) == "function"
-		and type(control.Set) == "function"
-	then
-		entry.get = function(low, high)
-			low, high = control:Get()
-
-			return {
-				low = low,
-				high = high,
-			}
-		end
-
-		entry.set = function(value)
-			if type(value) == "table" then control:Set(value.low, value.high, true) end
-		end
-	elseif type(control.Get) == "function" and type(control.Set) == "function" then
-		entry.get = function() return S.encodepersistentvalue(control:Get()) end
-
-		entry.set = function(value) control:Set(S.decodepersistentvalue(value), true) end
-	else
-		return control
+function S.setautosave(value)
+	S.autosave = value == true
+	if not S.autosave and S.persistencetask then
+		pcall(task.cancel, S.persistencetask)
+		S.persistencetask = nil
 	end
-
-	if kind == "ColorPicker" then control.onpersist = S.requestconfigautosave end
-
-	S.__blush_configcontrols[id] = entry
-
-	if anchor and anchor.Destroying then
-		destroying = nil
-		destroying = anchor.Destroying:Connect(function()
-			if destroying then
-				destroying:Disconnect()
-				destroying = nil
-			end
-
-			if S.__blush_configcontrols[id] == entry then S.__blush_configcontrols[id] = nil end
-		end)
-	end
-
-	pending = S.__blush_pending_controlvalues[id]
-
-	if pending ~= nil then
-		oldloading = S.loadingsettings
-		S.loadingsettings = true
-
-		S.invoke(entry.set, pending)
-
-		S.loadingsettings = oldloading
-	end
-
-	return control
 end
 
-function S.currentcontrolpayload(payload, alive, ok, value)
-	payload = {}
-
-	for id, entry in pairs(S.__blush_configcontrols) do
-		alive = entry
-			and entry.control
-			and entry.get
-			and (not entry.anchor or entry.anchor.Parent ~= nil)
-
-		if alive then
-			ok, value = S.invoke(entry.get)
-
-			if ok then payload[id] = S.encodepersistentvalue(value) end
-		else
-			S.__blush_configcontrols[id] = nil
-		end
-	end
-
-	return payload
+function S.readpreset(name)
+	name = S.sanitizefilename(name)
+	if name == "" then return nil end
+	return S.readjsonfile(S.presetfolder .. "/" .. name .. ".json")
 end
 
-function S.applycontrolpayload(payload, oldloading, entry)
-	S.__blush_pending_controlvalues = type(payload) == "table" and payload or {}
-
-	if type(payload) ~= "table" then return end
-
-	oldloading = S.loadingsettings
-	S.loadingsettings = true
-
-	for id, value in pairs(payload) do
-		entry = S.__blush_configcontrols[id]
-
-		if entry and entry.set then S.invoke(entry.set, S.decodepersistentvalue(value)) end
-	end
-
-	S.loadingsettings = oldloading
-end
-
-function S.refreshconfigfiles(preferred, names)
-	if not S.configselector then return end
-
-	names = S.listjsonnames(S.configfolder)
-	if #names == 0 then names = { "None" } end
-
-	S.configselector:SetOptions(names, preferred or S.selectedconfig)
-end
-
-function S.refreshthemefiles(preferred, names)
-	if not S.themfileselector then return end
-
-	names = S.listjsonnames(S.themefolder)
-	if #names == 0 then names = { "None" } end
-
-	S.themfileselector:SetOptions(names, preferred or S.selectedthemesave)
-end
-
-function S.saveconfigfile(name, autosave, payload, ok)
+function S.savepreset(name)
 	name = S.sanitizefilename(name)
 	if name == "" then return false end
-
-	S.selectedconfig = name
-
-	payload = S.currentuipayload()
-
-	payload.autoSaveConfig = nil
-	payload.keybinds = S.currentkeybindpayload()
-	payload.controls = S.currentcontrolpayload()
-
-	ok = S.writejsonfile(S.configfolder .. "/" .. name .. ".json", payload)
-
+	S.ensurestorage()
+	local payload = S.currentuipayload()
+	payload.name = name
+	local ok = S.writejsonfile(S.presetfolder .. "/" .. name .. ".json", payload)
 	if ok then
-		if not autosave then
-			if S.configinput then S.configinput.Text = name end
-
-			S.refreshconfigfiles(name)
-		end
-
-		S.saveuisettings(true)
+		S.selectedpreset = name
+		if S.presetnameinput then S.presetnameinput.Text = name end
+		if S.presetselector then S.presetselector:SetOptions(S.listpresetnames(), name) end
 	end
-
 	return ok
 end
 
-function S.loadconfigfile(name, silent, data, oldloading)
-	name = S.sanitizefilename(name)
-	if name == "" or name == "None" then return false end
-
-	data = S.readjsonfile(S.configfolder .. "/" .. name .. ".json")
-
-	if not data then return false end
-
-	S.selectedconfig = name
-	if S.configinput then S.configinput.Text = name end
-	S.refreshconfigfiles(name)
-
-	oldloading = S.loadingsettings
+function S.applysaveduisettings(data, silent)
+	if type(data) ~= "table" then return false end
+	local previous = S.loadingsettings
 	S.loadingsettings = true
-
-	S.applysaveduisettings(data, silent == true)
-	S.applykeybindpayload(data.keybinds)
-	S.applycontrolpayload(data.controls)
-
-	S.loadingsettings = oldloading
-	S.syncwindowglowcolor(false)
-	S.saveuisettings(true)
-	return true
-end
-
-function S.deleteconfigfile(name, path, ok)
-	name = S.sanitizefilename(name)
-	if name == "" or name == "None" or typeof(delfile) ~= "function" then return false end
-
-	path = S.configfolder .. "/" .. name .. ".json"
-	ok = S.invoke(function()
-		if typeof(isfile) ~= "function" or isfile(path) then delfile(path) end
-	end)
-
-	if ok then
-		if S.selectedconfig == name then S.selectedconfig = "" end
-		S.refreshconfigfiles()
-		S.saveuisettings(true)
+	S.animationsenabled = data.animations ~= false
+	S.searchenabled = data.search ~= false and data.searchCurrentPage ~= false
+	S.notificationsenabled = data.notifications ~= false
+	S.topnavigationenabled = data.topNavigation == true
+	-- AutoSave is controlled only by the caller, never by a loaded preset.
+	S.initialtransparency = math.clamp(tonumber(data.uiTransparency) or S.initialtransparency or 0, 0, 90)
+	S.applyuitransparency(S.initialtransparency)
+	S.setwatermarkvisible(data.watermark == true, false)
+	if type(data.watermarkInfo) == "table" then
+		S.watermarkconfig.DisplayName = data.watermarkInfo.DisplayName ~= false
+		S.watermarkconfig.Username = data.watermarkInfo.Username == true
+		S.watermarkconfig.FPS = data.watermarkInfo.FPS ~= false
+		S.watermarkconfig.Ping = data.watermarkInfo.Ping ~= false
+		S.watermarkconfig.Time = data.watermarkInfo.Time ~= false
+		S.watermarkconfig.Game = data.watermarkInfo.Game ~= false
 	end
-
-	return ok
-end
-
-function S.applythemepayload(
-	data,
-	preset3,
-	background,
-	accent,
-	maincolor,
-	highlightcolor,
-	fontcolor,
-	mainalpha,
-	highlightalpha,
-	backgroundalpha,
-	accentalpha,
-	fontalpha,
-	oldloading,
-	imagesource,
-	imageopacity,
-	imageblur
-)
-	if typeof(data) ~= "table" then return false end
-
-	preset3 = type(data.theme) == "string" and data.theme or "Default"
-
-	if not S.themepresets[preset3] then preset3 = "Default" end
-
-	background = S.decodecolor(data.background) or S.theme.window
-	accent = S.decodecolor(data.accent) or S.theme.white
-	fontcolor = S.decodecolor(data.font) or S.theme.font
-	maincolor = S.decodecolor(data.main) or S.buildtheme(background, accent, fontcolor, nil).main
-	highlightcolor = S.decodecolor(data.highlight) or accent
-	mainalpha = math.clamp(tonumber(data.mainAlpha) or 1, 0, 1)
-	highlightalpha = math.clamp(tonumber(data.highlightAlpha) or 1, 0, 1)
-	backgroundalpha = math.clamp(tonumber(data.backgroundAlpha) or 1, 0, 1)
-	accentalpha = math.clamp(tonumber(data.accentAlpha) or 1, 0, 1)
-	fontalpha = math.clamp(tonumber(data.fontAlpha) or 1, 0, 1)
-
-	S.secondarytextoverride = type(data.secondaryText) == "table"
-		and Color3.new(table.unpack(data.secondaryText))
-		or nil
+	S.setkeybindlistvisible(data.keybinds == true)
+	S.menukey = S.keyfromname(data.menuKey) or S.menukey or Enum.KeyCode.RightShift
+	S.setkeybindblacklist(type(data.keybindBlacklist) == "table" and data.keybindBlacklist or S.keybindblacklistdefaults)
+	S.windowglowenabled = data.windowGlow ~= false
+	S.windowglowintensity = math.clamp(tonumber(data.windowGlowIntensity) or S.windowglowintensity, 0, S.windowglowintensitymax)
+	S.windowglowsize = math.clamp(tonumber(data.windowGlowSize) or S.windowglowsize, 0, S.windowglowsizemax)
+	S.windowglowcolor = S.decodecolor(data.windowGlowColor) or S.windowglowcolor
+	S.windowglowalpha = math.clamp(tonumber(data.windowGlowAlpha) or S.windowglowalpha, 0, 1)
+	S.windowglowrenderalpha = S.windowglowalpha
+	S.secondarytextoverride = type(data.secondaryText) == "table" and Color3.new(table.unpack(data.secondaryText)) or nil
 	S.secondarytextalpha = math.clamp(tonumber(data.secondaryTextAlpha) or 1, 0, 1)
-
-	oldloading = S.loadingsettings
-	S.loadingsettings = true
-
-	S.backgroundexcludesidebar = data.backgroundImageExcludeSidebar == true
-	S.autobackgroundcolors = false
-	S.setbackgroundexcludesidebar(S.backgroundexcludesidebar)
-
-	if S.backgroundexcludecontrol then
-		S.backgroundexcludecontrol:Set(S.backgroundexcludesidebar, false)
-	end
-	if S.backgroundautocolorcontrol then
-		S.backgroundautocolorcontrol:Set(S.autobackgroundcolors, false)
-	end
-
-	S.themeselector:Set(preset3, false)
-	S.applytheme(background, accent, backgroundalpha, accentalpha, fontcolor, fontalpha, false)
-	S.applymaincolor(maincolor, false)
-	S.applymainalpha(mainalpha)
-	S.applyhighlight(highlightcolor, highlightalpha, false)
-	if S.maincolorpicker then S.maincolorpicker:Set(maincolor, mainalpha, false) end
-	if S.highlightpicker then S.highlightpicker:Set(highlightcolor, highlightalpha, false) end
-	S.accentpicker:Set(accent, accentalpha, false)
-	S.backgroundpicker:Set(background, backgroundalpha, false)
-	S.fontpicker:Set(fontcolor, fontalpha, false)
-	if S.secondarytextpicker then
-		S.secondarytextpicker:Set(S.theme.text3, S.secondarytextalpha, false)
-	end
+	S.selectedtheme = type(data.theme) == "string" and S.themepresets[data.theme] and data.theme or "Default"
+	local preset = S.themepresets[S.selectedtheme]
+	local background = S.decodecolor(data.background) or preset.background
+	local accent = S.decodecolor(data.accent) or preset.accent
+	local font = S.decodecolor(data.font) or preset.font
+	local main = S.decodecolor(data.main) or preset.main or S.buildtheme(background, accent, font).main
+	local highlight = S.decodecolor(data.highlight) or preset.highlight or accent
+	S.applytheme(background, accent, tonumber(data.backgroundAlpha) or 1, tonumber(data.accentAlpha) or 1, font, tonumber(data.fontAlpha) or 1, false)
+	S.applymaincolor(main, false)
+	S.applymainalpha(tonumber(data.mainAlpha) or 1)
+	S.applyhighlight(highlight, tonumber(data.highlightAlpha) or 1, false)
 	S.applysecondarytextalpha(S.secondarytextalpha)
-
-	S.syncwindowglowcolor(false)
-
-	imagesource = type(data.backgroundImageSource) == "string" and data.backgroundImageSource or ""
-	imageopacity = math.clamp(tonumber(data.backgroundImageOpacity) or 65, 0, 100)
-	imageblur = math.clamp(tonumber(data.backgroundImageBlur) or 0, 0, S.backgroundimageblurmax)
-
-	S.backgroundimagesource = imagesource
-	S.setbackgroundimagemode("Crop")
-	S.setbackgroundimageopacity(imageopacity, false)
-	S.setbackgroundimageblur(imageblur, false)
-
-	if S.backgroundimageinput then S.backgroundimageinput.Text = imagesource end
-	if S.backgroundimageopacitycontrol then
-		S.backgroundimageopacitycontrol:Set(imageopacity, false)
-	end
-	if S.backgroundimageblurcontrol then S.backgroundimageblurcontrol:Set(imageblur, false) end
-
-	if imagesource ~= "" then
-		task.spawn(function() S.loadbackgroundimage(imagesource, false, true) end)
-	else
-		S.clearbackgroundimage(false)
-	end
-
-	S.loadingsettings = oldloading
+	S.applywindowglow()
+	S.updatewatermarklayout()
+	S.setsearchvisible(S.searchenabled, false)
+	S.applytopnavigation(S.topnavigationenabled, false)
+	S.refreshmenukeybinding()
+	S.restorepanels(data.panels)
+	if S.settingsready then S.syncsettingscontrols() end
+	if data.keybindValues and S.applykeybindpayload then S.applykeybindpayload(data.keybindValues) end
+	if data.controls then S.applycontrolpayload(data.controls) end
+	S.loadingsettings = previous
+	if not silent and S.notify then S.notify("Loaded", "Preset loaded.", 2.5, nil, nil, S.icons.palette) end
 	return true
 end
 
-function S.savethemefile(name, ok)
-	name = S.sanitizefilename(name)
-	if name == "" then return false end
-
-	S.selectedthemesave = name
-	ok = S.writejsonfile(S.themefolder .. "/" .. name .. ".json", S.currentthemepayload())
-
-	if ok then
-		if S.themefileinput then S.themefileinput.Text = name end
-		S.refreshthemefiles(name)
-		S.saveuisettings(true)
-	end
-
-	return ok
+function S.loadpreset(name, silent)
+	local payload = S.readpreset(name)
+	if not payload then return false end
+	S.selectedpreset = S.sanitizefilename(name)
+	local loaded = S.applysaveduisettings(payload, silent)
+	if loaded and S.presetnameinput then S.presetnameinput.Text = S.selectedpreset end
+	return loaded
 end
 
-function S.loadthemefile(name, data)
+function S.deletepreset(name)
 	name = S.sanitizefilename(name)
-	if name == "" or name == "None" then return false end
-
-	data = S.readjsonfile(S.themefolder .. "/" .. name .. ".json")
-
-	if not data or not S.applythemepayload(data) then return false end
-
-	S.selectedthemesave = name
-	if S.themefileinput then S.themefileinput.Text = name end
-	S.refreshthemefiles(name)
-	S.saveuisettings(true)
-	return true
-end
-
-function S.deletethemefile(name, path, ok)
-	name = S.sanitizefilename(name)
-	if name == "" or name == "None" or typeof(delfile) ~= "function" then return false end
-
-	path = S.themefolder .. "/" .. name .. ".json"
-	ok = S.invoke(function()
+	if name == "" or typeof(delfile) ~= "function" then return false end
+	local path = S.presetfolder .. "/" .. name .. ".json"
+	local ok = pcall(function()
 		if typeof(isfile) ~= "function" or isfile(path) then delfile(path) end
 	end)
-
 	if ok then
-		if S.selectedthemesave == name then S.selectedthemesave = "" end
-		S.refreshthemefiles()
-		S.saveuisettings(true)
+		if S.selectedpreset == name then S.selectedpreset = "" end
+		if S.presetselector then S.presetselector:SetOptions(S.listpresetnames(), S.selectedpreset) end
 	end
-
 	return ok
 end
-
-S.settingssection = S.createsection(S.settings, "left", "Interface", S.icons.settings)
-S.watermarksettingssection = S.createsection(S.settings, "right", "Watermark", S.icons.tag)
-
-S.watermarktoggle = S.watermarksettingssection:AddToggle(
-	"Watermark",
-	S.savedsettings.watermark == true,
-	function(value)
-		S.setwatermarkvisible(value, true)
-		if S.refreshsettingsdependencies then S.refreshsettingsdependencies(true) end
-		S.saveuisettings()
-	end
-)
-
-S.setwatermarkvisible(S.savedsettings.watermark == true, false)
-
-if type(S.savedsettings.watermarkInfo) == "table" then
-	S.watermarkconfig.Player = S.savedsettings.watermarkInfo.Player ~= false
-
-	S.watermarkconfig.FPS = S.savedsettings.watermarkInfo.FPS ~= false
-
-	S.watermarkconfig.Ping = S.savedsettings.watermarkInfo.Ping ~= false
-
-	S.watermarkconfig.Time = S.savedsettings.watermarkInfo.Time ~= false
-	S.watermarkconfig.Game = S.savedsettings.watermarkInfo.Game ~= false
-
-	S.watermarkconfig.PlayerMode =
-		S.normalizewatermarkplayermode(S.savedsettings.watermarkInfo.PlayerMode)
-end
-
-S.watermarkinfodefault = {}
-
-for _, item in ipairs({ "Player", "Fps", "Ping", "Time", "Game" }) do
-	S.enabled = item == "Fps" and S.watermarkconfig.FPS or S.watermarkconfig[item]
-
-	if S.enabled then table.insert(S.watermarkinfodefault, item) end
-end
-
-
-S.watermarkinfocontrol = S.watermarksettingssection:AddMultiDropdown(
-	"Content",
-	{
-		"Player",
-		"Fps",
-		"Ping",
-		"Time",
-		"Game",
-	},
-	S.watermarkinfodefault,
-	function(values, selected)
-		selected = {}
-
-		for _, value in ipairs(values) do
-			selected[value] = true
-		end
-
-		S.watermarkconfig.Player = selected.Player == true
-
-		S.watermarkconfig.FPS = selected.Fps == true
-
-		S.watermarkconfig.Ping = selected.Ping == true
-
-		S.watermarkconfig.Time = selected.Time == true
-		S.watermarkconfig.Game = selected.Game == true
-
-		S.updatewatermarklayout()
-		S.saveuisettings()
-	end
-)
-
-S.playermodedefault = {}
-S.normalizedplayermode = S.normalizewatermarkplayermode(S.watermarkconfig.PlayerMode)
-if S.normalizedplayermode == "Display" or S.normalizedplayermode == "Both" then
-	S.playermodedefault[#S.playermodedefault + 1] = "Display"
-end
-if S.normalizedplayermode == "Username" or S.normalizedplayermode == "Both" then
-	S.playermodedefault[#S.playermodedefault + 1] = "Username"
-end
-
-S.watermarkplayermodecontrol = S.watermarksettingssection:AddRadio(
-	"Player name",
-	{ "Display", "Username" },
-	S.playermodedefault,
-	function(values, selected)
-		selected = {}
-		for _, value in ipairs(values or {}) do
-			selected[value] = true
-		end
-		if selected.Display and selected.Username then
-			S.watermarkconfig.PlayerMode = "Both"
-		elseif selected.Username then
-			S.watermarkconfig.PlayerMode = "Username"
-		else
-			S.watermarkconfig.PlayerMode = "Display"
-		end
-		S.updatewatermarklayout()
-		S.saveuisettings()
-	end,
-	nil,
-	true
-)
-
-S.updatewatermarklayout()
-
-S.menukeypicker = S.settingssection:AddKeyPicker("Window Open/Close", S.menukey, function(key)
-	S.menukey = key
-	S.refreshmenukeybinding()
-	S.saveuisettings()
-end)
-
-S.interfaceflags1 = S.settingssection:AddRow(10, 24)
-
-S.animationtoggle = S.interfaceflags1:AddToggle("Animations", S.animationsenabled, function(value)
-	S.animationsenabled = value == true
-
-	if S.animationsenabled then
-		if S.updatetopnavigationstate then S.updatetopnavigationstate(false) end
-		if S.refreshhotkeylist then S.refreshhotkeylist() end
-	end
-
-	S.saveuisettings()
-end)
-
-S.searchtoggle = S.interfaceflags1:AddToggle("Search", S.searchenabled, function(value)
-	S.setsearchvisible(value, true)
-
-	if not S.searchenabled then S.search.Text = "" end
-
-	S.saveuisettings()
-end)
-
-S.interfaceflags2 = S.settingssection:AddRow(10, 24)
-
-S.notificationtoggle = S.interfaceflags2:AddToggle(
-	"Notifications",
-	S.notificationsenabled,
-	function(value)
-		S.notificationsenabled = value
-		S.saveuisettings()
-	end
-)
-
-S.topnavigationtoggle = S.interfaceflags2:AddToggle(
-	"Top navigation",
-	S.topnavigationenabled,
-	function(value)
-		S.topnavigationenabled = value == true
-		if S.applytopnavigation then S.applytopnavigation(S.topnavigationenabled, true) end
-		S.saveuisettings()
-	end
-)
-
-S.setsearchvisible(S.searchenabled, false)
-
-S.keybindssection = S.createsection(S.settings, "left", "Keybinds", S.icons.keyboard)
-
-S.hotkeylisttoggle = S.keybindssection:AddToggle(
-	"Keybinds",
-	S.savedsettings.hotkeyList == true or S.savedsettings.checkboxList == true,
-	function(value)
-		S.sethotkeylistvisible(value)
-		if S.refreshsettingsdependencies then S.refreshsettingsdependencies(true) end
-		S.saveuisettings()
-	end
-)
-
-S.sethotkeylistvisible(S.savedsettings.hotkeyList == true or S.savedsettings.checkboxList == true)
-
-S.keybindblacklistcontrol = S.keybindssection:AddMultiDropdown(
-	"Blacklisted Keys",
-	S.keybindblacklistoptions,
-	S.getkeybindblacklistlabels(),
-	function(values)
-		S.setkeybindblacklist(values)
-		if S.keybindblacklistcontrol then
-			S.keybindblacklistcontrol:Set(S.getkeybindblacklistlabels(), false)
-		end
-		S.saveuisettings()
-	end,
-	nil,
-	{
-		KeyPicker = true,
-		KeyPickerLabel = "Add key",
-		KeyFormatter = function(key, name, label)
-			if not key then return nil end
-			name, label = S.ensurekeybindblacklistoption(key.Name)
-			return label
-		end,
-	}
-)
-
-S.windowsection = S.createsection(S.settings, "left", "Window", S.icons.sliders)
-
-S.windowglowtoggle = S.windowsection:AddToggleColor(
-	"Window Glow",
-	S.windowglowenabled,
-	S.windowglowcolor,
-	function(value)
-		S.windowglowenabled = value == true
-		if S.refreshsettingsdependencies then S.refreshsettingsdependencies(true) end
-		S.applywindowglow()
-		S.saveuisettings()
-	end,
-	function(color, alpha)
-		S.windowglowcolor = color
-		S.windowglowcustom = true
-		S.windowglowrenderalpha = math.clamp(tonumber(alpha) or 1, 0, 1)
-
-		if
-			not S.windowglowcolorpicker
-			or (not S.windowglowcolorpicker.fading and not S.windowglowcolorpicker.rainbow)
-		then
-			S.windowglowalpha = S.windowglowcolorpicker and S.windowglowcolorpicker.alpha
-				or S.windowglowrenderalpha
-
-			S.saveuisettings()
-		end
-
-		S.applywindowglow()
-	end
-)
-
-S.windowglowcolorpicker = S.windowglowtoggle.Color
-S.windowglowcolorpicker:Set(S.windowglowcolor, S.windowglowalpha, false)
-S.windowglowrenderalpha = S.windowglowcolorpicker:currentalpha()
-S.applywindowglow()
-
-S.windowglowintensitycontrol = S.windowsection:AddSlider(
-	"Glow Intensity",
-	0,
-	S.windowglowintensitymax,
-	S.windowglowintensity,
-	"%",
-	function(value)
-		S.windowglowintensity = value
-		S.applywindowglow()
-		S.saveuisettings()
-	end
-)
-
-S.windowglowsizecontrol = S.windowsection:AddSlider(
-	"Glow Size",
-	0,
-	S.windowglowsizemax,
-	S.windowglowsize,
-	"px",
-	function(value)
-		S.windowglowsize = value
-		S.applywindowglow()
-		S.saveuisettings()
-	end
-)
-
-S.uitransparencycontrol = S.windowsection:AddSlider(
-	"Transparency",
-	0,
-	90,
-	S.initialtransparency,
-	"%",
-	function(value)
-		S.applyuitransparency(value)
-		S.saveuisettings()
-	end
-)
-
-S.applyuitransparency(S.initialtransparency)
-S.watermarkglow = S.addshadow(
-	S.watermark,
-	"WatermarkGlow",
-	1,
-	12,
-	0,
-	-2,
-	S.theme.highlight,
-	UDim2.fromOffset(0, 0),
-	false
-)
-if S.watermarkglow then S.bindtheme(S.watermarkglow, "Color", S.theme.highlight, "highlight") end
-S.addpanelsettings(S.watermarksettingssection, S.panelthemes.Watermark, {
-	{ "Background", "popup" },
-	{ "Text", "text2" },
-	{ "Secondary Text", "text3" },
-	{ "Separator", "border" },
-}, S.watermarkglow)
-S.addpanelsettings(S.keybindssection, S.panelthemes.Keybinds, {
-	{ "Background", "popup" },
-	{ "Text", "text" },
-	{ "Icons", "text3" },
-	{ "Border", "border" },
-}, S.hotkeyglow)
-S.loadpanelthemes(S.savedsettings.panelThemes)
-
-S.settingsvisibilitytokens = setmetatable({}, { __mode = "k" })
-S.settingsvisibilitytargets = setmetatable({}, { __mode = "k" })
-
-function S.setsettingsvisible(root, visible, animate, objects, saved, token, primary, animation, goals)
-	if not root or not root.Parent then return end
-	if S.settingsvisibilitytargets[root] == visible and root.Visible == visible then return end
-
-	S.settingsvisibilitytargets[root] = visible
-	token = (S.settingsvisibilitytokens[root] or 0) + 1
-	S.settingsvisibilitytokens[root] = token
-
-	if not animate or not S.animationsenabled or S.constructing then
-		root.Visible = visible
-		return
-	end
-	objects = { root }
-	for _, object in ipairs(root:GetDescendants()) do objects[#objects + 1] = object end
-	saved = {}
-
-	for _, object in ipairs(objects) do
-		goals = {}
-		saved[object] = {}
-
-		if object:IsA("GuiObject") and object.BackgroundTransparency < 1 then
-			saved[object].BackgroundTransparency = object.BackgroundTransparency
-			goals.BackgroundTransparency = visible and object.BackgroundTransparency or 1
-		end
-		if object:IsA("TextLabel") or object:IsA("TextButton") or object:IsA("TextBox") then
-			if object.TextTransparency < 1 then
-				saved[object].TextTransparency = object.TextTransparency
-				goals.TextTransparency = visible and object.TextTransparency or 1
-			end
-		end
-		if object:IsA("ImageLabel") or object:IsA("ImageButton") then
-			if object.ImageTransparency < 1 then
-				saved[object].ImageTransparency = object.ImageTransparency
-				goals.ImageTransparency = visible and object.ImageTransparency or 1
-			end
-		end
-		if (object:IsA("UIStroke") or object:IsA("UIShadow")) and object.Transparency < 1 then
-			saved[object].Transparency = object.Transparency
-			goals.Transparency = visible and object.Transparency or 1
-		end
-
-		if visible then
-			for property in pairs(goals) do object[property] = 1 end
-		end
-	end
-
-	if visible then root.Visible = true end
-
-	for _, object in ipairs(objects) do
-		if object.Parent then
-			goals = {}
-			for property, base in pairs(saved[object]) do
-				goals[property] = visible and base or 1
-			end
-			if next(goals) then
-				animation = S.tween(object, goals, S.hoverti, true)
-				primary = primary or animation
-			end
-		end
-	end
-
-	local function finish()
-		if S.settingsvisibilitytokens[root] ~= token then return end
-		if not visible and root.Parent then root.Visible = false end
-		for object, properties in pairs(saved) do
-			if object.Parent then
-				for property, base in pairs(properties) do object[property] = base end
-			end
-		end
-	end
-
-	if primary then
-		primary.Completed:Connect(finish)
-	else
-		finish()
-	end
-end
-
-function S.refreshsettingsdependencies(animate, watermarkenabled, keybindsenabled, glowenabled, panel)
-	watermarkenabled = S.watermarktoggle:Get() == true
-	keybindsenabled = S.hotkeylisttoggle:Get() == true
-	glowenabled = S.windowglowtoggle:Get() == true
-
-	S.setsettingsvisible(S.watermarkinfocontrol.Object, watermarkenabled, animate == true)
-	S.setsettingsvisible(S.watermarkplayermodecontrol.Object, watermarkenabled, animate == true)
-	S.setsettingsvisible(S.keybindblacklistcontrol.Object, keybindsenabled, animate == true)
-	S.setsettingsvisible(S.windowglowintensitycontrol.Object, glowenabled, animate == true)
-	S.setsettingsvisible(S.windowglowsizecontrol.Object, glowenabled, animate == true)
-
-	for _, data in ipairs({
-		{ S.panelthemes.Watermark, watermarkenabled },
-		{ S.panelthemes.Keybinds, keybindsenabled },
-	}) do
-		panel = data[1]
-		for _, object in ipairs(panel.settingsobjects or {}) do
-			if object and object.Parent then S.setsettingsvisible(object, data[2], animate == true) end
-		end
-		if panel.updateglowsettings then panel.updateglowsettings(data[2]) end
-	end
-
-	S.watermarksettingssection:RefreshLayout(animate == true, animate == true)
-	S.keybindssection:RefreshLayout(animate == true, animate == true)
-	S.windowsection:RefreshLayout(animate == true, animate == true)
-end
-
-S.refreshsettingsdependencies(false)
-
-if type(S.savedsettings.secondaryText) == "table" then
-	S.secondarytextoverride = Color3.new(table.unpack(S.savedsettings.secondaryText))
-end
-S.secondarytextalpha = math.clamp(tonumber(S.savedsettings.secondaryTextAlpha) or 1, 0, 1)
-
-S.themessection = S.createsection(S.settings, "right", "Theme", S.icons.palette)
 
 S.themepresets = {
-	Default = {
-		background = Color3.fromRGB(13, 13, 15),
-		accent = Color3.fromRGB(246, 246, 248),
-		font = Color3.fromRGB(235, 235, 239),
-	},
-
-	Dark = {
-		background = Color3.fromRGB(10, 10, 11),
-		main = Color3.fromRGB(18, 18, 20),
-		accent = Color3.fromRGB(205, 205, 212),
-		font = Color3.fromRGB(232, 232, 236),
-	},
-
-	Violet = {
-		background = Color3.fromRGB(14, 12, 19),
-		accent = Color3.fromRGB(185, 157, 255),
-		font = Color3.fromRGB(239, 235, 247),
-	},
-
-	Rose = {
-		background = Color3.fromRGB(18, 11, 14),
-		accent = Color3.fromRGB(247, 147, 177),
-		font = Color3.fromRGB(245, 236, 240),
-	},
-
-	Mint = {
-		background = Color3.fromRGB(10, 16, 14),
-		accent = Color3.fromRGB(125, 222, 176),
-		font = Color3.fromRGB(232, 242, 237),
-	},
-
-	Snow = {
-		background = Color3.fromRGB(247, 248, 250),
-		main = Color3.fromRGB(236, 238, 242),
-		accent = Color3.fromRGB(44, 49, 58),
-		font = Color3.fromRGB(31, 35, 42),
-	},
-
-	Pearl = {
-		background = Color3.fromRGB(238, 239, 242),
-		main = Color3.fromRGB(226, 228, 233),
-		accent = Color3.fromRGB(67, 72, 82),
-		font = Color3.fromRGB(39, 43, 50),
-	},
-
-	Ivory = {
-		background = Color3.fromRGB(248, 244, 236),
-		main = Color3.fromRGB(236, 229, 218),
-		accent = Color3.fromRGB(100, 79, 61),
-		font = Color3.fromRGB(53, 46, 40),
-	},
+	Default = { background = Color3.fromRGB(13, 13, 15), accent = Color3.fromRGB(246, 246, 248), font = Color3.fromRGB(235, 235, 239) },
+	Violet = { background = Color3.fromRGB(14, 12, 19), accent = Color3.fromRGB(185, 157, 255), font = Color3.fromRGB(239, 235, 247) },
+	Rose = { background = Color3.fromRGB(18, 11, 14), accent = Color3.fromRGB(247, 147, 177), font = Color3.fromRGB(245, 236, 240) },
+	Mint = { background = Color3.fromRGB(10, 16, 14), accent = Color3.fromRGB(125, 222, 176), font = Color3.fromRGB(232, 242, 237) },
+	Snow = { background = Color3.fromRGB(247, 248, 250), main = Color3.fromRGB(236, 238, 242), accent = Color3.fromRGB(44, 49, 58), font = Color3.fromRGB(31, 35, 42) },
+	Pearl = { background = Color3.fromRGB(238, 239, 242), main = Color3.fromRGB(226, 228, 233), accent = Color3.fromRGB(67, 72, 82), font = Color3.fromRGB(39, 43, 50) },
+	Ivory = { background = Color3.fromRGB(248, 244, 236), main = Color3.fromRGB(236, 229, 218), accent = Color3.fromRGB(100, 79, 61), font = Color3.fromRGB(53, 46, 40) },
 }
-
-S.themeoptions = {
-	"Default",
-	"Dark",
-	"Violet",
-	"Rose",
-	"Mint",
-	"Snow",
-	"Pearl",
-	"Ivory",
-}
-
+S.themeoptions = { "Default", "Violet", "Rose", "Mint", "Snow", "Pearl", "Ivory" }
+S.selectedtheme = "Default"
 S.themecolors = {}
+for name, preset in pairs(S.themepresets) do S.themecolors[name] = preset.accent end
+S.themecolors.Default = Color3.fromRGB(176, 178, 184)
 
-for name, preset in pairs(S.themepresets) do
-	S.themecolors[name] = preset.accent
+function S.settheme(name, animate)
+	local preset = S.themepresets[name]
+	if not preset then return false end
+	S.selectedtheme = name
+	local main = preset.main or S.buildtheme(preset.background, preset.accent, preset.font).main
+	S.applytheme(preset.background, preset.accent, 1, 1, preset.font, 1, animate == true)
+	S.applymaincolor(main, animate == true)
+	S.applymainalpha(1)
+	S.applyhighlight(preset.highlight or preset.accent, 1, animate == true)
+	if S.settingsready then S.syncsettingscontrols() end
+	return true
 end
 
--- Neutral preview swatches keep Default and Dark visually distinct in the picker.
-S.themecolors.Default = Color3.fromRGB(176, 178, 184)
-S.themecolors.Dark = Color3.fromRGB(58, 60, 68)
+function S.applywindowsettings()
+	if S.windowglowtoggle then S.windowglowtoggle:Set(S.windowglowenabled, false) end
+	if S.windowglowintensitycontrol then S.windowglowintensitycontrol:Set(S.windowglowintensity, false) end
+	if S.windowglowsizecontrol then S.windowglowsizecontrol:Set(S.windowglowsize, false) end
+	if S.windowglowcolorpicker then S.windowglowcolorpicker:Set(S.windowglowcolor, S.windowglowalpha, false) end
+	if S.uitransparencycontrol then S.uitransparencycontrol:Set(math.floor((S.uitransparency or 0) * 100 + 0.5), false) end
+	S.applywindowglow()
+end
 
-S.themeselector = S.themessection:AddDropdown(
-	"Theme",
-	S.themeoptions,
-	"Default",
-	function(name, preset4, presetmain)
-		preset4 = S.themepresets[name]
-
-		if not preset4 then
-			S.saveuisettings()
-			return
+function S.syncsettingscontrols()
+	if not S.settingsready then return end
+	if S.watermarktoggle then S.watermarktoggle:Set(S.watermarkshown, false) end
+	if S.watermarkinfocontrol then
+		local values = {}
+		for _, name in ipairs({ "Fps", "Ping", "Time", "Game" }) do
+			local field = name == "Fps" and "FPS" or name
+			if S.watermarkconfig[field] then values[#values + 1] = name end
 		end
+		S.watermarkinfocontrol:Set(values, false)
+	end
+	if S.watermarkdisplaynametoggle then S.watermarkdisplaynametoggle:Set(S.watermarkconfig.DisplayName == true, false) end
+	if S.watermarkusernametoggle then S.watermarkusernametoggle:Set(S.watermarkconfig.Username == true, false) end
+	if S.animationtoggle then S.animationtoggle:Set(S.animationsenabled, false) end
+	if S.searchtoggle then S.searchtoggle:Set(S.searchenabled, false) end
+	if S.notificationtoggle then S.notificationtoggle:Set(S.notificationsenabled, false) end
+	if S.topnavigationtoggle then S.topnavigationtoggle:Set(S.topnavigationenabled, false) end
+	if S.keybindlisttoggle then S.keybindlisttoggle:Set(S.keybindshown, false) end
+	if S.keybindblacklistcontrol then S.keybindblacklistcontrol:Set(S.getkeybindblacklistlabels(), false) end
+	if S.themeselector then S.themeselector:Set(S.selectedtheme, false) end
+	S.applywindowsettings()
+	S.refreshsettingsdependencies()
+end
 
-		S.applytheme(preset4.background, preset4.accent, 1, 1, preset4.font, 1, true)
-		presetmain = preset4.main
-			or S.buildtheme(preset4.background, preset4.accent, preset4.font, nil).main
+function S.setsettingsvisible(object, visible)
+	if object and object.Parent then object.Visible = visible == true end
+end
 
-		S.applymaincolor(presetmain, true)
-		S.applymainalpha(1)
-		S.applyhighlight(preset4.highlight or preset4.accent, 1, true)
+function S.refreshsettingsdependencies()
+	if not S.settingsready then return end
+	S.setsettingsvisible(S.watermarkinfocontrol.Object, S.watermarkshown)
+	S.setsettingsvisible(S.watermarkdisplaynametoggle.Object, S.watermarkshown)
+	S.setsettingsvisible(S.watermarkusernametoggle.Object, S.watermarkshown)
+	S.setsettingsvisible(S.keybindblacklistcontrol.Object, S.keybindshown)
+	S.setsettingsvisible(S.windowglowintensitycontrol.Object, S.windowglowenabled)
+	S.setsettingsvisible(S.windowglowsizecontrol.Object, S.windowglowenabled)
+	for _, data in ipairs({ { S.panelthemes.Watermark, S.watermarkshown }, { S.panelthemes.Keybinds, S.keybindshown } }) do
+		for _, object in ipairs(data[1].settingsobjects or {}) do S.setsettingsvisible(object, data[2]) end
+		if data[1].updateglowsettings then data[1].updateglowsettings(data[2]) end
+	end
+	S.watermarksettingssection:RefreshLayout(false, false)
+	S.keybindssection:RefreshLayout(false, false)
+	S.windowsection:RefreshLayout(false, false)
+end
 
-		if S.maincolorpicker then S.maincolorpicker:Set(presetmain, 1, false) end
-		if S.highlightpicker then
-			S.highlightpicker:Set(preset4.highlight or preset4.accent, 1, false)
-		end
-		if S.accentpicker then S.accentpicker:Set(preset4.accent, 1, false) end
+function S.ensureSettings()
+	if S.settingsready then return S.settings end
+	if not S.settings then S.settings = S.createpage("settings", "Settings", nil) end
+	S.ensurewatermark()
+	S.ensurekeybindlist()
+	S.loadingsettings = true
+	S.settingssection = S.createsection(S.settings, "left", "Interface", S.icons.settings)
+	S.watermarksettingssection = S.createsection(S.settings, "right", "Watermark", S.icons.tag)
+	S.keybindssection = S.createsection(S.settings, "left", "Keybinds", S.icons.keyboard)
+	S.windowsection = S.createsection(S.settings, "left", "Window", S.icons.sliders)
+	S.themessection = S.createsection(S.settings, "right", "Themes", S.icons.palette)
+	S.presetsection = S.createsection(S.settings, "right", "Presets", S.icons.save)
 
-		if S.backgroundpicker then S.backgroundpicker:Set(preset4.background, 1, false) end
+	S.watermarktoggle = S.watermarksettingssection:AddToggle("Watermark", S.watermarkshown, function(value)
+		S.setwatermarkvisible(value, true)
+		S.syncsettingscontrols()
+		S.requestconfigautosave()
+	end)
+	S.watermarkinfocontrol = S.watermarksettingssection:AddMultiDropdown("Content", { "Fps", "Ping", "Time", "Game" }, {}, function(values)
+		local selected = table.create(#values)
+		for _, value in ipairs(values) do selected[value] = true end
 
-		if S.fontpicker then S.fontpicker:Set(preset4.font, 1, false) end
+		S.watermarkconfig.FPS = selected.Fps == true
+		S.watermarkconfig.Ping = selected.Ping == true
+		S.watermarkconfig.Time = selected.Time == true
+		S.watermarkconfig.Game = selected.Game == true
+		S.updatewatermarklayout()
+		S.requestconfigautosave()
+	end)
+	
+	S.watermarkdisplaynametoggle = S.watermarksettingssection:AddToggle("Display Name", S.watermarkconfig.DisplayName, function(value)
+		S.watermarkconfig.DisplayName = value == true
+		S.updatewatermarklayout()
+		S.requestconfigautosave()
+	end)
+	S.watermarkusernametoggle = S.watermarksettingssection:AddToggle("Username", S.watermarkconfig.Username, function(value)
+		S.watermarkconfig.Username = value == true
+		S.updatewatermarklayout()
+		S.requestconfigautosave()
+	end)
 
-		if S.autobackgroundcolors then
-			S.backgroundautobase = {
-				background = preset4.background,
-				accent = preset4.accent,
-				font = preset4.font,
-				backgroundAlpha = 1,
-				accentAlpha = 1,
-				fontAlpha = 1,
-			}
+	S.menukeypicker = S.settingssection:AddKeyPicker("Window Open/Close", S.menukey, function(key)
+		S.menukey = key
+		S.refreshmenukeybinding()
+		S.requestconfigautosave()
+	end)
+	local interfaceRow = S.settingssection:AddRow(10, 24)
+	S.animationtoggle = interfaceRow:AddToggle("Animations", S.animationsenabled, function(value)
+		S.animationsenabled = value == true
+		if S.animationsenabled and S.updatetopnavigationstate then S.updatetopnavigationstate(false) end
+		S.requestconfigautosave()
+	end)
+	S.searchtoggle = interfaceRow:AddToggle("Search", S.searchenabled, function(value)
+		S.setsearchvisible(value == true, true)
+		if not S.searchenabled and S.search then S.search.Text = "" end
+		S.requestconfigautosave()
+	end)
+	local featureRow = S.settingssection:AddRow(10, 24)
+	S.notificationtoggle = featureRow:AddToggle("Notifications", S.notificationsenabled, function(value)
+		S.notificationsenabled = value == true
+		S.requestconfigautosave()
+	end)
+	S.topnavigationtoggle = featureRow:AddToggle("Top navigation", S.topnavigationenabled, function(value)
+		S.topnavigationenabled = value == true
+		S.applytopnavigation(S.topnavigationenabled, true)
+		S.requestconfigautosave()
+	end)
 
-			if S.backgroundpalette then
-				S.applybackgroundautocolors(true)
-			elseif S.backgroundimage and S.backgroundimage.Image ~= "" then
-				task.spawn(function() S.samplebackgroundpalette(S.backgroundimage.Image) end)
-			end
-		end
+	S.keybindlisttoggle = S.keybindssection:AddToggle("Keybinds", S.keybindshown, function(value)
+		S.setkeybindlistvisible(value)
+		S.requestconfigautosave()
+	end)
+	S.keybindblacklistcontrol = S.keybindssection:AddMultiDropdown("Blacklisted Keys", S.keybindblacklistoptions, S.getkeybindblacklistlabels(), function(values)
+		S.setkeybindblacklist(values)
+		S.requestconfigautosave()
+	end, nil, {
+		KeyPicker = true,
+		KeyPickerLabel = "Add key",
+		KeyFormatter = function(key)
+			if not key then return nil end
+			local _, label = S.ensurekeybindblacklistoption(key.Name)
+			return label
+		end,
+	})
 
-		S.saveuisettings()
-	end,
-	nil,
-	{
-		dividers = {
-			Snow = "Light themes",
-		},
-		colors = S.themecolors,
-	}
-)
+	S.windowglowtoggle = S.windowsection:AddToggleColor("Window Glow", S.windowglowenabled, S.windowglowcolor, function(value)
+		S.windowglowenabled = value == true
+		S.applywindowglow()
+		S.requestconfigautosave()
+	end, function(color, alpha)
+		S.windowglowcolor = color
+		S.windowglowalpha = math.clamp(tonumber(alpha) or 1, 0, 1)
+		S.applywindowglow()
+		S.requestconfigautosave()
+	end)
+	S.windowglowcolorpicker = S.windowglowtoggle.Color
+	S.windowglowintensitycontrol = S.windowsection:AddSlider("Glow Intensity", 0, S.windowglowintensitymax, S.windowglowintensity, "%", function(value)
+		S.windowglowintensity = value
+		S.applywindowglow()
+		S.requestconfigautosave()
+	end)
+	S.windowglowsizecontrol = S.windowsection:AddSlider("Glow Size", 0, S.windowglowsizemax, S.windowglowsize, "px", function(value)
+		S.windowglowsize = value
+		S.applywindowglow()
+		S.requestconfigautosave()
+	end)
+	S.uitransparencycontrol = S.windowsection:AddSlider("Transparency", 0, 90, S.initialtransparency, "%", function(value)
+		S.applyuitransparency(value)
+		S.requestconfigautosave()
+	end)
 
-S.maincolorpicker = S.themessection:AddColorPicker(
-	"Main color",
-	S.theme.main,
-	function(color, alpha)
+	S.themeselector = S.themessection:AddDropdown("Theme", S.themeoptions, S.selectedtheme, function(name)
+		if S.settheme(name, true) then S.requestconfigautosave() end
+	end, nil, { dividers = { Snow = "Light themes" }, colors = S.themecolors })
+	S.maincolorpicker = S.themessection:AddColorPicker("Main color", S.theme.main, function(color, alpha)
 		S.applymaincolor(color, false)
 		S.applymainalpha(alpha)
-		S.saveuisettings()
-	end
-)
-
-S.maincolorpicker.propagate = S.maincolorpicker.callback
-S.maincolorpicker.callback = nil
-S.maincolorpicker.onpersist = S.saveuisettings
-S.maincolorpicker:Set(S.theme.main, S.theme.mainAlpha, false)
-
-S.highlightpicker = S.themessection:AddColorPicker(
-	"Highlight",
-	S.theme.highlight,
-	function(color, alpha)
+		S.requestconfigautosave()
+	end)
+	S.highlightpicker = S.themessection:AddColorPicker("Highlight", S.theme.highlight, function(color, alpha)
 		S.applyhighlight(color, alpha, false)
-		S.saveuisettings()
-	end
-)
-S.highlightpicker.propagate = S.highlightpicker.callback
-S.highlightpicker.callback = nil
-S.highlightpicker.onpersist = S.saveuisettings
-S.highlightpicker:Set(S.theme.highlight, S.theme.highlightAlpha, false)
-
-S.accentpicker = S.themessection:AddColorPicker("Accent", S.theme.white, function(color, alpha)
-	if S.autobackgroundcolors and not S.loadingsettings then
-		S.autobackgroundcolors = false
-		S.backgroundautobase = nil
-		if S.backgroundautocolorcontrol then S.backgroundautocolorcontrol:Set(false, false) end
-	end
-	S.applytheme(
-		S.theme.window,
-		color,
-		S.theme.backgroundAlpha,
-		alpha,
-		S.theme.font,
-		S.theme.fontAlpha
-	)
-	S.saveuisettings()
-end)
-
-S.accentpicker.propagate = S.accentpicker.callback
-S.accentpicker.callback = nil
-S.accentpicker.onpersist = S.saveuisettings
-
-S.backgroundpicker = S.themessection:AddColorPicker(
-	"Background",
-	S.theme.window,
-	function(color, alpha)
-		if S.autobackgroundcolors and not S.loadingsettings then
-			S.autobackgroundcolors = false
-			S.backgroundautobase = nil
-			if S.backgroundautocolorcontrol then S.backgroundautocolorcontrol:Set(false, false) end
-		end
-		S.applytheme(
-			color,
-			S.theme.white,
-			alpha,
-			S.theme.accentAlpha,
-			S.theme.font,
-			S.theme.fontAlpha
-		)
-		S.saveuisettings()
-	end
-)
-
-S.backgroundpicker.propagate = S.backgroundpicker.callback
-S.backgroundpicker.callback = nil
-S.backgroundpicker.onpersist = S.saveuisettings
-
-S.fontpicker = S.themessection:AddColorPicker("Font color", S.theme.font, function(color, alpha)
-	if S.autobackgroundcolors and not S.loadingsettings then
-		S.autobackgroundcolors = false
-		S.backgroundautobase = nil
-		if S.backgroundautocolorcontrol then S.backgroundautocolorcontrol:Set(false, false) end
-	end
-	S.applytheme(
-		S.theme.window,
-		S.theme.white,
-		S.theme.backgroundAlpha,
-		S.theme.accentAlpha,
-		color,
-		alpha
-	)
-	S.saveuisettings()
-end)
-
-S.fontpicker.propagate = S.fontpicker.callback
-S.fontpicker.callback = nil
-S.fontpicker.onpersist = S.saveuisettings
-
-S.secondarytextpicker = S.themessection:AddColorPicker(
-	"Secondary Text",
-	S.secondarytextoverride or S.theme.text3,
-	function(color, alpha)
+		S.requestconfigautosave()
+	end)
+	S.accentpicker = S.themessection:AddColorPicker("Accent", S.theme.white, function(color, alpha)
+		S.applytheme(S.theme.window, color, S.theme.backgroundAlpha, alpha, S.theme.font, S.theme.fontAlpha, false)
+		S.requestconfigautosave()
+	end)
+	S.backgroundpicker = S.themessection:AddColorPicker("Background", S.theme.window, function(color, alpha)
+		S.applytheme(color, S.theme.white, alpha, S.theme.accentAlpha, S.theme.font, S.theme.fontAlpha, false)
+		S.requestconfigautosave()
+	end)
+	S.fontpicker = S.themessection:AddColorPicker("Font color", S.theme.font, function(color, alpha)
+		S.applytheme(S.theme.window, S.theme.white, S.theme.backgroundAlpha, S.theme.accentAlpha, color, alpha, false)
+		S.requestconfigautosave()
+	end)
+	S.secondarytextpicker = S.themessection:AddColorPicker("Secondary Text", S.secondarytextoverride or S.theme.text3, function(color, alpha)
 		S.secondarytextoverride = color
 		S.theme.text3 = color
 		S.indexthemecolors()
 		S.applythemerole("text3", false)
 		S.applysecondarytextalpha(alpha)
-		S.saveuisettings()
-	end
-)
-S.secondarytextpicker.propagate = S.secondarytextpicker.callback
-S.secondarytextpicker.callback = nil
-S.secondarytextpicker.onpersist = S.saveuisettings
-S.secondarytextpicker:Set(S.secondarytextoverride or S.theme.text3, S.secondarytextalpha, false)
-
-S.themessection:AddDivider("Theme Files")
-S.themefileinput = S.themessection:AddInput(
-	"Theme name",
-	S.selectedthemesave,
-	"name",
-	function(value) S.themefileinput.Text = S.sanitizefilename(value) end
-)
-
-S.themfileselector = S.themessection:AddDropdown("Saved themes", { "None" }, "None", function(name)
-	if name ~= "None" then
-		S.selectedthemesave = S.sanitizefilename(name)
-		S.themefileinput.Text = S.selectedthemesave
-		S.saveuisettings(true)
-	end
-end, nil, { searchable = true })
-
-S.refreshthemefiles(S.selectedthemesave)
-
-S.themefileactions = S.themessection:AddRow(8, 32)
-
-S.themefileactions:AddButton("Load", function(name7, ok)
-	name7 = S.themfileselector:Get()
-	ok = S.loadthemefile(name7)
-	S.notify(
-		ok and "Loaded" or "Unavailable",
-		ok and "Theme loaded." or "Select a saved theme.",
-		2.4,
-		nil,
-		nil,
-		S.icons.palette
-	)
-end)
-
-S.themefileactions:AddButton("Save", function(ok)
-	ok = S.savethemefile(S.themefileinput.Text)
-	S.notify(
-		ok and "Saved" or "Invalid name",
-		ok and "Theme saved." or "Enter a valid theme name.",
-		2.4,
-		nil,
-		nil,
-		S.icons.palette
-	)
-end)
-
-S.themessection:AddButton("Delete", function(name8, ok)
-	name8 = S.themfileselector:Get()
-	ok = S.deletethemefile(name8)
-	S.notify(
-		ok and "Deleted" or "Unavailable",
-		ok and "Theme file deleted." or "Select a saved theme.",
-		2.4,
-		nil,
-		nil,
-		S.icons.wrench
-	)
-end)
-
-S.backgroundimagesection = S.createsection(S.settings, "right", "Background Image", S.icons.image)
-
-S.backgroundimageinput = S.backgroundimagesection:AddInput(
-	"Source",
-	S.backgroundimagesource,
-	"URL, file path or asset id",
-	function(value) S.backgroundimageinput.Text = S.trimbackgroundsource(value) end
-)
-
-S.backgroundimageopacitycontrol = S.backgroundimagesection:AddSlider(
-	"Image opacity",
-	0,
-	100,
-	S.backgroundimageopacity,
-	"%",
-	function(value)
-		S.setbackgroundimageopacity(value, true)
-		S.saveuisettings()
-	end
-)
-
-S.backgroundimageblurcontrol = S.backgroundimagesection:AddSlider(
-	"Image blur",
-	0,
-	S.backgroundimageblurmax,
-	math.round(S.backgroundimageblur),
-	" px",
-	function(value, rounded)
-		rounded = math.round(value)
-		if S.backgroundimageblurcontrol and math.abs(value - rounded) > 0.001 then
-			S.backgroundimageblurcontrol:Set(rounded, false)
-		end
-		S.setbackgroundimageblur(rounded, true)
-		S.saveuisettings()
-	end
-)
-
-S.backgroundimageoptions = S.backgroundimagesection:AddRow(8, 24)
-
-S.backgroundexcludecontrol = S.backgroundimageoptions:AddToggle(
-	"Exclude sidebar",
-	S.backgroundexcludesidebar,
-	function(value)
-		S.setbackgroundexcludesidebar(value)
-		S.saveuisettings()
-	end
-)
-
-S.backgroundautocolorcontrol = nil
-
-S.backgroundimageactions = S.backgroundimagesection:AddRow(8, 32)
-
-S.backgroundapplytoken = 0
-
-function S.applybackgroundsource(source, token)
-	source = S.trimbackgroundsource(S.backgroundimageinput.Text)
-	S.backgroundimageinput.Text = source
-
-	S.backgroundapplytoken += 1
-	token = S.backgroundapplytoken
-
-	if source == "" then
-		S.clearbackgroundimage(true)
-		S.saveuisettings(true)
-		return
-	end
-
-	task.spawn(function(ok)
-		ok = S.loadbackgroundimage(source, true, false)
-		if token ~= S.backgroundapplytoken then return end
-
-		if ok then
-			S.backgroundimageinput.Text = source
-			S.saveuisettings(true)
-		end
+		S.requestconfigautosave()
 	end)
+
+	S.presetnameinput = S.presetsection:AddInput("Preset name", S.selectedpreset or "", "name", function(value)
+		S.presetnameinput.Text = S.sanitizefilename(value)
+	end)
+	S.presetselector = S.presetsection:AddDropdown("Saved presets", { "None" }, S.selectedpreset or "None", function(name)
+		if name ~= "None" then S.selectedpreset = name; S.presetnameinput.Text = name end
+	end, nil, { searchable = true })
+	S.presetsection:AddRow(8, 32):AddButton("Load", function()
+		local ok = S.loadpreset(S.presetselector:Get(), false)
+		if not ok then S.notify("Unavailable", "Select a saved preset.", 2.4, nil, nil, S.icons.save) end
+	end)
+	S.presetsection:AddRow(8, 32):AddButton("Save", function()
+		local ok = S.savepreset(S.presetnameinput.Text)
+		S.notify(ok and "Saved" or "Invalid name", ok and "Preset saved." or "Enter a valid name.", 2.4, nil, nil, S.icons.save)
+	end)
+	S.presetsection:AddButton("Delete", function()
+		local ok = S.deletepreset(S.presetselector:Get())
+		S.notify(ok and "Deleted" or "Unavailable", ok and "Preset deleted." or "Select a saved preset.", 2.4, nil, nil, S.icons.save)
+	end)
+
+	
+	S.addpanelsettings(S.watermarksettingssection, S.panelthemes.Watermark, { { "Background", "popup" }, { "Text", "text" }, { "Secondary Text", "text3" }, { "Separator", "border" } }, S.watermarkglow)
+	S.addpanelsettings(S.keybindssection, S.panelthemes.Keybinds, { { "Background", "popup" }, { "Text", "text" }, { "Secondary Text", "text3" }, { "Accent", "white" } }, S.keybindglow)
+	S.restorepanels(S.savedpanels)
+	S.settingsready = true
+	S.loadingsettings = false
+	S.settings:reflowall(false)
+	S.syncsettingscontrols()
+	S.refreshpresetlist()
+	return S.settings
 end
 
-S.backgroundimageinput.FocusLost:Connect(function(enterpressed)
-	if enterpressed then S.applybackgroundsource() end
-end)
-
-S.backgroundimageactions:AddButton("Apply", S.applybackgroundsource)
-
-S.backgroundimageactions:AddButton("Clear", function()
-	S.backgroundimageinput.Text = ""
-	S.clearbackgroundimage(true)
-	S.saveuisettings(true)
-end)
-
-S.savessection = S.createsection(S.settings, "left", "Configs", S.icons.wrench)
-
-S.configinput = S.savessection:AddInput(
-	"Config name",
-	S.selectedconfig,
-	"name",
-	function(value) S.configinput.Text = S.sanitizefilename(value) end
-)
-
-S.configselector = S.savessection:AddDropdown("Saved configs", { "None" }, "None", function(name)
-	if name ~= "None" then
-		S.selectedconfig = S.sanitizefilename(name)
-		S.configinput.Text = S.selectedconfig
-		S.saveuisettings(true)
+function S.refreshpresetlist()
+	if S.presetselector then
+		local names = S.listpresetnames()
+		if #names == 0 then names = { "None" } end
+		S.presetselector:SetOptions(names, S.selectedpreset ~= "" and S.selectedpreset or "None")
 	end
-end, nil, { searchable = true })
+end
 
-S.refreshconfigfiles(S.selectedconfig)
-
-S.configactions = S.savessection:AddRow(8, 32)
-
-S.configactions:AddButton("Load", function(name9, ok)
-	name9 = S.configselector:Get()
-	ok = S.loadconfigfile(name9, true)
-	S.notify(
-		ok and "Loaded" or "Unavailable",
-		ok and "Configuration loaded." or "Select a saved config.",
-		2.4,
-		nil,
-		nil,
-		S.icons.settings
-	)
-end)
-
-S.configactions:AddButton("Save", function(ok)
-	ok = S.saveconfigfile(S.configinput.Text)
-	S.notify(
-		ok and "Saved" or "Invalid name",
-		ok and "Configuration saved." or "Enter a valid config name.",
-		2.4,
-		nil,
-		nil,
-		S.icons.settings
-	)
-end)
-
-S.savessection:AddButton("Delete", function(name10, ok)
-	name10 = S.configselector:Get()
-	ok = S.deleteconfigfile(name10)
-	S.notify(
-		ok and "Deleted" or "Unavailable",
-		ok and "Configuration file deleted." or "Select a saved config.",
-		2.4,
-		nil,
-		nil,
-		S.icons.wrench
-	)
-end)
-
-S.autosaveconfigcontrol = S.savessection:AddToggle(
-	"Auto save",
-	S.rawsavedsettings.autoSaveConfig == true,
-	function(value)
-		if value ~= true then S.cancelautosaves() end
-		S.saveuisettings(true)
-	end
-)
-
-function S.applysaveduisettings(
-	data,
-	silent,
-	wasloading,
-	loadedtransparency,
-	values,
-	enabled,
-	mode,
-	values2,
-	visible,
-	loadedimagesource,
-	loadedimageopacity,
-	loadedimageblur,
-	selectedtheme,
-	loadedbackground,
-	loadedaccent,
-	loadedfont,
-	loadedmain,
-	loadedhighlight,
-	loadedmainalpha,
-	loadedhighlightalpha,
-	loadedbackgroundalpha,
-	loadedaccentalpha,
-	loadedfontalpha
-)
-	if typeof(data) ~= "table" then return end
-
-	wasloading = S.loadingsettings
-	S.loadingsettings = true
-	S.loadpanelthemes(data.panelThemes)
-	S.secondarytextoverride = type(data.secondaryText) == "table"
-			and Color3.new(table.unpack(data.secondaryText))
-		or nil
-	S.secondarytextalpha = math.clamp(tonumber(data.secondaryTextAlpha) or 1, 0, 1)
-
-	loadedtransparency = math.clamp(tonumber(data.uiTransparency) or 0, 0, 90)
-
-	if S.uitransparencycontrol then S.uitransparencycontrol:Set(loadedtransparency, false) end
-
-	S.applyuitransparency(loadedtransparency)
-
-	if S.watermarktoggle then S.watermarktoggle:Set(data.watermark == true, true) end
-
-	if type(data.watermarkInfo) == "table" then
-		S.watermarkconfig.Player = data.watermarkInfo.Player ~= false
-
-		S.watermarkconfig.FPS = data.watermarkInfo.FPS ~= false
-
-		S.watermarkconfig.Ping = data.watermarkInfo.Ping ~= false
-
-		S.watermarkconfig.Time = data.watermarkInfo.Time ~= false
-		S.watermarkconfig.Game = data.watermarkInfo.Game ~= false
-
-		S.watermarkconfig.PlayerMode = S.normalizewatermarkplayermode(
-			data.watermarkInfo.PlayerMode or S.watermarkconfig.PlayerMode
-		)
-	end
-
-	if S.watermarkinfocontrol then
-		values = {}
-
-		for _, item in ipairs({ "Player", "Fps", "Ping", "Time", "Game" }) do
-			enabled = item == "Fps" and S.watermarkconfig.FPS or S.watermarkconfig[item]
-
-			if enabled then table.insert(values, item) end
-		end
-
-		S.watermarkinfocontrol:Set(values, false)
-	end
-
-	if S.watermarkplayermodecontrol then
-		mode = S.normalizewatermarkplayermode(S.watermarkconfig.PlayerMode)
-		values2 = {}
-		if mode == "Display" or mode == "Both" then values2[#values2 + 1] = "Display" end
-		if mode == "Username" or mode == "Both" then values2[#values2 + 1] = "Username" end
-		S.watermarkplayermodecontrol:Set(values2, false)
-	end
-
-	S.updatewatermarklayout()
-
-	if S.animationtoggle then S.animationtoggle:Set(data.animations ~= false, true) end
-
-	if S.searchtoggle then S.searchtoggle:Set(data.searchCurrentPage ~= false, true) end
-
-	if S.notificationtoggle then S.notificationtoggle:Set(data.notifications ~= false, true) end
-
-	if S.hotkeylisttoggle then
-		visible = data.hotkeyList == true or data.checkboxList == true
-
-		S.hotkeylisttoggle:Set(visible, true)
-		S.sethotkeylistvisible(visible)
-	end
-
-	if S.autosaveconfigcontrol and data.autoSaveConfig ~= nil then
-		S.autosaveconfigcontrol:Set(data.autoSaveConfig == true, false)
-		if data.autoSaveConfig ~= true then S.cancelautosaves() end
-	end
-
-	S.backgroundexcludesidebar = data.backgroundImageExcludeSidebar == true
-	S.autobackgroundcolors = false
+function S.initializeStorageState()
+	local data = S.readuisettingsfile()
+	S.rawsavedsettings = data
+	S.pendingcontrolvalues = type(data.controls) == "table" and data.controls or {}
+	S.selectedpreset = S.sanitizefilename(data.selectedPreset or data.selectedConfig or "")
+	-- AutoSave is controlled only by the caller, never by a loaded preset.
+	S.animationsenabled = data.animations ~= false
+	S.searchenabled = data.search ~= false and data.searchCurrentPage ~= false
+	S.notificationsenabled = data.notifications ~= false
 	S.topnavigationenabled = data.topNavigation == true
-
-	if S.backgroundexcludecontrol then
-		S.backgroundexcludecontrol:Set(S.backgroundexcludesidebar, false)
-	end
-	if S.backgroundautocolorcontrol then
-		S.backgroundautocolorcontrol:Set(S.autobackgroundcolors, false)
-	end
-	if S.topnavigationtoggle then S.topnavigationtoggle:Set(S.topnavigationenabled, false) end
-
+	S.initialtransparency = math.clamp(tonumber(data.uiTransparency) or 0, 0, 90)
+	S.menukey = S.keyfromname(data.menuKey) or S.menukey or Enum.KeyCode.RightShift
+	S.setkeybindblacklist(type(data.keybindBlacklist) == "table" and data.keybindBlacklist or S.keybindblacklistdefaults)
+	S.watermarkconfig = S.watermarkconfig or { DisplayName = true, Username = false, FPS = true, Ping = true, Time = true, Game = true }
+	local watermarkInfo = type(data.watermarkInfo) == "table" and data.watermarkInfo or {}
+	S.watermarkconfig.DisplayName = watermarkInfo.DisplayName ~= false
+	S.watermarkconfig.Username = watermarkInfo.Username == true
+	S.watermarkconfig.FPS = watermarkInfo.FPS ~= false
+	S.watermarkconfig.Ping = watermarkInfo.Ping ~= false
+	S.watermarkconfig.Time = watermarkInfo.Time ~= false
+	S.watermarkconfig.Game = watermarkInfo.Game ~= false
 	S.windowglowenabled = data.windowGlow ~= false
-	S.windowglowintensity =
-		math.clamp(tonumber(data.windowGlowIntensity) or 16, 0, S.windowglowintensitymax)
+	S.windowglowintensity = math.clamp(tonumber(data.windowGlowIntensity) or 16, 0, S.windowglowintensitymax)
 	S.windowglowsize = math.clamp(tonumber(data.windowGlowSize) or 10, 0, S.windowglowsizemax)
 	S.windowglowcolor = S.decodecolor(data.windowGlowColor) or S.theme.white
 	S.windowglowcustom = data.windowGlowColor ~= nil
-	S.windowglowalpha = math.clamp(tonumber(data.windowGlowAlpha) or S.windowglowalpha or 1, 0, 1)
+	S.windowglowalpha = math.clamp(tonumber(data.windowGlowAlpha) or 1, 0, 1)
 	S.windowglowrenderalpha = S.windowglowalpha
-
-	if S.windowglowtoggle then S.windowglowtoggle:Set(S.windowglowenabled, false) end
-	if S.refreshsettingsdependencies then S.refreshsettingsdependencies(false) end
-	if S.windowglowintensitycontrol then
-		S.windowglowintensitycontrol:Set(S.windowglowintensity, false)
-	end
-	if S.windowglowsizecontrol then S.windowglowsizecontrol:Set(S.windowglowsize, false) end
-	if S.windowglowcolorpicker then
-		S.windowglowcolorpicker:Set(S.windowglowcolor, S.windowglowalpha, false)
-
-		S.windowglowrenderalpha = S.windowglowcolorpicker:currentalpha()
-	end
-
-	S.applywindowglow()
-	S.setbackgroundexcludesidebar(S.backgroundexcludesidebar)
-	if S.applytopnavigation then S.applytopnavigation(S.topnavigationenabled, false) end
-
-	loadedimagesource = type(data.backgroundImageSource) == "string" and data.backgroundImageSource
-		or ""
-	loadedimageopacity = math.clamp(tonumber(data.backgroundImageOpacity) or 65, 0, 100)
-	loadedimageblur =
-		math.clamp(tonumber(data.backgroundImageBlur) or 0, 0, S.backgroundimageblurmax)
-
-	S.backgroundimagesource = loadedimagesource
-	S.setbackgroundimagemode("Crop")
-	S.setbackgroundimageopacity(loadedimageopacity, false)
-	S.setbackgroundimageblur(loadedimageblur, false)
-
-	if S.backgroundimageinput then S.backgroundimageinput.Text = loadedimagesource end
-	if S.backgroundimageopacitycontrol then
-		S.backgroundimageopacitycontrol:Set(loadedimageopacity, false)
-	end
-	if S.backgroundimageblurcontrol then
-		S.backgroundimageblurcontrol:Set(loadedimageblur, false)
-	end
-
-	S.setkeybindblacklist(
-		type(data.keybindBlacklist) == "table" and data.keybindBlacklist
-			or S.keybindblacklistdefaults
-	)
-
-	if S.keybindblacklistcontrol then
-		S.keybindblacklistcontrol:Set(S.getkeybindblacklistlabels(), false)
-	end
-
-	if S.menukeypicker then
-		S.menukeypicker:Set(S.keyfromname(data.menuKey) or Enum.KeyCode.RightShift, true)
-	end
-
-	selectedtheme = type(data.theme) == "string" and data.theme or "Default"
-
-	if selectedtheme == "Monochrome" or selectedtheme == "OLED" or selectedtheme == "Black" then
-		selectedtheme = "Default"
-	elseif selectedtheme == "Graphite" then
-		selectedtheme = "Dark"
-	end
-
-	if S.themepresets[selectedtheme] then
-		S.themeselector:Set(selectedtheme, true)
-	else
-		S.themeselector:Set("Default", true)
-	end
-
-	loadedbackground = S.decodecolor(data.background) or S.theme.window
-	loadedaccent = S.decodecolor(data.accent) or S.theme.white
-	loadedfont = S.decodecolor(data.font) or S.theme.font
-	loadedmain = S.decodecolor(data.main)
-		or S.buildtheme(loadedbackground, loadedaccent, loadedfont, nil).main
-	loadedhighlight = S.decodecolor(data.highlight) or loadedaccent
-	loadedmainalpha = math.clamp(tonumber(data.mainAlpha) or 1, 0, 1)
-	loadedhighlightalpha = math.clamp(tonumber(data.highlightAlpha) or 1, 0, 1)
-	loadedbackgroundalpha = math.clamp(tonumber(data.backgroundAlpha) or 1, 0, 1)
-	loadedaccentalpha = math.clamp(tonumber(data.accentAlpha) or 1, 0, 1)
-	loadedfontalpha = math.clamp(tonumber(data.fontAlpha) or 1, 0, 1)
-
-	S.applytheme(
-		loadedbackground,
-		loadedaccent,
-		loadedbackgroundalpha,
-		loadedaccentalpha,
-		loadedfont,
-		loadedfontalpha,
-		false
-	)
-
-	S.applymaincolor(loadedmain, false)
-	S.applymainalpha(loadedmainalpha)
-	S.applyhighlight(loadedhighlight, loadedhighlightalpha, false)
-	S.accentpicker:Set(loadedaccent, loadedaccentalpha, false)
-	S.backgroundpicker:Set(loadedbackground, loadedbackgroundalpha, false)
-	if S.maincolorpicker then S.maincolorpicker:Set(loadedmain, loadedmainalpha, false) end
-	if S.highlightpicker then
-		S.highlightpicker:Set(loadedhighlight, loadedhighlightalpha, false)
-	end
-	S.fontpicker:Set(loadedfont, loadedfontalpha, false)
-	if S.secondarytextpicker then
-		S.secondarytextpicker:Set(S.theme.text3, S.secondarytextalpha, false)
-	end
-	S.applysecondarytextalpha(S.secondarytextalpha)
-
-	S.syncwindowglowcolor(false)
-
-	if S.windowglowcolorpicker then
-		S.windowglowcolorpicker:Set(S.theme.white, S.windowglowalpha, false)
-
-		S.windowglowrenderalpha = S.windowglowcolorpicker:currentalpha()
-	end
-
-	S.syncwindowglowcolor(false)
-
-	S.backgroundpalette = nil
-	if loadedimagesource ~= "" then
-		task.spawn(function() S.loadbackgroundimage(loadedimagesource, false, true) end)
-	else
-		S.clearbackgroundimage(false)
-	end
-
-	S.loadingsettings = wasloading
-
-	if not silent then
-		S.notify("Loaded", "Interface configuration loaded.", 2.5, nil, nil, S.icons.settings)
-	end
-end
-
-S.savedtheme = "Default"
-
-S.themeselector:Set("Default", false)
-
-do
-	S.preset = S.themepresets.Default
-
-	S.applytheme(S.preset.background, S.preset.accent, 1, 1, S.preset.font, 1, false)
-	S.applymaincolor(
-		S.preset.main or S.buildtheme(S.preset.background, S.preset.accent, S.preset.font, nil).main,
-		false
-	)
+	S.selectedtheme = type(data.theme) == "string" and S.themepresets[data.theme] and data.theme or "Default"
+	local preset = S.themepresets[S.selectedtheme]
+	S.applytheme(preset.background, preset.accent, 1, 1, preset.font, 1, false)
+	S.applymaincolor(preset.main or S.buildtheme(preset.background, preset.accent, preset.font).main, false)
 	S.applymainalpha(1)
-	S.applyhighlight(S.preset.highlight or S.preset.accent, 1, false)
-	if S.maincolorpicker then S.maincolorpicker:Set(S.theme.main, 1, false) end
-	if S.highlightpicker then S.highlightpicker:Set(S.theme.highlight, 1, false) end
-
-	S.accentpicker:Set(S.preset.accent, 1, false)
-	S.backgroundpicker:Set(S.preset.background, 1, false)
-	S.fontpicker:Set(S.preset.font, 1, false)
+	S.applyhighlight(preset.highlight or preset.accent, 1, false)
+	S.applyuitransparency(S.initialtransparency)
+	S.applywindowglow()
+	if data.keybindValues and S.applykeybindpayload then S.applykeybindpayload(data.keybindValues) end
 end
 
-if S.backgroundimagesource ~= "" then
-	task.spawn(function() S.loadbackgroundimage(S.backgroundimagesource, false, true) end)
-end
 
-S.loadingsettings = false
-
-S.__blush_visibility_busy = false
-S.__blush_visibility_token = 0
-S.__blush_windowvisible = true
-S.__blush_fadeanimations = {}
-
-function S.cancelreopenanimations()
-	for _, animation in ipairs(S.__blush_reopenanimations or {}) do
-		animation:Cancel()
-	end
-
-	S.__blush_reopenanimations = {}
-end
-
-function S.animatereopenbutton(
-	show,
-	token,
-	normalbackground,
-	normaltext,
-	normalstroke,
-	normalshadow,
-	info,
-	targets,
-	primary,
-	animation
-)
-	S.cancelreopenanimations()
-	S.__blush_reopen_fading = true
-	S.reopenbutton.Active = false
-
-	normalbackground = S.effectivetransparency(0.04, "window")
-	normaltext = S.effectivefontalpha(0)
-	normalstroke = 0.62
-	normalshadow = 0.58
-
-	if show then
-		S.reopengui.Enabled = true
-		S.reopenbutton.BackgroundTransparency = 1
-		S.reopenlabel.TextTransparency = 1
-		S.reopenarrow.ImageTransparency = 1
-
-		if S.reopenstroke then S.reopenstroke.Transparency = 1 end
-
-		if S.reopenshadow then S.reopenshadow.Transparency = 1 end
-	end
-
-	info = S.dropti
-
-	targets = {
-		{ S.reopenbutton, { BackgroundTransparency = show and normalbackground or 1 } },
-		{ S.reopenlabel, { TextTransparency = show and normaltext or 1 } },
-	}
-
-	if S.reopenstroke then
-		targets[#targets + 1] = {
-			S.reopenstroke,
-			{ Transparency = show and normalstroke or 1 },
-		}
-	end
-
-	if S.reopenshadow then
-		targets[#targets + 1] = {
-			S.reopenshadow,
-			{ Transparency = show and normalshadow or 1 },
-		}
-	end
-
-	if not S.animationsenabled then
-		for _, entry in ipairs(targets) do
-			if entry[1] and entry[1].Parent then
-				for property, value in pairs(entry[2]) do
-					entry[1][property] = value
-				end
-			end
-		end
-
-		S.__blush_reopen_fading = false
-		if show then
-			S.reopenbutton.Active = true
-		else
-			S.reopengui.Enabled = false
-		end
-		return
-	end
-
-	primary = nil
-	for _, entry in ipairs(targets) do
-		if entry[1] and entry[1].Parent then
-			animation = S.tweenservice:Create(entry[1], info, entry[2])
-			S.__blush_reopenanimations[#S.__blush_reopenanimations + 1] = animation
-			primary = primary or animation
-			animation:Play()
-		end
-	end
-
-	if not primary then
-		S.__blush_reopen_fading = false
-		S.reopengui.Enabled = show
-		S.reopenbutton.Active = show
-		return
-	end
-
-	primary.Completed:Connect(function()
-		if S.__blush_visibility_token ~= token then return end
-
-		S.__blush_reopen_fading = false
-
-		if show then
-			S.reopenbutton.Active = true
-		else
-			S.reopengui.Enabled = false
-		end
-	end)
-end
-
-function S.cancelvisibilityanimations()
-	for _, animation in ipairs(S.__blush_fadeanimations or {}) do
-		animation:Cancel()
-	end
-
-	S.__blush_fadeanimations = {}
-end
 
 function S.setvisibilityrootsvisible(value)
-	if S.shell and S.shell.Parent then S.shell.Visible = value end
-
+	if S.shell and S.shell.Parent then S.shell.Visible = value == true end
 end
 
-function S.playvisibilityfade(
-	show,
-	token,
-	info,
-	roots,
-	extras,
-	base,
-	base2,
-	object11,
-	object12,
-	primary,
-	object13,
-	target,
-	animation,
-	object14,
-	target3,
-	animation6,
-	finish
-)
-	S.__blush_windowvisible = show
-
-	if S.modalguard and S.modalguard.Parent then S.modalguard.Visible = show end
-
-	if show then
-		S.setvisibilityrootsvisible(true)
-		S.animatereopenbutton(false, token)
-	else
-		S.reopengui.Enabled = false
-	end
-
-	S.cancelvisibilityanimations()
-
-	info = S.dropti
-
-	roots = {
-		{ S.window, show and 0 or 1 },
-	}
-
-	extras = {}
-
-	if S.windowstroke and S.windowstroke.Parent then
-		extras[#extras + 1] = {
-			S.windowstroke,
-			show and 0.76 or 1,
-		}
-	end
-
-	if S.windowshadow and S.windowshadow.Parent then
-		base = S.windowshadowenabled
-				and (S.windowshadow:GetAttribute("BlushBaseTransparency") or 0.40)
-			or 1
-
-		extras[#extras + 1] = {
-			S.windowshadow,
-			show and base or 1,
-		}
-	end
-
-	if S.windowglow and S.windowglow.Parent then
-		base2 = S.windowglowenabled
-				and (S.windowglow:GetAttribute("BlushBaseTransparency") or S.windowglow.Transparency)
-			or 1
-
-		extras[#extras + 1] = {
-			S.windowglow,
-			show and base2 or 1,
-		}
-	end
-
-	if not S.animationsenabled then
-		for _, entry in ipairs(roots) do
-			object11 = entry[1]
-			if object11 and object11.Parent then object11.GroupTransparency = entry[2] end
-		end
-
-		for _, entry in ipairs(extras) do
-			object12 = entry[1]
-			if object12 and object12.Parent then object12.Transparency = entry[2] end
-		end
-
-		if show then
-			S.setvisibilityrootsvisible(true)
-		else
-			S.setvisibilityrootsvisible(false)
-			S.animatereopenbutton(true, token)
-		end
-
-		S.__blush_visibility_busy = false
-		return
-	end
-
-	primary = nil
-
-	for _, entry in ipairs(roots) do
-		object13 = entry[1]
-		target = entry[2]
-
-		if object13 and object13.Parent then
-			animation = S.tweenservice:Create(object13, info, { GroupTransparency = target })
-
-			table.insert(S.__blush_fadeanimations, animation)
-			primary = primary or animation
-			animation:Play()
-		end
-	end
-
-	for _, entry in ipairs(extras) do
-		object14 = entry[1]
-		target3 = entry[2]
-
-		if object14 and object14.Parent then
-			animation6 = S.tweenservice:Create(object14, info, { Transparency = target3 })
-
-			table.insert(S.__blush_fadeanimations, animation6)
-			primary = primary or animation6
-			animation6:Play()
-		end
-	end
-
-	finish = function(object15, object16)
-		if S.__blush_visibility_token ~= token then return end
-
-		for _, entry in ipairs(roots) do
-			object15 = entry[1]
-			if object15 and object15.Parent then object15.GroupTransparency = entry[2] end
-		end
-
-		for _, entry in ipairs(extras) do
-			object16 = entry[1]
-			if object16 and object16.Parent then object16.Transparency = entry[2] end
-		end
-
-		if show then
-			S.setvisibilityrootsvisible(true)
-		else
-			S.setvisibilityrootsvisible(false)
-			S.animatereopenbutton(true, token)
-		end
-
-		S.__blush_visibility_busy = false
-		S.__blush_fadeanimations = {}
-	end
-
-	if primary then
-		primary.Completed:Connect(finish)
-	else
-		finish()
-	end
-end
-
-function S.requestvisibilitytoggle(target, show, token)
-	show = target == nil and not S.__blush_windowvisible or target == true
-
+function S.requestvisibilitytoggle(target)
+	local show = target == nil and not S.__blush_windowvisible or target == true
 	if show == S.__blush_windowvisible and not S.__blush_visibility_busy then return end
-
 	S.__blush_visibility_busy = true
-	S.__blush_visibility_token += 1
-
-	token = S.__blush_visibility_token
+	S.__blush_visibility_token = (S.__blush_visibility_token or 0) + 1
+	local token = S.__blush_visibility_token
 	S.closepopup()
 	S.closemodal()
-	S.playvisibilityfade(show, token)
+	S.__blush_windowvisible = show
+	local window = S.window
+	local finish = function()
+		if not S.alive or token ~= S.__blush_visibility_token then return end
+		if window and window.Parent then window.GroupTransparency = show and 0 or 1 end
+		S.setvisibilityrootsvisible(show)
+		S.__blush_visibility_busy = false
+	end
+	S.modalguard.Modal = show
+	S.modalguard.Visible = show
+	if not S.animationsenabled or not window or not window.Parent then finish(); return end
+	window.Visible = true
+	if show then S.setvisibilityrootsvisible(true) end
+	S.modalguard.Modal = show
+	S.modalguard.Visible = show
+	local animation = S.tween(window, { GroupTransparency = show and 0 or 1 }, S.dropti, true)
+	if animation then animation.Completed:Once(finish) else finish() end
 end
 
 function S.refreshmenukeybinding()
 	S.contextactionservice:UnbindAction("__blush_menu_key")
-
 	if S.menukey ~= Enum.KeyCode.Tab then return end
-
 	S.contextactionservice:BindActionAtPriority("__blush_menu_key", function(_, inputstate)
-		if
-			inputstate == Enum.UserInputState.Begin
-			and not S.keypickercapturing
-			and S.keypickersuppress ~= S.menukey
-		then
+		if inputstate == Enum.UserInputState.Begin and not S.keypickercapturing and S.keypickersuppress ~= S.menukey then
 			S.requestvisibilitytoggle()
 		end
-
 		return Enum.ContextActionResult.Sink
 	end, false, Enum.ContextActionPriority.High.Value + 1000, Enum.KeyCode.Tab)
 end
 
 S.connect(S.uis.InputBegan, function(input)
-	if
-		S.menukey == Enum.KeyCode.Tab
-		or S.keypickercapturing
-		or S.bindingmatchesinput(S.keypickersuppress, input)
-	then
-		return
-	end
-
+	if S.menukey == Enum.KeyCode.Tab or S.keypickercapturing or S.bindingmatchesinput(S.keypickersuppress, input) then return end
 	if S.bindingmatchesinput(S.menukey, input) then S.requestvisibilitytoggle() end
 end)
 
-S.refreshmenukeybinding()
 
 -- search
 
@@ -18888,1402 +15176,231 @@ end
 
 S.search:GetPropertyChangedSignal("Text"):Connect(S.applysearch)
 
--- navigation
-
-S.__blush_reorderanimations = setmetatable({}, {
-	__mode = "k",
-})
-
-function S.clearreorderanimation(button, data)
-	data = S.__blush_reorderanimations[button]
-	if not data then return end
-
-	S.__blush_reorderanimations[button] = nil
-
-	if data.animation then data.animation:Cancel() end
-
-	if data.hidden then S.restorefromghost(data.hidden) end
-
-	if data.ghost and data.ghost.Parent then data.ghost:Destroy() end
-end
-
-function S.animatereorder(oldpositions, items, skipbutton, animatebutton)
-	animatebutton = function(button, oldposition, newposition, ghost, hidden, animation, finish)
-		if button == skipbutton or not button or not button.Parent or not oldpositions[button] then
-			return true
-		end
-
-		oldposition = oldpositions[button]
-		newposition = button.AbsolutePosition
-
-		if (newposition - oldposition).Magnitude <= 1 then return false end
-
-		S.clearreorderanimation(button)
-
-		ghost = S.makedragghost(button, 465)
-
-		if not ghost then return true end
-
-		ghost.Position = UDim2.fromOffset(
-			oldposition.X - S.draglayer.AbsolutePosition.X,
-			oldposition.Y - S.draglayer.AbsolutePosition.Y
-		)
-
-		hidden = S.hideforghost(button)
-
-		animation = S.tween(ghost, {
-			Position = UDim2.fromOffset(
-				newposition.X - S.draglayer.AbsolutePosition.X,
-				newposition.Y - S.draglayer.AbsolutePosition.Y
-			),
-		}, S.quart24)
-
-		S.__blush_reorderanimations[button] = {
-			ghost = ghost,
-			hidden = hidden,
-			animation = animation,
-		}
-
-		finish = function(current)
-			current = S.__blush_reorderanimations[button]
-
-			if not current or current.ghost ~= ghost then return end
-
-			S.clearreorderanimation(button)
-		end
-
-		if animation then
-			animation.Completed:Connect(finish)
-		else
-			finish()
-		end
-
-		return true
-	end
-
-	for _, button, iteration9 in S.scopediterator(2, ipairs(items or {})) do
-		if not animatebutton(button) and button and button.Parent then
-			iteration9.changed = nil
-			iteration9.destroying = nil
-
-			iteration9.cleanup = function()
-				if iteration9.changed then
-					iteration9.changed:Disconnect()
-					iteration9.changed = nil
-				end
-
-				if iteration9.destroying then
-					iteration9.destroying:Disconnect()
-					iteration9.destroying = nil
-				end
-			end
-
-			iteration9.changed = button
-				:GetPropertyChangedSignal("AbsolutePosition")
-				:Connect(function()
-					if animatebutton(button) then iteration9.cleanup() end
-				end)
-
-			iteration9.destroying = button.Destroying:Connect(iteration9.cleanup)
-		end
-	end
-end
-
-function S.layoutnavcontent(button, textobject, iconobject, sub, textx)
-	if iconobject and iconobject.Parent then
-		iconobject.AnchorPoint = Vector2.new(0, 0.5)
-
-		iconobject.Position = UDim2.new(0, sub and 11 or 14, 0.5, 0)
-	end
-
-	textx = nil
-
-	if iconobject and iconobject.Parent then
-		textx = sub and 35 or 43
-	else
-		textx = sub and 11 or 14
-	end
-
-	textobject.Position = UDim2.fromOffset(textx, 0)
-
-	textobject.Size = UDim2.new(1, -textx - 8, 1, 0)
-end
-
-function S.navbutton(
-	parentobject,
-	name,
-	asset,
-	sub,
-	height,
-	button12,
-	indicator,
-	indicatorglow,
-	iconobject,
-	textobject
-)
-	height = sub and 30 or 40
-
-	button12 = S.new("TextButton", {
-		Parent = parentobject,
-
-		Size = UDim2.new(1, 0, 0, height),
-
-		BackgroundColor3 = S.theme.hover,
-
-		BackgroundTransparency = 1,
-		BorderSizePixel = 0,
-
-		Text = "",
-		AutoButtonColor = false,
-
-		ZIndex = 13,
-	}, { BackgroundColor3 = "hover" })
-
-	S.corner(button12, sub and 7 or 8)
-
-	indicator = nil
-	indicatorglow = nil
-
-	if not sub then
-		indicator = S.new("Frame", {
-			Name = "TabActiveIndicator",
-			Parent = button12,
-
-			AnchorPoint = Vector2.new(0, 0.5),
-
-			Position = UDim2.new(0, 4, 0.5, 0),
-
-			Size = UDim2.fromOffset(3, 20),
-
-			BackgroundColor3 = S.theme.highlight,
-
-			BackgroundTransparency = 1,
-			BorderSizePixel = 0,
-
-			ZIndex = 14,
-		}, { BackgroundColor3 = "highlight" })
-
-		S.corner(indicator, 999)
-		S.bindtheme(indicator, "BackgroundColor3", S.theme.highlight, "highlight")
-		indicator.BackgroundColor3 = S.theme.highlight
-
-		indicatorglow = nil
-	end
-
-	iconobject = nil
-
-	if asset ~= nil and tostring(asset) ~= "" then
-		iconobject = S.image(button12, asset, sub and 15 or 19, S.theme.text3, 14)
-	end
-
-	textobject = S.label(button12, name, UDim2.new(1, 0, 1, 0), S.font, S.theme.text3)
-
-	textobject.TextSize = sub and 16 or 17
-
-	textobject.ZIndex = 14
-
-	S.layoutnavcontent(button12, textobject, iconobject, sub)
-
-	return button12, textobject, indicator, iconobject, indicatorglow
-end
-
-function S.setnaventryicon(entry, asset)
-	if not entry or not entry.button or not entry.button.Parent then return nil end
-
-	if entry.icon and entry.icon.Parent then entry.icon:Destroy() end
-
-	entry.icon = nil
-
-	if asset ~= nil and tostring(asset) ~= "" then
-		entry.icon = S.image(
-			entry.button,
-			asset,
-			entry.sub and 15 or 19,
-			S.currentnav == entry.button and S.theme.text or S.theme.text3,
-			14
-		)
-	end
-
-	S.layoutnavcontent(entry.button, entry.text, entry.icon, entry.sub)
-
-	S.setsidebarentrycompact(entry, S.sidebarcompact, entry.sub)
-
-	return entry.icon
-end
-
-S.homebutton, S.hometext, S.homeindicator, S.homeicon, S.homeglow =
-	S.navbutton(S.maincontent, "Home", S.icons.home)
-
-S.combatbutton, S.combattext, S.combatindicator, S.combaticon, S.combatglow =
-	S.navbutton(S.maincontent, "Combat", S.icons.combat)
-
-S.subholder = S.new("Frame", {
-	Parent = S.maincontent,
-
-	Size = UDim2.new(1, 0, 0, 100),
-
-	BackgroundTransparency = 1,
-	ClipsDescendants = true,
-
-	ZIndex = 13,
-})
-
-S.sublist = S.new("Frame", {
-	Parent = S.subholder,
-
-	Position = UDim2.fromOffset(18, 3),
-
-	Size = UDim2.new(1, -22, 1, -6),
-
-	BackgroundTransparency = 1,
-	BorderSizePixel = 0,
-
-	ZIndex = 14,
-})
-
-S.sublistlayout = S.list(S.sublist, 3)
-
-S.mainbutton, S.maintext, S._, S.mainicon = S.navbutton(S.sublist, "Main", S.icons.target, true)
-
-S.visualbutton, S.visualtext, S._, S.visualicon =
-	S.navbutton(S.sublist, "Visuals", S.icons.visuals, true)
-
-S.extrasbutton, S.extrastext, S._, S.extrasicon =
-	S.navbutton(S.sublist, "Extras", S.icons.extras, true)
-
-S.topnavigation = S.new("Frame", {
-	Parent = S.header,
-	Position = UDim2.fromOffset(0, 0),
-	Size = UDim2.fromScale(1, 1),
-	BackgroundTransparency = 1,
-	BorderSizePixel = 0,
-	Visible = false,
-	ZIndex = 18,
-})
-
-S.topprimarybutton = S.new("TextButton", {
-	Parent = S.topnavigation,
-	AnchorPoint = Vector2.new(0, 0.5),
-	Position = UDim2.fromOffset(21, 31),
-	Size = UDim2.fromOffset(150, 38),
-	BackgroundTransparency = 1,
-	BorderSizePixel = 0,
-	Text = "Combat",
-	TextColor3 = S.theme.text,
-	Font = S.bold,
-	TextSize = 19,
-	TextXAlignment = Enum.TextXAlignment.Left,
-	AutoButtonColor = false,
-	Active = true,
-	ZIndex = 19,
-}, { TextColor3 = "text" })
-
-S.topsubholder = S.new("ScrollingFrame", {
-	CanvasSize = UDim2.new(),
-	AutomaticCanvasSize = Enum.AutomaticSize.X,
-	ScrollingDirection = Enum.ScrollingDirection.X,
-	ScrollBarThickness = 0,
-	Parent = S.topnavigation,
-	AnchorPoint = Vector2.new(0.5, 0.5),
-	Position = UDim2.new(0.5, -54, 0.5, 0),
-	Size = UDim2.fromOffset(172, 40),
-	BackgroundColor3 = S.theme.window,
-	BackgroundTransparency = 0.03,
-	BorderSizePixel = 0,
-	Visible = true,
-	ZIndex = 19,
-}, { BackgroundColor3 = "window" })
-S.corner(S.topsubholder, 999)
-S.stroke(S.topsubholder, 0.58, S.theme.border, 1)
-S.addshadow(
-	S.topsubholder,
-	"TopNavShadow",
-	0.976,
-	10,
-	0,
-	-1,
-	Color3.fromRGB(0, 0, 0),
-	UDim2.fromOffset(0, 2),
-	false
-)
-
-S.new("UIPadding", {
-	Parent = S.topsubholder,
-	PaddingLeft = UDim.new(0, 3),
-	PaddingRight = UDim.new(0, 3),
-	PaddingTop = UDim.new(0, 4),
-	PaddingBottom = UDim.new(0, 4),
-})
-
-S.topnavdivider = S.new("Frame", {
-	Parent = S.topnavigation,
-	AnchorPoint = Vector2.new(0.5, 1),
-	Position = UDim2.new(0.5, 0, 1, 0),
-	Size = UDim2.new(1, -28, 0, 1),
-	BackgroundColor3 = S.theme.border,
-	BackgroundTransparency = 0.72,
-	BorderSizePixel = 0,
-	Visible = false,
-	ZIndex = 19,
-}, { BackgroundColor3 = "border" })
-
-S.new("UIListLayout", {
-	Parent = S.topsubholder,
-	FillDirection = Enum.FillDirection.Horizontal,
-	HorizontalAlignment = Enum.HorizontalAlignment.Center,
-	VerticalAlignment = Enum.VerticalAlignment.Center,
-	Padding = UDim.new(0, 1),
-	SortOrder = Enum.SortOrder.LayoutOrder,
-})
-
+-- Navigation owns button state; group order follows the caller's declarations.
+S.naventries = {}
 S.topsubentries = {}
+S.tabgroups = {}
+S.navorder = 0
+S.currenttabgroup = nil
+S.subholder = S.new("Frame", { Parent = S.nav, Size = UDim2.new(1, 0, 0, 0), BackgroundTransparency = 1, BorderSizePixel = 0, ClipsDescendants = true, Visible = false, ZIndex = 13 })
+S.sublist = S.new("Frame", { Parent = S.subholder, Position = UDim2.fromOffset(18, 3), Size = UDim2.new(1, -22, 1, -6), BackgroundTransparency = 1, BorderSizePixel = 0, ZIndex = 14 })
+S.sublistlayout = S.list(S.sublist, 3)
+S.topnavigation = S.new("CanvasGroup", { Parent = S.header, Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, BorderSizePixel = 0, Visible = false, ZIndex = 18 })
+S.topprimarybutton = S.new("TextButton", { Parent = S.topnavigation, AnchorPoint = Vector2.new(0, 0.5), Position = UDim2.fromOffset(14, 31), Size = UDim2.fromOffset(120, 38), BackgroundTransparency = 1, BorderSizePixel = 0, Text = "", Font = S.bold, TextSize = 19, TextColor3 = S.theme.text, TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd, AutoButtonColor = false, ZIndex = 19 })
+S.topsubholder = S.new("ScrollingFrame", { Parent = S.topnavigation, AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromOffset(200, 31), Size = UDim2.fromOffset(120, 40), CanvasSize = UDim2.fromOffset(0, 0), AutomaticCanvasSize = Enum.AutomaticSize.None, ScrollingDirection = Enum.ScrollingDirection.X, ScrollBarThickness = 0, BackgroundTransparency = 1, BorderSizePixel = 0, ClipsDescendants = true, ZIndex = 19 })
 
-function S.createtopsub(name, asset, order, button13, activepill, iconobject, textobject, data)
-	button13 = S.new("TextButton", {
-		Parent = S.topsubholder,
-		Size = UDim2.fromOffset(40, 32),
-		BackgroundTransparency = 1,
-		BorderSizePixel = 0,
-		Text = "",
-		AutoButtonColor = false,
-		LayoutOrder = order,
-		ClipsDescendants = false,
-		ZIndex = 20,
-	})
-
-	activepill = S.new("Frame", {
-		Parent = button13,
-		AnchorPoint = Vector2.new(0.5, 0.5),
-		Position = UDim2.fromScale(0.5, 0.5),
-		Size = UDim2.new(1, 0, 1, 0),
-		BackgroundColor3 = S.theme.input,
-		BackgroundTransparency = 1,
-		BorderSizePixel = 0,
-		ZIndex = 20,
-	}, { BackgroundColor3 = "input" })
-	S.corner(activepill, 999)
-
-	iconobject = S.image(button13, asset, 17, S.theme.text3, 21)
-	iconobject.AnchorPoint = Vector2.new(0.5, 0.5)
-	iconobject.Position = UDim2.new(0.5, 0, 0.5, 0)
-
-	textobject = S.label(button13, name, UDim2.new(1, -36, 1, 0), S.medium, S.theme.text)
-	textobject.Position = UDim2.fromOffset(32, 0)
-	textobject.TextSize = 15
-	textobject.TextTransparency = 1
-	S.setfontalphabase(textobject, "TextTransparency", 1)
-	textobject.TextXAlignment = Enum.TextXAlignment.Left
-	textobject.ZIndex = 21
-
-	data = {
-		pill = activepill,
-		icon = iconobject,
-		text = textobject,
-		name = name,
-	}
-	S.topsubentries[button13] = data
-
-	button13.MouseEnter:Connect(function()
-		if data.text and data.text.TextTransparency < 0.99 then return end
-
-		S.tween(
-			iconobject,
-			{ ImageColor3 = S.theme.text2 },
-			S.hoverti,
-			nil,
-			{ ImageColor3 = "text2" }
-		)
-	end)
-
-	button13.MouseLeave:Connect(function()
-		if S.updatetopnavigationstate then S.updatetopnavigationstate(true) end
-	end)
-
-	return button13, iconobject, textobject
+function S.layoutnavcontent(button, label, icon, sub)
+	local inset = icon and (sub and 35 or 43) or (sub and 11 or 14)
+	if icon then icon.AnchorPoint = Vector2.new(0, 0.5); icon.Position = UDim2.new(0, sub and 11 or 14, 0.5, 0) end
+	label.Position = UDim2.fromOffset(inset, 0)
+	label.Size = UDim2.new(1, -inset - 8, 1, 0)
 end
 
-S.topmainbutton, S.topmainicon, S.topmaintext = S.createtopsub("Main", S.icons.target, 1)
-S.topvisualbutton, S.topvisualicon, S.topvisualtext = S.createtopsub("Visuals", S.icons.visuals, 2)
-S.topextrasbutton, S.topextrasicon, S.topextrastext = S.createtopsub("Extras", S.icons.extras, 3)
-
-S.farmingbutton, S.farmingtext, S.farmingindicator, S.farmingicon, S.farmingglow =
-	S.navbutton(S.maincontent, "Farming", S.icons.farming)
-
-S.componentsbutton, S.componentstext, S.componentsindicator, S.componentsicon, S.componentsglow =
-	S.navbutton(S.maincontent, "Components", S.icons.sliders)
-
-function S.createsidebartabsectionobjects(name, header, textobject, arrow, group, content, layout)
-	header = S.new("TextButton", {
-		Parent = S.nav,
-		Size = UDim2.new(1, 0, 0, 28),
-		BackgroundTransparency = 1,
-		BorderSizePixel = 0,
-		Text = "",
-		AutoButtonColor = false,
-		ZIndex = 13,
-	})
-
-	textobject = S.label(header, name, UDim2.new(1, -30, 1, 0), S.medium, S.theme.text3)
-	textobject.Position = UDim2.fromOffset(8, 0)
-	textobject.TextSize = 14
-	textobject.ZIndex = 14
-
-	arrow = S.image(header, S.icons.down, 11, S.theme.text3, 14)
-	arrow.AnchorPoint = Vector2.new(1, 0.5)
-	arrow.Position = UDim2.new(1, -7, 0.5, 0)
-	arrow.ImageTransparency = 0.18
-
-	group = S.new("Frame", {
-		Parent = S.nav,
-		Size = UDim2.new(1, 0, 0, 0),
-		BackgroundTransparency = 1,
-		BorderSizePixel = 0,
-		ClipsDescendants = true,
-		ZIndex = 12,
-	})
-
-	content = S.new("Frame", {
-		Parent = group,
-		Size = UDim2.new(1, 0, 0, 0),
-		AutomaticSize = Enum.AutomaticSize.Y,
-		BackgroundTransparency = 1,
-		BorderSizePixel = 0,
-		ZIndex = 12,
-	})
-
-	layout = S.list(content, 3)
-	S.registergradienttarget(header, textobject)
-
-	return header, textobject, arrow, group, content, layout
+function S.navbutton(parent, name, asset, sub)
+	local button = S.new("TextButton", { Parent = parent, Size = UDim2.new(1, 0, 0, sub and 30 or 40), BackgroundColor3 = S.theme.hover, BackgroundTransparency = 1, BorderSizePixel = 0, Text = "", AutoButtonColor = false, ZIndex = 13 }, { BackgroundColor3 = "hover" })
+	S.corner(button, sub and 7 or 8)
+	local icon = asset and S.image(button, asset, sub and 15 or 19, S.theme.text3, 14)
+	local label = S.label(button, name, UDim2.new(1, 0, 1, 0), S.font, S.theme.text3)
+	label.TextSize = sub and 16 or 17
+	label.ZIndex = 14
+	S.layoutnavcontent(button, label, icon, sub)
+	return button, label, icon
 end
 
-S.otherheader, S.othertext, S.otherarrow, S.othergroup, S.othercontent, S.othercontentlayout =
-	S.createsidebartabsectionobjects("Other")
-
-S.othercategorycollapsed = false
-S.otherheader.Visible = false
-
-S.librarycustomtabsections = {}
-S.librarytabsectionlookup = {}
-S.libraryactivetabsection = nil
-
-S.settingsbutton, S.settingstext, S.settingsindicator, S.settingsicon, S.settingsglow =
-	S.navbutton(S.othercontent, "Settings", S.icons.settings)
-
-function S.refreshsidegroups(
-	animate,
-	mainheight,
-	otherheight,
-	height,
-	mainheight2,
-	otherheight2,
-	height3
-)
-	mainheight2 = S.maincategorycollapsed and 0 or S.maincontentlayout.AbsoluteContentSize.Y
-	otherheight2 = S.othercategorycollapsed and 0 or S.othercontentlayout.AbsoluteContentSize.Y
-
-	if animate then
-		S.tween(S.maingroup, { Size = UDim2.new(1, 0, 0, mainheight2) }, S.tabti)
-		S.tween(S.othergroup, { Size = UDim2.new(1, 0, 0, otherheight2) }, S.tabti)
-	else
-		S.maingroup.Size = UDim2.new(1, 0, 0, mainheight2)
-		S.othergroup.Size = UDim2.new(1, 0, 0, otherheight2)
-	end
-
-	for _, sectiontab in ipairs(S.librarycustomtabsections or {}) do
-		height3 = sectiontab.Collapsed and 0 or sectiontab.Layout.AbsoluteContentSize.Y
-
-		if animate then
-			S.tween(sectiontab.Group, { Size = UDim2.new(1, 0, 0, height3) }, S.tabti)
-		else
-			sectiontab.Group.Size = UDim2.new(1, 0, 0, height3)
-		end
-	end
-end
-
-S.maincontentlayout
-	:GetPropertyChangedSignal("AbsoluteContentSize")
-	:Connect(function() S.refreshsidegroups(false) end)
-S.othercontentlayout
-	:GetPropertyChangedSignal("AbsoluteContentSize")
-	:Connect(function() S.refreshsidegroups(false) end)
-
-S.category.Activated:Connect(function()
-	S.maincategorycollapsed = not S.maincategorycollapsed
-	S.tween(S.categoryarrow, { Rotation = S.maincategorycollapsed and -90 or 0 }, S.tabti)
-	S.refreshsidegroups(true)
-end)
-
-S.otherheader.Activated:Connect(function()
-	S.othercategorycollapsed = not S.othercategorycollapsed
-	S.tween(S.otherarrow, { Rotation = S.othercategorycollapsed and -90 or 0 }, S.tabti)
-	S.refreshsidegroups(true)
-end)
-
-function S.refreshlibrarytabsectionorders(offset)
-	S.maingroup.LayoutOrder = 1
-
-	for index, sectiontab in ipairs(S.librarycustomtabsections) do
-		sectiontab.Header.LayoutOrder = index * 2
-		sectiontab.Group.LayoutOrder = index * 2 + 1
-	end
-
-	offset = #S.librarycustomtabsections * 2
-	S.otherheader.LayoutOrder = offset + 2
-	S.othergroup.LayoutOrder = offset + 3
-end
-
-function S.createlibrarytabsection(
-	name,
-	key,
-	existing,
-	header,
-	textobject,
-	arrow,
-	group,
-	content,
-	layout,
-	sectiontab
-)
-	name = tostring(name or "Section")
-	key = string.lower(name)
-
-	if key == "main" then
-		return {
-			Name = S.categorytext.Text,
-			Content = S.maincontent,
-			Group = S.maingroup,
-			Header = S.category,
-			Builtin = true,
-		}
-	end
-
-	if key == "other" then
-		return {
-			Name = S.othertext.Text,
-			Content = S.othercontent,
-			Group = S.othergroup,
-			Header = S.otherheader,
-			Builtin = true,
-		}
-	end
-
-	existing = S.librarytabsectionlookup[key]
-	if existing then return existing end
-
-	header, textobject, arrow, group, content, layout = S.createsidebartabsectionobjects(name)
-	sectiontab = {
-		Name = name,
-		Header = header,
-		TextObject = textobject,
-		Arrow = arrow,
-		Group = group,
-		Content = content,
-		Layout = layout,
-		Collapsed = false,
-		Order = {},
-	}
-
-	function sectiontab:SetCollapsed(value, animate)
-		self.Collapsed = value == true
-		S.tween(self.Arrow, { Rotation = self.Collapsed and -90 or 0 }, S.tabti)
-		S.refreshsidegroups(animate ~= false)
-	end
-
-	function sectiontab:SetName(value, oldkey)
-		oldkey = string.lower(self.Name)
-		self.Name = tostring(value or self.Name)
-		self.TextObject.Text = self.Name
-
-		if S.librarytabsectionlookup[oldkey] == self then
-			S.librarytabsectionlookup[oldkey] = nil
-		end
-
-		S.librarytabsectionlookup[string.lower(self.Name)] = self
-	end
-
-	function sectiontab:SetVisible(value, visible)
-		visible = value ~= false
-		self.Header.Visible = visible and not S.sidebarcompact
-		self.Group.Visible = visible
-		S.refreshsidegroups(false)
-	end
-
-	function sectiontab:SetGradient(value) return S.settextgradient(self.TextObject, value) end
-
-	function sectiontab:SetRainbow(value) return S.settextrainbow(self.TextObject, value) end
-
-	header.Activated:Connect(function() sectiontab:SetCollapsed(not sectiontab.Collapsed, true) end)
-
-	layout
-		:GetPropertyChangedSignal("AbsoluteContentSize")
-		:Connect(function() S.refreshsidegroups(false) end)
-
-	table.insert(S.librarycustomtabsections, sectiontab)
-	S.librarytabsectionlookup[key] = sectiontab
-	S.refreshlibrarytabsectionorders()
-	S.refreshsidegroups(false)
-
-	return sectiontab
-end
-
-S.refreshsidegroups(false)
-
-S.naventries = {
-	[S.homebutton] = {
-		button = S.homebutton,
-		sub = false,
-		text = S.hometext,
-		indicator = S.homeindicator,
-		icon = S.homeicon,
-		glow = S.homeglow,
-	},
-
-	[S.combatbutton] = {
-		button = S.combatbutton,
-		sub = false,
-		text = S.combattext,
-		indicator = S.combatindicator,
-		icon = S.combaticon,
-		glow = S.combatglow,
-	},
-
-	[S.farmingbutton] = {
-		button = S.farmingbutton,
-		sub = false,
-		text = S.farmingtext,
-		indicator = S.farmingindicator,
-		icon = S.farmingicon,
-		glow = S.farmingglow,
-	},
-
-	[S.componentsbutton] = {
-		button = S.componentsbutton,
-		sub = false,
-		text = S.componentstext,
-		indicator = S.componentsindicator,
-		icon = S.componentsicon,
-		glow = S.componentsglow,
-	},
-
-	[S.settingsbutton] = {
-		button = S.settingsbutton,
-		sub = false,
-		text = S.settingstext,
-		indicator = S.settingsindicator,
-		icon = S.settingsicon,
-		glow = S.settingsglow,
-	},
-}
-
-S.subentries = {
-	[S.mainbutton] = {
-		button = S.mainbutton,
-		sub = true,
-		text = S.maintext,
-		icon = S.mainicon,
-	},
-
-	[S.visualbutton] = {
-		button = S.visualbutton,
-		sub = true,
-		text = S.visualtext,
-		icon = S.visualicon,
-	},
-
-	[S.extrasbutton] = {
-		button = S.extrasbutton,
-		sub = true,
-		text = S.extrastext,
-		icon = S.extrasicon,
-	},
-}
-
-function S.updatetopnavigationlayout(
-	width,
-	compact,
-	left,
-	right,
-	available,
-	searchvisible,
-	searchwidth,
-	searchinset,
-	leftbound,
-	rightbound,
-	available2,
-	holderwidth,
-	center
-)
-	if not S.topnavigation or not S.topnavigation.Parent then return end
-
-	width = S.header.AbsoluteSize.X
-	compact = width > 0 and width < 560
-
-	searchvisible = S.searchenabled and true
-	searchwidth = searchvisible and (compact and 116 or 150) or 0
-	searchinset = compact and 10 or 14
-	leftbound = compact and 112 or 162
-	rightbound =
-		math.max(leftbound + 190, width - searchinset - (searchvisible and searchwidth + 12 or 0))
-	available2 = math.max(190, rightbound - leftbound)
-	holderwidth = math.min(compact and 168 or 172, available2)
-	center = leftbound + available2 * 0.5
-
-	S.searchholder.Size = UDim2.fromOffset(searchwidth, 38)
-	S.searchholder.Position = UDim2.new(1, -searchinset, 0.5, 0)
-
-	S.topprimarybutton.Position = UDim2.fromOffset(compact and 12 or 14, 31)
-	S.topprimarybutton.Size = UDim2.fromOffset(compact and 90 or 150, 38)
-	S.topprimarybutton.TextSize = compact and 18 or 19
-
-	S.topsubholder.Position = UDim2.fromOffset(math.round(center), 31)
-	S.topsubholder.Size = UDim2.fromOffset(math.round(holderwidth), 40)
-end
-
-S.connect(S.header:GetPropertyChangedSignal("AbsoluteSize"), function()
-	if S.topnavigation and S.topnavigation.Visible then S.updatetopnavigationlayout() end
-end)
-
-function S.updatetopnavigationstate(
-	animate,
-	enabled,
-	legacycombat,
-	entry2,
-	entries,
-	data,
-	active,
-	width,
-	iconcolor,
-	textalpha,
-	pillalpha,
-	info,
-	roottab,
-	haschildren
-)
-	if not S.topnavigation then return end
-
-	entry2 = S.naventries[S.currentnav]
-	roottab = entry2 and entry2.tab
-	haschildren = roottab and #roottab.SubTabs > 0
-	enabled = (S.topnavigationenabled == true or haschildren) and S.currentnav ~= nil
-
-	legacycombat = S.currentnav == S.combatbutton and S.combatbutton.Visible
-
-	S.topnavigation.Visible = enabled
-	S.breadcrumb.Visible = not enabled
-	S.topnavdivider.Visible = enabled
-	S.topprimarybutton.Visible = enabled
-	S.topsubholder.Visible = enabled and (legacycombat or haschildren)
-	for button, data in pairs(S.topsubentries) do
-		button.Visible = data.tab and data.tab.ParentTab == roottab and not data.tab.Hidden
-			or not data.tab and legacycombat
-	end
-
-	if not enabled then
-		S.updateheadercontrols()
-		return
-	end
-
-	entry2 = S.naventries[S.currentnav]
-
-	S.topprimarybutton.Text = entry2 and entry2.text and entry2.text.Text
-		or (S.currentpage and S.currentpage.primary)
-		or "Navigation"
-
-	S.updatetopnavigationlayout()
-
-	if not legacycombat and not haschildren then return end
-
-	entries = {
-		{ button = S.topmainbutton, active = S.currentsub == S.mainbutton },
-		{ button = S.topvisualbutton, active = S.currentsub == S.visualbutton },
-		{ button = S.topextrasbutton, active = S.currentsub == S.extrasbutton },
-	}
-
-	if haschildren then
-		entries = {}
-		for _, child in ipairs(roottab.SubTabs) do
-			if not child.Hidden then
-				entries[#entries + 1] =
-					{ button = child.Button, active = S.currentpage == child.Page }
-			end
-		end
-	end
-	for _, entry in ipairs(entries) do
-		data = S.topsubentries[entry.button]
-		if data then
-			active = entry.active == true
-			width = active
-					and math.min(
-						190,
-						44 + S.measuretext(data.text.Text, 15, S.medium, Vector2.new(500, 32)).X
-					)
-				or 38
-			iconcolor = active and S.theme.text or S.theme.text3
-			textalpha = active and 0 or 1
-			pillalpha = active and 0.18 or 1
-			info = S.tabti
-
-			data.icon.AnchorPoint = active and Vector2.new(0, 0.5) or Vector2.new(0.5, 0.5)
-			data.icon.Position = active and UDim2.fromOffset(12, 16) or UDim2.new(0.5, 0, 0.5, 0)
-
-			if animate ~= false and S.animationsenabled then
-				S.tween(entry.button, { Size = UDim2.fromOffset(width, 32) }, info)
-				S.tween(data.pill, {
-					BackgroundColor3 = S.theme.input,
-					BackgroundTransparency = pillalpha,
-				}, info, nil, { BackgroundColor3 = "input" })
-				S.tween(data.icon, { ImageColor3 = iconcolor }, info)
-				S.tween(data.text, {
-					TextColor3 = S.theme.text,
-					TextTransparency = textalpha,
-				}, info, nil, { TextColor3 = "text" })
-			else
-				entry.button.Size = UDim2.fromOffset(width, 32)
-				data.pill.BackgroundColor3 = S.theme.input
-				data.pill.BackgroundTransparency = pillalpha
-				data.icon.ImageColor3 = iconcolor
-				S.syncbinding(data.text, "TextColor3", S.theme.text, "text")
-				S.syncbinding(data.text, "TextTransparency", textalpha)
-				data.text.TextColor3 = S.theme.text
-				S.setfontalphabase(data.text, "TextTransparency", textalpha)
-				data.text.TextTransparency = S.effectivefontalpha(textalpha)
-			end
-		end
-	end
-end
-
-function S.applytopnavigation(value, animate, width)
-	S.topnavigationenabled = value == true
-
-	-- Top navigation only replaces the Combat subtabs. Primary navigation stays in the sidebar.
-	S.sidebar.Visible = true
-	S.sidebardivider.Visible = true
-	width = math.max(0, (S.sidebarwidth or 215) - 1)
-	S.main.Position = UDim2.fromOffset(width, 0)
-	S.main.Size = UDim2.new(1, -width, 1, 0)
-
-	if S.topnavigationenabled then
-		S.subholder.Size = UDim2.new(1, 0, 0, 0)
-	elseif S.currentnav == S.combatbutton then
-		S.subholder.Size = UDim2.new(1, 0, 0, 100)
-	end
-
-	S.updatebackgroundbounds()
-	S.updatetopnavigationstate(animate ~= false)
-end
-
-function S.opentopmainmenu(position, actions, _6, popup, previousclose)
-	if S.topprimarypopup and S.activepopup == S.topprimarypopup then
-		S.closepopup()
-		S.topprimarypopup = nil
-		return
-	end
-
-	position = S.topprimarybutton.AbsolutePosition
-		+ Vector2.new(0, S.topprimarybutton.AbsoluteSize.Y + 2)
-
-	actions = {}
-
-	if S.librarytaborder and #S.librarytaborder > 0 then
-		for _, tab, iteration10 in S.scopediterator(2, ipairs(S.librarytaborder)) do
-			iteration10.currenttab = tab
-
-			if
-				iteration10.currenttab.Button
-				and iteration10.currenttab.Button.Parent
-				and iteration10.currenttab.Button.Visible
-			then
-				iteration10.entry = S.naventries[iteration10.currenttab.Button]
-
-				table.insert(actions, {
-					Text = iteration10.currenttab.Name,
-					Icon = iteration10.entry
-							and iteration10.entry.icon
-							and iteration10.entry.icon.Image
-						or nil,
-					Callback = function() iteration10.currenttab:Select() end,
-				})
-			end
-		end
-
-		if S.settingsbutton.Visible then
-			table.insert(actions, {
-				Text = S.settingstext.Text,
-				Icon = S.settingsicon.Image,
-				Callback = function()
-					S.selectmain(S.settingsbutton)
-					S.expandsubtabs(false)
-					S.showpage("settings")
-				end,
-			})
-		end
-	else
-		actions = {
-			{
-				Text = "Home",
-				Icon = S.icons.home,
-				Callback = function()
-					S.selectmain(S.homebutton)
-					S.expandsubtabs(false)
-					S.showpage("home")
-				end,
-			},
-			{
-				Text = "Combat",
-				Icon = S.icons.combat,
-				Callback = function()
-					S.selectmain(S.combatbutton)
-					S.expandsubtabs(true)
-
-					if not S.currentsub then S.selectsub(S.mainbutton) end
-
-					if S.currentsub == S.visualbutton then
-						S.showpage("combat_visuals")
-					elseif S.currentsub == S.extrasbutton then
-						S.showpage("combat_extras")
-					else
-						S.showpage("combat_main")
-					end
-				end,
-			},
-			{
-				Text = "Farming",
-				Icon = S.icons.farming,
-				Callback = function()
-					S.selectmain(S.farmingbutton)
-					S.expandsubtabs(false)
-					S.showpage("farming")
-				end,
-			},
-			{
-				Text = "Components",
-				Icon = S.icons.sliders,
-				Callback = function()
-					S.selectmain(S.componentsbutton)
-					S.expandsubtabs(false)
-					S.showpage("components")
-				end,
-			},
-			{
-				Text = "Settings",
-				Icon = S.icons.settings,
-				Callback = function()
-					S.selectmain(S.settingsbutton)
-					S.expandsubtabs(false)
-					S.showpage("settings")
-				end,
-			},
-		}
-	end
-
-	_6, popup = S.opencontextmenu(position, actions)
-
-	S.topprimarypopup = popup
-
-	previousclose = popup and popup.onclose
-
-	if popup then
-		popup.onclose = function()
-			if previousclose then previousclose() end
-
-			if S.topprimarypopup == popup then S.topprimarypopup = nil end
-		end
-	end
-end
-
--- primary navigation remains in the sidebar; top navigation is subtabs only
-S.topmainbutton.Activated:Connect(function()
-	S.selectmain(S.combatbutton)
-	S.selectsub(S.mainbutton)
-	S.expandsubtabs(true)
-	S.showpage("combat_main")
-end)
-S.topvisualbutton.Activated:Connect(function()
-	S.selectmain(S.combatbutton)
-	S.selectsub(S.visualbutton)
-	S.expandsubtabs(true)
-	S.showpage("combat_visuals")
-end)
-S.topextrasbutton.Activated:Connect(function()
-	S.selectmain(S.combatbutton)
-	S.selectsub(S.extrasbutton)
-	S.expandsubtabs(true)
-	S.showpage("combat_extras")
-end)
-
-function S.naventrytween(entry, key, object, goals, previous, animation)
-	previous = entry[key]
-	if previous then previous:Cancel() end
-
-	animation = S.tween(object, goals, S.tabti)
-	entry[key] = animation
-
-	if animation then
-		animation.Completed:Connect(function()
-			if entry[key] == animation then entry[key] = nil end
-		end)
-	end
-end
-
-function S.rendernaventry(button, sub, hovered, entry, active, textcolor, iconcolor)
-	entry = sub and S.subentries[button] or S.naventries[button]
-	if not entry then return end
-
-	active = sub and S.currentsub == button or (not sub and S.currentnav == button)
-
-	if active and not sub then
-		for otherbutton, otherentry, iteration11 in S.scopediterator(2, pairs(S.naventries or {})) do
-			if otherbutton ~= button and otherentry.indicator and otherentry.indicator.Parent then
-				iteration11.previous = otherentry.indicatoranimation
-				if iteration11.previous then
-					iteration11.previous:Cancel()
-					otherentry.indicatoranimation = nil
-				end
-				otherentry.indicator.BackgroundTransparency = 1
-			end
-		end
-	end
-
-	textcolor = (active or hovered) and S.theme.text or S.theme.text3
-	iconcolor = active and (sub and S.theme.text2 or S.theme.text)
-		or (hovered and (sub and S.theme.text2 or S.theme.text) or S.theme.text3)
-
-	S.naventrytween(entry, "textanimation", entry.text, { TextColor3 = textcolor })
+function S.setsidebarentrycompact(entry, compact, sub)
+	entry.text.Visible = not compact
 	if entry.icon then
-		S.naventrytween(entry, "iconanimation", entry.icon, { ImageColor3 = iconcolor })
+		entry.icon.AnchorPoint = compact and Vector2.new(0.5, 0.5) or Vector2.new(0, 0.5)
+		entry.icon.Position = compact and UDim2.fromScale(0.5, 0.5) or UDim2.new(0, sub and 11 or 14, 0.5, 0)
 	end
+end
 
-	if not sub and entry.indicator then
-		S.naventrytween(
-			entry,
-			"indicatoranimation",
-			entry.indicator,
-			{ BackgroundTransparency = active and 0 or 1 }
-		)
-
-		if entry.glow then
-			S.naventrytween(
-				entry,
-				"glowanimation",
-				entry.glow,
-				{ Transparency = active and 0.68 or 1 }
-			)
-		end
-	end
+function S.rendernaventry(button, sub, hovered)
+	local entry = S.naventries[button]
+	if not entry then return end
+	local active = sub and S.currentpage == entry.tab.Page or S.currentnav == button
+	S.tween(button, { BackgroundTransparency = active and 0.6 or hovered and 0.82 or 1 }, S.hoverti)
+	S.tween(entry.text, { TextColor3 = active and S.theme.text or S.theme.text3 }, S.hoverti)
+	if entry.icon then S.tween(entry.icon, { ImageColor3 = active and S.theme.text or S.theme.text3 }, S.hoverti) end
 end
 
 function S.bindnavhover(button, sub)
 	button.MouseEnter:Connect(function() S.rendernaventry(button, sub, true) end)
-
 	button.MouseLeave:Connect(function() S.rendernaventry(button, sub, false) end)
 end
 
-S.bindnavhover(S.homebutton, false)
-S.bindnavhover(S.combatbutton, false)
-S.bindnavhover(S.farmingbutton, false)
-S.bindnavhover(S.componentsbutton, false)
-S.bindnavhover(S.settingsbutton, false)
-
-S.bindnavhover(S.mainbutton, true)
-S.bindnavhover(S.visualbutton, true)
-S.bindnavhover(S.extrasbutton, true)
-
-function S.selectmain(button, previous)
-	previous = S.currentnav
-	S.currentnav = button
-
-	if previous and previous ~= button then S.rendernaventry(previous, false, false) end
-
-	S.rendernaventry(button, false, false)
-
-	if S.updatetopnavigationstate then S.updatetopnavigationstate(true) end
+function S.setnaventryicon(entry, asset)
+	if entry.icon then entry.icon:Destroy() end
+	entry.icon = asset and S.image(entry.button, asset, entry.sub and 15 or 19, S.theme.text3, 14) or nil
+	S.layoutnavcontent(entry.button, entry.text, entry.icon, entry.sub)
+	S.setsidebarentrycompact(entry, S.sidebarcompact, entry.sub)
+	return entry.icon
 end
 
-function S.selectsub(button, previous)
-	previous = S.currentsub
-	S.currentsub = button
-
-	if previous and previous ~= button then S.rendernaventry(previous, true, false) end
-
-	S.rendernaventry(button, true, false)
-
-	if S.updatetopnavigationstate then S.updatetopnavigationstate(true) end
+function S.createlibrarytabgroup(name)
+	S.navorder += 1
+	local group = S.new("Frame", { Parent = S.nav, LayoutOrder = S.navorder * 2, Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, BackgroundTransparency = 1, BorderSizePixel = 0, ZIndex = 12 })
+	S.list(group, 3)
+	local header = S.new("TextButton", { Parent = group, Size = UDim2.new(1, 0, 0, 25), LayoutOrder = 0, BackgroundTransparency = 1, BorderSizePixel = 0, Text = "", AutoButtonColor = false, ZIndex = 13 })
+	local label = S.label(header, tostring(name or ""), UDim2.new(1, -24, 1, 0), S.medium, S.theme.text3)
+	label.Position = UDim2.fromOffset(10, 0)
+	label.TextSize = 13
+	local arrow = S.image(header, S.icons["chevron-down"], 12, S.theme.text3, 14)
+	arrow.AnchorPoint = Vector2.new(1, 0.5)
+	arrow.Position = UDim2.new(1, -8, 0.5, 0)
+	local content = S.new("Frame", { Parent = group, LayoutOrder = 1, Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, BackgroundTransparency = 1, BorderSizePixel = 0, ZIndex = 12 })
+	S.list(content, 3)
+	local data = { Name = tostring(name or ""), Header = header, TextObject = label, Content = content, Group = group, Collapsed = false, Order = 0 }
+	function data:SetCollapsed(value)
+		self.Collapsed = value == true
+		content.Visible = not self.Collapsed
+		arrow.Rotation = self.Collapsed and -90 or 0
+	end
+	header.Activated:Connect(function() data:SetCollapsed(not data.Collapsed) end)
+	S.tabgroups[#S.tabgroups + 1] = data
+	S.currenttabgroup = data
+	return data
 end
 
-function S.expandsubtabs(value, height, height4)
-	height4 = value and 100 or 0
-	if S.topnavigationenabled then height4 = 0 end
-
-	S.tween(S.subholder, { Size = UDim2.new(1, 0, 0, height4) }, S.tabti)
-
-	if S.updatetopnavigationstate then S.updatetopnavigationstate() end
+function S.refreshsidegroups()
+	for _, group in ipairs(S.tabgroups) do group.Header.Visible = not S.sidebarcompact end
 end
 
-S.mainnavorder = {
-	S.homebutton,
-	S.combatbutton,
-	S.farmingbutton,
-	S.componentsbutton,
-}
-
-S.subnavorder = {
-	S.mainbutton,
-	S.visualbutton,
-	S.extrasbutton,
-}
-
-S.navtabdrag = nil
-
-function S.applynavorder()
-	for index, button in ipairs(S.mainnavorder) do
-		button.LayoutOrder = index * 10
-		if button == S.combatbutton then S.subholder.LayoutOrder = index * 10 + 1 end
-	end
-
-	for index, button in ipairs(S.subnavorder) do
-		button.LayoutOrder = index
-	end
-
-	S.refreshlibrarytabsectionorders()
-	S.settingsbutton.LayoutOrder = 1
+function S.createtopsub(name, asset, order)
+	local button = S.new("TextButton", { Parent = S.topsubholder, LayoutOrder = order, Size = UDim2.fromOffset(32, 36), BackgroundTransparency = 1, BorderSizePixel = 0, Text = "", AutoButtonColor = false, ZIndex = 20 })
+	local icon = S.image(button, asset or S.icons["layout-grid"], 17, S.theme.text3, 21)
+	icon.AnchorPoint = Vector2.new(0, 0.5)
+	icon.Position = UDim2.new(0, 8, 0.5, 0)
+	local label = S.label(button, name, UDim2.new(1, -35, 1, 0), S.medium, S.theme.text)
+	label.Position = UDim2.fromOffset(32, 0)
+	label.TextSize = 15
+	label.ZIndex = 21
+	label.TextTransparency = 1
+	label.ClipsDescendants = true
+	S.topsubentries[button] = { button = button, icon = icon, text = label, name = name }
+	S.connect(button:GetPropertyChangedSignal("Size"), function()
+		if S.topnavigationenabled then S.updatetopnavigationlayout() end
+	end, button)
+	S.own(button, function() S.topsubentries[button] = nil; S.naventries[button] = nil end)
+	return button, icon, label
 end
 
-function S.bindnavdrag(button, ordertable, applyorder)
-	button.InputBegan:Connect(function(input)
-		if
-			input.UserInputType ~= Enum.UserInputType.MouseButton1
-			and input.UserInputType ~= Enum.UserInputType.Touch
-		then
-			return
+-- Animated widths are the input to one layout function. There is no competing UIListLayout.
+function S.updatetopnavigationlayout()
+	if not S.topnavigation.Visible then return end
+	local width = S.header.AbsoluteSize.X
+	local compact = width < 560
+	local searchwidth = S.searchenabled and (compact and 116 or 150) or 0
+	local left = compact and 12 or 14
+	local primarywidth = math.clamp(S.measuretext(S.topprimarybutton.Text, compact and 18 or 19, S.bold, Vector2.new(600, 38)).X + 14, 64, math.max(64, width * 0.32))
+	S.topprimarybutton.Position = UDim2.fromOffset(left, 31)
+	S.topprimarybutton.Size = UDim2.fromOffset(primarywidth, 38)
+	S.topprimarybutton.TextSize = compact and 18 or 19
+	S.searchholder.Size = UDim2.fromOffset(searchwidth, 38)
+	S.searchholder.Position = UDim2.new(1, -14, 0.5, 0)
+	local leftbound = left + primarywidth + 10
+	local rightbound = width - 14 - (searchwidth > 0 and searchwidth + 10 or 0)
+	local available = math.max(0, rightbound - leftbound)
+	local root = S.currentpage and S.currentpage.tab
+	root = root and (root.ParentTab or root)
+	local total = 0
+	local selectedcenter
+	for _, tab in ipairs(root and root.SubTabs or {}) do
+		local button = tab.Button
+		if button.Visible and not tab.Hidden then
+			button.Position = UDim2.fromOffset(total, 2)
+			if tab.Page == S.currentpage then selectedcenter = total + button.Size.X.Offset * 0.5 end
+			total += button.Size.X.Offset + 6
 		end
-
-		S.navtabdrag = {
-			button = button,
-			order = ordertable,
-			apply = applyorder,
-			input = input,
-			start = S.point(input),
-			started = false,
-		}
-	end)
+	end
+	total = math.max(0, total - 6)
+	local viewport = math.min(total, available)
+	S.topsubholder.Position = UDim2.fromOffset((leftbound + rightbound) * 0.5, 31)
+	S.topsubholder.Size = UDim2.fromOffset(viewport, 40)
+	S.topsubholder.CanvasSize = UDim2.fromOffset(total, 0)
+	S.topsubholder.CanvasPosition = Vector2.new(math.clamp((selectedcenter or total * 0.5) - viewport * 0.5, 0, math.max(0, total - viewport)), 0)
 end
 
-S.bindnavdrag(S.homebutton, S.mainnavorder)
-S.bindnavdrag(S.combatbutton, S.mainnavorder)
-S.bindnavdrag(S.farmingbutton, S.mainnavorder)
-S.bindnavdrag(S.componentsbutton, S.mainnavorder)
-
-S.bindnavdrag(S.mainbutton, S.subnavorder)
-S.bindnavdrag(S.visualbutton, S.subnavorder)
-S.bindnavdrag(S.extrasbutton, S.subnavorder)
-
-S.applynavorder()
-
-S.connect(
-	S.uis.InputChanged,
-	function(
-		input,
-		ismouse,
-		istouch,
-		current,
-		root,
-		filtered,
-		targetindex,
-		center,
-		oldindex,
-		oldpositions
-	)
-		if not S.navtabdrag then return end
-
-		ismouse = input.UserInputType == Enum.UserInputType.MouseMovement
-		istouch = input.UserInputType == Enum.UserInputType.Touch and input == S.navtabdrag.input
-
-		if not ismouse and not istouch then return end
-
-		current = S.point(input)
-		if not S.navtabdrag.started and (current - S.navtabdrag.start).Magnitude >= 7 then
-			S.navtabdrag.started = true
-			S.nav.ScrollingEnabled = false
-			S.navtabdrag.button:SetAttribute("BlushDragSuppress", true)
-			S.navtabdrag.grab = current - S.navtabdrag.button.AbsolutePosition
-			S.navtabdrag.ghost, S.navtabdrag.ghostclone, S.navtabdrag.ghostscale =
-				S.makedragghost(S.navtabdrag.button, 470)
-			S.navtabdrag.hidden = S.hideforghost(S.navtabdrag.button)
-		end
-
-		if not S.navtabdrag.started then return end
-
-		if S.navtabdrag.ghost and S.navtabdrag.ghost.Parent then
-			root = S.draglayer.AbsolutePosition
-			S.navtabdrag.ghost.Position = UDim2.fromOffset(
-				current.X - S.navtabdrag.grab.X - root.X,
-				current.Y - S.navtabdrag.grab.Y - root.Y
-			)
-		end
-
-		filtered = {}
-		for _, button in ipairs(S.navtabdrag.order) do
-			if button ~= S.navtabdrag.button then table.insert(filtered, button) end
-		end
-
-		targetindex = #filtered + 1
-		for index, other in ipairs(filtered) do
-			center = other.AbsolutePosition.Y + other.AbsoluteSize.Y * 0.5
-			if current.Y < center then
-				targetindex = index
-				break
-			end
-		end
-
-		oldindex = table.find(S.navtabdrag.order, S.navtabdrag.button)
-		if oldindex and oldindex ~= targetindex then
-			oldpositions = {}
-
-			for _, other in ipairs(S.navtabdrag.order) do
-				if other and other.Parent then oldpositions[other] = other.AbsolutePosition end
-			end
-
-			table.remove(S.navtabdrag.order, oldindex)
-			targetindex = math.clamp(targetindex, 1, #S.navtabdrag.order + 1)
-			table.insert(S.navtabdrag.order, targetindex, S.navtabdrag.button)
-
-			if S.navtabdrag.apply then
-				S.navtabdrag.apply()
-			else
-				S.applynavorder()
-			end
-
-			S.animatereorder(oldpositions, S.navtabdrag.order, S.navtabdrag.button)
-		end
+function S.syncsubtabnavigation(animate)
+	local root = S.currentpage and S.currentpage.tab
+	root = root and (root.ParentTab or root)
+	local sidebar = not S.topnavigationenabled
+	local count = 0
+	if root then
+		S.subholder.Parent = root.Button.Parent
+		S.subholder.LayoutOrder = root.Button.LayoutOrder + 1
 	end
-)
-
-S.connect(S.uis.InputEnded, function(input, drag, target, finished, finish, animation)
-	if not S.navtabdrag then return end
-
-	if input.UserInputType ~= Enum.UserInputType.MouseButton1 and input ~= S.navtabdrag.input then
-		return
-	end
-
-	drag = S.navtabdrag
-	S.navtabdrag = nil
-
-	if not drag.started then return end
-
-	target = drag.button.AbsolutePosition - S.draglayer.AbsolutePosition
-	finished = false
-	finish = function()
-		if finished then return end
-		finished = true
-		S.nav.ScrollingEnabled = true
-		S.restorefromghost(drag.hidden)
-		if drag.ghost and drag.ghost.Parent then drag.ghost:Destroy() end
-		if drag.button and drag.button.Parent then
-			drag.button:SetAttribute("BlushDragSuppress", nil)
-		end
-	end
-
-	if drag.ghost and drag.ghost.Parent then
-		animation =
-			S.tween(drag.ghost, { Position = UDim2.fromOffset(target.X, target.Y) }, S.quart24)
-		if animation then
-			animation.Completed:Connect(finish)
+	for button, entry in pairs(S.topsubentries) do
+		local tab = entry.tab
+		local visible = tab and tab.ParentTab == root and not tab.Hidden
+		button.Visible = visible == true
+		button.Parent = sidebar and S.sublist or S.topsubholder
+		entry.text.Visible = true
+		if visible then count += 1 end
+		if sidebar then
+			button.Size = UDim2.new(1, 0, 0, 30)
+			entry.text.TextTransparency = 0
+			S.layoutnavcontent(button, entry.text, entry.icon, true)
+			S.naventries[button] = entry
+			entry.sub = true
+			S.setsidebarentrycompact(entry, S.sidebarcompact, true)
+			S.rendernaventry(button, true, false)
 		else
-			finish()
+			entry.icon.AnchorPoint = Vector2.new(0, 0.5)
+			entry.icon.Position = UDim2.new(0, 8, 0.5, 0)
+			entry.text.Position = UDim2.fromOffset(32, 0)
+			entry.text.Size = UDim2.new(1, -36, 1, 0)
+			local active = tab and tab.Page == S.currentpage
+			local target = active and math.ceil(S.measuretext(entry.text.Text, 15, S.medium, Vector2.new(2000, 40)).X) + 42 or 32
+			if animate and S.animationsenabled then
+				S.tween(button, { Size = UDim2.fromOffset(target, 36), BackgroundTransparency = 1 }, S.quart28)
+				S.tween(entry.text, { TextTransparency = active and 0 or 1 }, S.hoverti)
+			else
+				button.Size = UDim2.fromOffset(target, 36)
+				button.BackgroundTransparency = 1
+				entry.text.TextTransparency = active and 0 or 1
+			end
+			S.tween(entry.icon, { ImageColor3 = active and S.theme.text or S.theme.text3 }, S.hoverti)
 		end
-	else
-		finish()
 	end
-end)
+	S.subholder.Visible = sidebar and count > 0
+	S.subholder.Size = UDim2.new(1, 0, 0, math.max(0, count * 33 + 3))
+end
 
-S.homebutton.Activated:Connect(function()
-	if S.homebutton:GetAttribute("BlushDragSuppress") then return end
+function S.updatetopnavigationstate(animate)
+	local root = S.currentpage and S.currentpage.tab
+	root = root and (root.ParentTab or root)
+	S.topnavigation.Visible = S.topnavigationenabled == true
+	S.breadcrumb.Visible = not S.topnavigationenabled
+	S.topprimarybutton.Text = root and root.Name or (S.currentpage and S.currentpage.primary or "")
+	S.syncsubtabnavigation(animate ~= false)
+	S.updatetopnavigationlayout()
+end
 
-	S.selectmain(S.homebutton)
+function S.applytopnavigation(value, animate)
+	S.topnavigationenabled = value == true
+	S.updatetopnavigationstate(animate)
+end
 
-	S.expandsubtabs(false)
+function S.selectmain(button)
+	local previous = S.currentnav
+	S.currentnav = button
+	if previous then S.rendernaventry(previous, false, false) end
+	S.rendernaventry(button, false, false)
+end
 
-	S.showpage("home")
-end)
+function S.expandsubtabs() S.syncsubtabnavigation(false) end
 
-S.combatbutton.Activated:Connect(function()
-	if S.combatbutton:GetAttribute("BlushDragSuppress") then return end
-
-	S.selectmain(S.combatbutton)
-
-	S.expandsubtabs(true)
-
-	if not S.currentsub then S.selectsub(S.mainbutton) end
-
-	if S.currentsub == S.visualbutton then
-		S.showpage("combat_visuals")
-	elseif S.currentsub == S.extrasbutton then
-		S.showpage("combat_extras")
-	else
-		S.showpage("combat_main")
+function S.opentopmainmenu()
+	local actions = {}
+	for _, tab in ipairs(S.librarytaborder) do
+		if not tab.Hidden then actions[#actions + 1] = { Text = tab.Name, Icon = tab.Page.icon, Callback = function() tab:Select() end } end
 	end
-end)
+	if S.settingsbutton and S.settingsbutton.Visible then actions[#actions + 1] = { Text = S.settingstext.Text, Icon = S.icons.settings, Callback = function() S.librarygetsettingstab():Select() end } end
+	S.opencontextmenu(S.topprimarybutton.AbsolutePosition + Vector2.new(0, 40), actions)
+end
 
-S.mainbutton.Activated:Connect(function()
-	if S.mainbutton:GetAttribute("BlushDragSuppress") then return end
-
-	S.selectmain(S.combatbutton)
-
-	S.selectsub(S.mainbutton)
-
-	S.showpage("combat_main")
-end)
-
-S.visualbutton.Activated:Connect(function()
-	if S.visualbutton:GetAttribute("BlushDragSuppress") then return end
-
-	S.selectmain(S.combatbutton)
-
-	S.selectsub(S.visualbutton)
-
-	S.showpage("combat_visuals")
-end)
-
-S.extrasbutton.Activated:Connect(function()
-	if S.extrasbutton:GetAttribute("BlushDragSuppress") then return end
-
-	S.selectmain(S.combatbutton)
-
-	S.selectsub(S.extrasbutton)
-
-	S.showpage("combat_extras")
-end)
-
-S.farmingbutton.Activated:Connect(function()
-	if S.farmingbutton:GetAttribute("BlushDragSuppress") then return end
-
-	S.selectmain(S.farmingbutton)
-
-	S.expandsubtabs(false)
-
-	S.showpage("farming")
-end)
-
-S.componentsbutton.Activated:Connect(function()
-	if S.componentsbutton:GetAttribute("BlushDragSuppress") then return end
-
-	S.selectmain(S.componentsbutton)
-
-	S.expandsubtabs(false)
-
-	S.showpage("components")
-end)
-
-S.settingsbutton.Activated:Connect(function()
-	S.selectmain(S.settingsbutton)
-
-	S.expandsubtabs(false)
-
-	S.showpage("settings")
-end)
-
-S.applytopnavigation(S.topnavigationenabled, false)
+S.connect(S.header:GetPropertyChangedSignal("AbsoluteSize"), S.updatetopnavigationlayout, S.header)
 
 -- footer
 
@@ -20349,215 +15466,27 @@ S.footerusername.ZIndex = 12
 
 S.footerusername.TextTruncate = Enum.TextTruncate.AtEnd
 
-S.sidebarresizehandle = S.new("TextButton", {
-	Parent = S.window,
-	AnchorPoint = Vector2.new(0.5, 0),
-	Position = UDim2.fromOffset(S.sidebarwidth - 1, 0),
-	Size = UDim2.new(0, 10, 1, 0),
-	BackgroundTransparency = 1,
-	BorderSizePixel = 0,
-	Text = "",
-	AutoButtonColor = false,
-	Active = true,
-	ZIndex = 90,
-})
-
-S.sidebarresizeaccent = S.new("Frame", {
-	Parent = S.sidebarresizehandle,
-	AnchorPoint = Vector2.new(0.5, 0.5),
-	Position = UDim2.fromScale(0.5, 0.5),
-	Size = UDim2.new(0, 1, 1, -24),
-	BackgroundColor3 = S.theme.white,
-	BackgroundTransparency = 1,
-	BorderSizePixel = 0,
-	ZIndex = 91,
-}, { BackgroundColor3 = "white" })
-S.corner(S.sidebarresizeaccent, 999)
-S.bindtheme(S.sidebarresizeaccent, "BackgroundColor3", S.theme.white, "white")
-
-function S.setsidebarentrycompact(entry, compact, sub)
-	if not entry then return end
-
-	if entry.text then entry.text.Visible = not compact end
-
-	if entry.icon then
-		entry.icon.AnchorPoint = compact and Vector2.new(0.5, 0.5) or Vector2.new(0, 0.5)
-		entry.icon.Size = UDim2.fromOffset(
-			compact and (sub and 19 or 23) or (sub and 15 or 19),
-			compact and (sub and 19 or 23) or (sub and 15 or 19)
-		)
-		entry.icon.Position = compact and UDim2.new(0.5, 1, 0.5, 0)
-			or UDim2.new(0, sub and 11 or 14, 0.5, 0)
-	end
-end
-
-function S.applysidebarlayout(
-	width,
-	animate,
-	mainoffset,
-	info,
-	otheravailable,
-	previouscompact,
-	liveresize
-)
-	previouscompact = S.sidebarcompact
-	width = math.clamp(
-		math.floor(tonumber(width) or S.sidebarwidth),
-		S.sidebarminwidth,
-		S.sidebarmaxwidth
-	)
-
+function S.applysidebarlayout(width, animate)
+	width = math.clamp(tonumber(width) or 215, 68, 300)
 	S.sidebarwidth = width
-	S.sidebarcompact = width <= S.sidebarcompactthreshold
-	liveresize = S.sidebarresize ~= nil and animate ~= true
-
-	mainoffset = width - 1
-	info = S.hoverti
-
-	if animate == true and S.animationsenabled then
-		S.tween(S.sidebar, {
-			Size = UDim2.new(0, width, 1, 0),
-		}, info)
-
-		S.tween(S.main, {
-			Position = UDim2.fromOffset(mainoffset, 0),
-			Size = UDim2.new(1, -mainoffset, 1, 0),
-		}, info)
-
-		S.tween(S.sidebardivider, {
-			Position = UDim2.fromOffset(mainoffset, 0),
-		}, info)
-
-		S.tween(S.sidebarresizehandle, {
-			Position = UDim2.fromOffset(mainoffset, 0),
-		}, info)
-	else
-		S.sidebar.Size = UDim2.new(0, width, 1, 0)
-		S.main.Position = UDim2.fromOffset(mainoffset, 0)
-		S.main.Size = UDim2.new(1, -mainoffset, 1, 0)
-		S.sidebardivider.Position = UDim2.fromOffset(mainoffset, 0)
-		S.sidebarresizehandle.Position = UDim2.fromOffset(mainoffset, 0)
-	end
-
-	if liveresize and previouscompact == S.sidebarcompact then
-		if S.sidebarcompact and S.avat.Visible and S.avat.Image ~= "" then
-			S.avat.Position = UDim2.fromOffset(math.floor(width * 0.5) + 1, 45)
-		end
-		if S.backgroundexcludesidebar then S.updatebackgroundbounds() end
-		return
-	end
-
-	S.brand.Visible = not S.sidebarcompact
-	S.subtitle.Visible = not S.sidebarcompact
-	S.subtitledivider.Visible = not S.sidebarcompact
-	S.username.Visible = not S.sidebarcompact
-
-	S.category.Visible = false
-
-	S.footername.Visible = not S.sidebarcompact
-	S.footerusername.Visible = not S.sidebarcompact
-
-	S.avat.Position = S.sidebarcompact and UDim2.fromOffset(math.floor(width * 0.5) + 1, 45)
-		or S.avat.Position
-
+	S.sidebarcompact = width <= 90
+	S.sidebar.Size = UDim2.new(0, width, 1, 0)
+	S.main.Position = UDim2.fromOffset(width - 1, 0)
+	S.main.Size = UDim2.new(1, 1 - width, 1, 0)
+	S.sidebardivider.Position = UDim2.fromOffset(width - 1, 0)
+	for _, object in ipairs({ S.brand, S.subtitle, S.subtitledivider, S.username, S.footername, S.footerusername }) do object.Visible = not S.sidebarcompact end
 	S.footeravatar.AnchorPoint = S.sidebarcompact and Vector2.new(0.5, 0) or Vector2.zero
-
-	S.footeravatar.Position = S.sidebarcompact and UDim2.new(0.5, 0, 1, -58)
-		or UDim2.new(0, 18, 1, -58)
-
-	S.footerdivider.Position = S.sidebarcompact and UDim2.new(0, 10, 1, -72)
-		or UDim2.new(0, 14, 1, -72)
-
-	S.footerdivider.Size = S.sidebarcompact and UDim2.new(1, -20, 0, 1) or UDim2.new(1, -28, 0, 1)
-
+	S.footeravatar.Position = S.sidebarcompact and UDim2.new(0.5, 0, 1, -58) or UDim2.new(0, 18, 1, -58)
 	S.nav.Position = S.sidebarcompact and UDim2.fromOffset(10, 82) or UDim2.fromOffset(14, 92)
-
 	S.nav.Size = S.sidebarcompact and UDim2.new(1, -20, 1, -154) or UDim2.new(1, -28, 1, -164)
-
-	S.sublist.Position = S.sidebarcompact and UDim2.fromOffset(0, 3) or UDim2.fromOffset(18, 3)
-
-	S.sublist.Size = S.sidebarcompact and UDim2.new(1, 0, 1, -6) or UDim2.new(1, -22, 1, -6)
-
-	for _, entry in pairs(S.naventries or {}) do
-		S.setsidebarentrycompact(entry, S.sidebarcompact, false)
-	end
-
-	for _, entry in pairs(S.subentries or {}) do
-		S.setsidebarentrycompact(entry, S.sidebarcompact, true)
-	end
-
-	otheravailable = S.settingsbutton.Visible
-
-	if not otheravailable then
-		for _, child in ipairs(S.othercontent:GetChildren()) do
-			if child:IsA("GuiObject") and child ~= S.settingsbutton and child.Visible then
-				otheravailable = true
-				break
-			end
-		end
-	end
-
-	S.otherheader.Visible = false
-
-	for _, sectiontab in ipairs(S.librarycustomtabsections or {}) do
-		sectiontab.Header.Visible = not S.sidebarcompact
-	end
-
+	S.sublist.Position = UDim2.fromOffset(S.sidebarcompact and 0 or 18, 3)
+	S.sublist.Size = UDim2.new(1, S.sidebarcompact and 0 or -22, 1, -6)
+	for _, entry in pairs(S.naventries) do S.setsidebarentrycompact(entry, S.sidebarcompact, entry.sub) end
+	S.refreshsidegroups()
 	S.updatebrandlayout()
-
-	if S.backgroundexcludesidebar then S.updatebackgroundbounds() end
-
-	if S.topnavigationenabled then S.updatetopnavigationlayout() end
+	S.updatetopnavigationstate(false)
 end
-
-S.sidebarresizehandle.MouseEnter:Connect(
-	function()
-		S.tween(S.sidebarresizeaccent, {
-			BackgroundTransparency = 0.84,
-		}, S.hoverti)
-	end
-)
-
-S.sidebarresizehandle.MouseLeave:Connect(function()
-	if not S.sidebarresize then
-		S.tween(S.sidebarresizeaccent, {
-			BackgroundTransparency = 1,
-		}, S.hoverti)
-	end
-end)
-
-S.sidebarresizehandle.InputBegan:Connect(function(input, now)
-	if input.UserInputType ~= Enum.UserInputType.MouseButton1 then return end
-
-	now = os.clock()
-
-	if now - S.sidebarresizelasttap <= 0.30 then
-		S.sidebarresizelasttap = 0
-		S.sidebarresize = nil
-		S.applysidebarlayout(215, true)
-		return
-	end
-
-	S.sidebarresizelasttap = now
-
-	if not S.acquireinteraction("sidebarresize", input) then return end
-
-	S.closepopup()
-
-	S.__blush_nextsidebarresize = 0
-	S.sidebarresize = {
-		input = input,
-		start = S.point(input),
-		width = S.sidebarwidth,
-		current = S.point(input),
-	}
-
-	S.ensureinteractionrenderloop()
-	S.sidebarresizeaccent.BackgroundTransparency = 0.68
-end)
-
 S.applysidebarlayout(S.sidebarwidth, false)
-
 -- dragging
 
 S.lasttap = 0
@@ -20659,97 +15588,6 @@ S.topprimarybutton.InputBegan:Connect(function(input)
 	if not S.windowdrag or S.windowdrag.input ~= input then S.topprimarygesture = nil end
 end)
 
-S.watermarkdragarea.InputBegan:Connect(function(input)
-	if
-		input.UserInputType ~= Enum.UserInputType.MouseButton1
-		and input.UserInputType ~= Enum.UserInputType.Touch
-	then
-		return
-	end
-
-	if not S.acquireinteraction("watermarkdrag", input) then return end
-
-	S.closepopup()
-
-	S.watermarkdrag = {
-		input = input,
-
-		start = S.point(input),
-		current = S.point(input),
-
-		startposition = S.watermark.Position,
-	}
-
-	S.ensureinteractionrenderloop()
-end)
-
-S.resizehandle.InputBegan:Connect(
-	function(input, now, animation, finishreset, completed, scale, startpoint)
-		if not S.windowresizeenabled then return end
-
-		if
-			input.UserInputType ~= Enum.UserInputType.MouseButton1
-			and input.UserInputType ~= Enum.UserInputType.Touch
-		then
-			return
-		end
-
-		now = os.clock()
-		if now - S.lastresizetap <= 0.3 then
-			S.lastresizetap = 0
-			S.windowresize = nil
-
-			animation = S.tween(S.shell, {
-				Size = UDim2.fromOffset(S.originalwindowsize.X, S.originalwindowsize.Y),
-			}, S.quart24)
-
-			finishreset = function()
-				if S.shell and S.shell.Parent and S.currentpage then
-					S.currentpage:reflowall(false)
-				end
-			end
-
-			if animation then
-				completed = nil
-				completed = animation.Completed:Connect(function()
-					if completed then
-						completed:Disconnect()
-						completed = nil
-					end
-
-					finishreset()
-				end)
-			else
-				finishreset()
-			end
-
-			return
-		end
-
-		S.lastresizetap = now
-
-		if not S.acquireinteraction("windowresize", input) then return end
-
-		S.closepopup()
-
-		startpoint = S.point(input)
-
-		S.__blush_nextwindowresize = 0
-		S.windowresize = {
-			input = input,
-			start = startpoint,
-			current = startpoint,
-			startsize = Vector2.new(S.shell.Size.X.Offset, S.shell.Size.Y.Offset),
-			startabsolute = S.shell.AbsolutePosition,
-			startposition = S.shell.Position,
-			lastwidth = S.shell.Size.X.Offset,
-			lastheight = S.shell.Size.Y.Offset,
-		}
-
-		S.ensureinteractionrenderloop()
-	end
-)
-
 function S.matches(drag, input)
 	if not drag then return false end
 
@@ -20758,66 +15596,6 @@ function S.matches(drag, input)
 	end
 
 	return input == drag.input
-end
-
-function S.snapresizeaxis(raw, startvalue, minvalue, maxvalue, step, mink, maxk, k)
-	step = step or 2
-
-	mink = math.ceil((minvalue - startvalue) / step)
-	maxk = math.floor((maxvalue - startvalue) / step)
-	k = math.clamp(math.round((raw - startvalue) / step), mink, maxk)
-
-	return startvalue + k * step
-end
-
-function S.applywindowresize(
-	resize,
-	camera,
-	viewport,
-	scale,
-	delta,
-	maxwidth,
-	maxheight,
-	configuredmin,
-	minwidth,
-	minheight,
-	rawwidth,
-	rawheight,
-	width,
-	height
-)
-	resize = S.windowresize
-	if not resize or not resize.current then return end
-
-	camera = workspace.CurrentCamera
-	viewport = camera and camera.ViewportSize or S.gui.AbsoluteSize
-
-	delta = resize.current - resize.start
-
-	maxwidth = math.floor(math.max(320, viewport.X - resize.startabsolute.X - 8))
-	maxheight = math.floor(math.max(260, viewport.Y - resize.startabsolute.Y - 8))
-
-	if typeof(S.windowmaxsize) == "Vector2" then
-		maxwidth = math.min(maxwidth, math.max(320, math.floor(S.windowmaxsize.X)))
-		maxheight = math.min(maxheight, math.max(260, math.floor(S.windowmaxsize.Y)))
-	end
-
-	configuredmin = typeof(S.windowminsize) == "Vector2" and S.windowminsize
-		or Vector2.new(620, 440)
-
-	minwidth = math.min(math.max(320, math.floor(configuredmin.X)), maxwidth)
-	minheight = math.min(math.max(260, math.floor(configuredmin.Y)), maxheight)
-
-	rawwidth = resize.startsize.X + delta.X
-	rawheight = resize.startsize.Y + delta.Y
-	width = S.snapresizeaxis(rawwidth, resize.startsize.X, minwidth, maxwidth, 4)
-	height = S.snapresizeaxis(rawheight, resize.startsize.Y, minheight, maxheight, 2)
-
-	if width == resize.lastwidth and height == resize.lastheight then return end
-
-	resize.lastwidth = width
-	resize.lastheight = height
-	S.shell.Size = UDim2.fromOffset(width, height)
 end
 
 function S.applywindowdrag(drag, delta)
@@ -20847,31 +15625,16 @@ function S.ensureinteractionrenderloop()
 
 	S.interactionrenderconnection = S.runservice.PreRender:Connect(function(scale, delta, now)
 		now = os.clock()
-		if S.windowresize and now >= S.__blush_nextwindowresize then
-			S.__blush_nextwindowresize = now + 1 / 45
-			S.applywindowresize()
-		end
 
-		if S.sidebarresize and S.sidebarresize.current and now >= S.__blush_nextsidebarresize then
-			S.__blush_nextsidebarresize = now + 1 / 45
-			delta = S.sidebarresize.current.X - S.sidebarresize.start.X
-			S.applysidebarlayout(S.sidebarresize.width + delta, false)
-		end
 
 		if S.windowdrag then S.applywindowdrag() end
 
 		if S.watermarkdrag then S.applywatermarkdrag() end
-		if S.pickerdrag and S.pickerdrag.current then
-			S.pickerdrag.update(S.pickerdrag, S.pickerdrag.current)
-			S.pickerdrag.current = nil
-		end
+
 
 		if
-			not S.windowresize
-			and not S.sidebarresize
-			and not S.windowdrag
+			not S.windowdrag
 			and not S.watermarkdrag
-			and not S.pickerdrag
 		then
 			S.stopinteractionrenderloop()
 		end
@@ -20883,11 +15646,7 @@ S.connect(
 	function(input, p, delta, data, now, dt, instantaneous, delta2, x, delta3)
 		p = S.point(input)
 
-		if S.windowresize and S.matches(S.windowresize, input) then S.windowresize.current = p end
 
-		if S.sidebarresize and S.matches(S.sidebarresize, input) then
-			S.sidebarresize.current = p
-		end
 
 		if S.windowdrag and S.matches(S.windowdrag, input) then
 			S.windowdrag.current = p
@@ -20912,11 +15671,11 @@ S.connect(
 			S.watermarkdrag.current = p
 		end
 
-		if S.sliderdrag and S.matches(S.sliderdrag, input) then S.sliderdrag.update(p) end
+		if S.pointerdrag and S.matches(S.pointerdrag, input) then S.pointerdrag.update(p) end
 
-		if S.pickerdrag and S.matches(S.pickerdrag, input) then
-			S.pickerdrag.current = p
-			S.ensureinteractionrenderloop()
+		if S.keybinddrag and S.matches(S.keybinddrag, input) then
+			S.keybindtargetposition = S.offsetposition(S.keybinddrag.position, p - S.keybinddrag.start)
+			S.keybindlist.Position = S.keybindtargetposition
 		end
 
 		if S.notificationdrag and S.matches(S.notificationdrag, input) then
@@ -20954,7 +15713,7 @@ S.connect(
 	function(
 		input,
 		mouseended,
-		resizeinput,
+		
 		sidebarinput,
 		drag,
 		titleclick,
@@ -20968,30 +15727,11 @@ S.connect(
 	)
 		mouseended = input.UserInputType == Enum.UserInputType.MouseButton1
 
-		if S.windowresize and (mouseended or input == S.windowresize.input) then
-			resizeinput = S.windowresize.input
 
-			S.applywindowresize()
-			S.windowresize = nil
-			S.releaseinteraction(resizeinput)
-
-			if S.currentpage then S.currentpage:reflowall(false, true) end
-		end
-
-		if S.sidebarresize and (mouseended or input == S.sidebarresize.input) then
-			sidebarinput = S.sidebarresize.input
-
-			S.sidebarresize = nil
-			S.releaseinteraction(sidebarinput)
-			S.applysidebarlayout(S.sidebarwidth, false)
-
-			S.tween(S.sidebarresizeaccent, {
-				BackgroundTransparency = 1,
-			}, S.hoverti)
-		end
 
 		if S.windowdrag and (mouseended or input == S.windowdrag.input) then
 			drag = S.windowdrag
+			S.applywindowdrag()
 			S.windowdrag = nil
 
 			titleclick = S.topprimarygesture
@@ -21009,49 +15749,25 @@ S.connect(
 
 		if S.watermarkdrag and (mouseended or input == S.watermarkdrag.input) then
 			watermarkinput = S.watermarkdrag.input
+			S.applywatermarkdrag()
 			S.watermarkdrag = nil
 			S.releaseinteraction(watermarkinput)
 		end
 
-		if S.sliderdrag and (mouseended or input == S.sliderdrag.input) then
-			sliderinput = S.sliderdrag.input
-
-			for _, knob in ipairs(S.sliderdrag.knobs or {}) do
-				S.tween(knob, {
-					Size = UDim2.fromOffset(13, 13),
-				}, S.fastti)
-			end
-
-			S.sliderdrag = nil
-
-			S.releaseinteraction(sliderinput)
+		if S.pointerdrag and (mouseended or input == S.pointerdrag.input) then
+			S.endpointer(true)
 			S.requestconfigautosave()
-			S.saveuisettings()
 		end
 
-		if S.pickerdrag and (mouseended or input == S.pickerdrag.input) then
-			pickerinput = S.pickerdrag.input
-			if S.pickerdrag.current then S.pickerdrag.update(S.pickerdrag, S.pickerdrag.current) end
-
-			state = S.pickerdrag.state
-
-			state.dragging = false
-			state.dragtype = nil
-
-			S.pickerdrag = nil
-
-			state:refresh()
-			state:emit(true)
-			S.saveuisettings()
-
-			if state.onpersist then state.onpersist() end
-
-			S.releaseinteraction(pickerinput)
+		if S.keybinddrag and (mouseended or input == S.keybinddrag.input) then
+			S.releaseinteraction(S.keybinddrag.input)
+			S.keybinddrag = nil
 		end
 
 		if S.notificationdrag and (mouseended or input == S.notificationdrag.input) then
 			drag2 = S.notificationdrag
 			S.notificationdrag = nil
+			S.releaseinteraction(drag2.input)
 
 			data = drag2.data
 
@@ -21078,11 +15794,14 @@ S.connect(
 	end
 )
 
+
+
 -- public library api
 
 S.library = {
-	Version = "1.9.0",
+	Version = "1.9.1",
 	Icons = S.icons,
+	GradientThemes = table.clone(S.gradientthemenames),
 }
 
 S.librarywindow = nil
@@ -21300,7 +16019,6 @@ function S.libraryenhancerow(
 		default,
 		callback,
 		keybindable,
-		badge,
 		sourceconfig,
 		name11,
 		control,
@@ -21323,12 +16041,11 @@ function S.libraryenhancerow(
 				name11,
 				rowdefault(copied),
 				copied.Callback,
-				copied.Keybindable == true,
-				copied.Badge
+				copied.Keybindable == true
 			)
 		else
 			control =
-				addtoggle(self, config, default, S.persistentcallback(callback), keybindable, badge)
+				addtoggle(self, config, default, S.persistentcallback(callback), keybindable)
 		end
 
 		if section and sourceconfig then
@@ -21521,13 +16238,8 @@ function S.libraryenhancesection(
 	addcolorpicker,
 	adddivider,
 	addseparator,
-	addprogressbar,
-	addradio,
-	addbadge,
 	addimage,
 	addavatar,
-	addloadingspinner,
-	addloadingbar,
 	addcontextmenu,
 	addconfirmbutton,
 	addmodalbutton,
@@ -21539,6 +16251,11 @@ function S.libraryenhancesection(
 	if not section or section.__blush_config_api then return section end
 
 	section.__blush_config_api = true
+	local builders = setmetatable({}, { __index = section })
+	for name, method in pairs(section) do
+		if type(method) == "function" then builders[name] = method end
+	end
+	section.__builders = builders
 
 	addlabel = section.AddLabel
 	addbutton = section.AddButton
@@ -21558,13 +16275,8 @@ function S.libraryenhancesection(
 	addcolorpicker = section.AddColorPicker
 	adddivider = section.AddDivider
 	addseparator = section.AddSeparator
-	addprogressbar = section.AddProgressBar
-	addradio = section.AddRadio
-	addbadge = section.AddBadge
 	addimage = section.AddImage
 	addavatar = section.AddAvatar
-	addloadingspinner = section.AddLoadingSpinner
-	addloadingbar = section.AddLoadingBar
 	addcontextmenu = section.AddContextMenu
 	addconfirmbutton = section.AddConfirmButton
 	addmodalbutton = section.AddModalButton
@@ -21624,7 +16336,6 @@ function S.libraryenhancesection(
 		callback,
 		target,
 		keybindable,
-		badge,
 		control
 	)
 		if type(config) == "table" then
@@ -21634,12 +16345,11 @@ function S.libraryenhancesection(
 				configdefault(config),
 				config.Callback,
 				config.Target,
-				config.Keybindable == true,
-				config.Badge
+				config.Keybindable == true
 			)
 			return S.layouttoggleaddons(self, control, config)
 		end
-		return addtoggle(self, config, default, callback, target, keybindable, badge)
+		return addtoggle(self, config, default, callback, target, keybindable)
 	end
 
 	section.AddToggleKey = function(
@@ -21649,8 +16359,7 @@ function S.libraryenhancesection(
 		defaultkey,
 		callback,
 		keycallback,
-		target,
-		badge
+		target
 	)
 		if type(config) == "table" then
 			config = table.clone(config)
@@ -21663,14 +16372,13 @@ function S.libraryenhancesection(
 					configdefault(config),
 					config.Callback,
 					config.Target,
-					config.Keybindable == true,
-					config.Badge
+					config.Keybindable == true
 				),
 				config
 			)
 		end
 
-		return addtogglekey(self, config, default, defaultkey, callback, keycallback, target, badge)
+		return addtogglekey(self, config, default, defaultkey, callback, keycallback, target)
 	end
 
 	section.AddToggleColor = function(
@@ -21696,8 +16404,7 @@ function S.libraryenhancesection(
 					configdefault(config),
 					config.Callback,
 					config.Target,
-					config.Keybindable == true,
-					config.Badge
+					config.Keybindable == true
 				),
 				config
 			)
@@ -21740,8 +16447,7 @@ function S.libraryenhancesection(
 					configdefault(config),
 					config.Callback,
 					config.Target,
-					config.Keybindable == true,
-					config.Badge
+					config.Keybindable == true
 				),
 				config
 			)
@@ -22025,49 +16731,7 @@ function S.libraryenhancesection(
 		return addseparator(self, config)
 	end
 
-	section.AddProgressBar = function(self, config, default, suffix, target)
-		if type(config) == "table" then
-			return addprogressbar(
-				self,
-				tostring(config.Name or config.Text or "Progress"),
-				tonumber(configdefault(config)) or 0,
-				tostring(config.Suffix or "%"),
-				config.Target
-			)
-		end
 
-		return addprogressbar(self, config, default, suffix, target)
-	end
-
-	section.AddRadio = function(self, config, options, default, callback, target, multiselect)
-		if type(config) == "table" then
-			return addradio(
-				self,
-				tostring(config.Name or config.Text or "Radio"),
-				config.Options or config.Values or config.Items or {},
-				configdefault(config),
-				config.Callback,
-				config.Target,
-				config.Multi == true or config.MultiSelect == true
-			)
-		end
-
-		return addradio(self, config, options, default, callback, target, multiselect)
-	end
-
-	section.AddBadge = function(self, config, textvalue, color, target)
-		if type(config) == "table" then
-			return addbadge(
-				self,
-				tostring(config.Name or config.Title or "Status"),
-				tostring(config.Text or config.Status or config.Value or "Ready"),
-				config.Color,
-				config.Target
-			)
-		end
-
-		return addbadge(self, config, textvalue, color, target)
-	end
 
 	section.AddImage = function(self, config, asset, height, target)
 		if type(config) == "table" then
@@ -22094,30 +16758,6 @@ function S.libraryenhancesection(
 		end
 
 		return addavatar(self, config, source, target)
-	end
-
-	section.AddLoadingSpinner = function(self, config, target)
-		if type(config) == "table" then
-			return addloadingspinner(
-				self,
-				tostring(config.Name or config.Text or "Loading"),
-				config.Target
-			)
-		end
-
-		return addloadingspinner(self, config, target)
-	end
-
-	section.AddLoadingBar = function(self, config, target)
-		if type(config) == "table" then
-			return addloadingbar(
-				self,
-				tostring(config.Name or config.Text or "Loading"),
-				config.Target
-			)
-		end
-
-		return addloadingbar(self, config, target)
 	end
 
 	section.AddContextMenu = function(self, config, entries, target, control)
@@ -22281,7 +16921,7 @@ function S.libraryenhancesection(
 					if kind == "Input" then inputcallback = args[4] end
 				end
 
-				control = original(self, table.unpack(args, 1, args.n))
+				control = original(builders, table.unpack(args, 1, args.n))
 
 				S.registerpersistentcontrol(
 					self,
@@ -22339,14 +16979,18 @@ function S.libraryenhancesection(
 
 	wrappersistentmethod("AddColorPicker", "ColorPicker", { 3 }, { "Callback" }, "color")
 
-	wrappersistentmethod("AddRadio", "Radio", { 4 }, { "Callback" })
+	function section:SetGradient(value, animated, speed)
+		if animated ~= nil and type(value) == "string" then
+			value = { Theme = value, Animated = animated == true, Speed = speed }
+		end
+		return S.settextgradient(self.TextObject, value)
+	end
 
-	function section:SetGradient(value) return S.settextgradient(self.TextObject, value) end
-
-	function section:SetRainbow(value) return S.settextrainbow(self.TextObject, value) end
 
 	return section
 end
+
+
 
 function S.librarysetlogo(asset, color, hidden, custom)
 	hidden = asset == false or tostring(asset or "") == ""
@@ -22373,9 +17017,9 @@ function S.librarysetbrand(title, subtitletext)
 
 	S.brand.Text = title
 	S.subtitle.Text = subtitletext
-	S.reopenlabel.Text = title
+	
 	S.updatebrandlayout()
-	S.updatereopenlayout()
+	
 
 	if S.__blush_watermark_title then
 		S.setwatermarktitle(title)
@@ -22383,194 +17027,66 @@ function S.librarysetbrand(title, subtitletext)
 	end
 end
 
-function S.libraryrefreshothergroupvisibility(visible)
-	visible = S.settingsbutton.Visible
-
-	if not visible then
-		for _, tab in ipairs(S.librarytaborder) do
-			if tab.Group == "other" and tab.Button and tab.Button.Parent and tab.Button.Visible then
-				visible = true
-				break
-			end
-		end
+function S.librarysetsettingstab(config)
+	config = type(config) == "table" and config or { Enabled = config ~= false }
+	S.settingsoptions = config
+	if not S.settingsbutton then
+		S.settingsbutton, S.settingstext, S.settingsicon = S.navbutton(S.nav, config.Name or "Settings", S.icons.settings, false)
+		S.settingsbutton.LayoutOrder = 1000000
+		S.naventries[S.settingsbutton] = { button = S.settingsbutton, text = S.settingstext, icon = S.settingsicon }
+		S.bindnavhover(S.settingsbutton, false)
+		S.settingsbutton.Activated:Connect(function() S.librarygetsettingstab():Select() end)
 	end
-
-	S.otherheader.Visible = false
-	S.othergroup.Visible = visible
-	S.refreshsidegroups(false)
+	S.settingsbutton.Visible = config.Enabled ~= false
+	S.settingstext.Text = tostring(config.Name or config.Title or "Settings")
+	S.setnaventryicon(S.naventries[S.settingsbutton], S.librarynormalizeicon(config.Icon or "settings"))
+	S.settingsicon = S.naventries[S.settingsbutton].icon
+	if S.settingsready then S.applysettingssectionvisibility() end
 end
 
-function S.librarysetsettingstab(config, enabled, name13, icon, groupname, sections)
-	if type(config) == "boolean" then
-		config = {
-			Enabled = config,
-		}
-	elseif type(config) ~= "table" then
-		config = {}
+function S.applysettingssectionvisibility()
+	local sections = S.settingsoptions and S.settingsoptions.Sections or {}
+	for key, section in pairs({ Interface = S.settingssection, Watermark = S.watermarksettingssection, Keybinds = S.keybindssection, Window = S.windowsection, Themes = S.themessection, Presets = S.presetsection }) do
+		section.frame.Visible = sections[key] ~= false
 	end
-
-	enabled = config.Enabled ~= false
-	name13 = tostring(config.Name or config.Title or "Settings")
-	icon = S.librarynormalizeicon(config.Icon or "settings")
-	groupname = tostring(config.GroupName or config.CategoryName or "Other")
-	sections = config.Sections
-
-	S.settingsbutton.Visible = enabled
-	S.settingstext.Text = name13
-	S.settingsicon.Image = icon
-	S.othertext.Text = groupname
-
-	if type(sections) == "table" then
-		S.settingssection.frame.Visible = sections.Interface ~= false
-		S.watermarksettingssection.frame.Visible = sections.Watermark ~= false
-		S.keybindssection.frame.Visible = sections.Keybinds ~= false
-		S.windowsection.frame.Visible = sections.Window ~= false
-		S.themessection.frame.Visible = sections.Themes ~= false and sections.Appearance ~= false
-		S.backgroundimagesection.frame.Visible = sections.BackgroundImage ~= false
-		S.savessection.frame.Visible = sections.Configs ~= false
-	else
-		S.settingssection.frame.Visible = true
-		S.watermarksettingssection.frame.Visible = true
-		S.keybindssection.frame.Visible = true
-		S.windowsection.frame.Visible = true
-		S.themessection.frame.Visible = true
-		S.backgroundimagesection.frame.Visible = true
-		S.savessection.frame.Visible = true
-	end
-
 	S.settings:reflowall(false)
-	S.libraryrefreshothergroupvisibility()
 end
 
 function S.librarygetsettingstab()
+	S.ensureSettings()
+	S.applysettingssectionvisibility()
 	if S.librarysettingstab then return S.librarysettingstab end
-
-	S.librarysettingstab = {
-		Name = S.settingstext.Text,
-		Page = S.settings,
-		Button = S.settingsbutton,
-	}
-
-	function S.librarysettingstab:AddSection(title, column, sectionicon, config)
-		column = string.lower(tostring(column or "left"))
-
-		if column ~= "right" then column = "left" end
-
-		if type(title) == "table" then
-			config = title
-			column = string.lower(tostring(config.Side or config.Column or "left"))
-
-			if column ~= "right" then column = "left" end
-
-			return S.libraryenhancesection(
-				S.createsection(
-					S.settings,
-					column,
-					tostring(config.Name or config.Title or "Section"),
-					config.Icon and S.librarynormalizeicon(config.Icon) or nil
-				)
-			)
-		end
-
-		return S.libraryenhancesection(
-			S.createsection(
-				S.settings,
-				column,
-				tostring(title or "Section"),
-				sectionicon and S.librarynormalizeicon(sectionicon) or nil
-			)
-		)
+	local tab = { Name = S.settingstext.Text, Page = S.settings, Button = S.settingsbutton }
+	function tab:AddSection(config, column, icon)
+		if type(config) ~= "table" then config = { Name = config, Side = column, Icon = icon } end
+		return S.libraryenhancesection(S.createsection(S.settings, string.lower(tostring(config.Side or config.Column)) == "right" and "right" or "left", tostring(config.Name or config.Title or "Section"), S.librarynormalizeicon(config.Icon)))
 	end
-
-	function S.librarysettingstab:AddLeftSection(title, sectionicon)
-		if type(title) == "table" then
-			title.Side = "left"
-			return self:AddSection(title)
-		end
-
-		return self:AddSection(title, "left", sectionicon)
+	function tab:AddLeftSection(config, icon)
+		config = type(config) == "table" and table.clone(config) or { Name = config, Icon = icon }
+		config.Side = "left"
+		return self:AddSection(config)
 	end
-
-	function S.librarysettingstab:AddRightSection(title, sectionicon)
-		if type(title) == "table" then
-			title.Side = "right"
-			return self:AddSection(title)
-		end
-
-		return self:AddSection(title, "right", sectionicon)
+	function tab:AddRightSection(config, icon)
+		config = type(config) == "table" and table.clone(config) or { Name = config, Icon = icon }
+		config.Side = "right"
+		return self:AddSection(config)
 	end
-
-	function S.librarysettingstab:Select()
+	function tab:Select()
 		if not S.settingsbutton.Visible then return false end
-
 		S.selectmain(S.settingsbutton)
-		S.expandsubtabs(false)
 		S.showpage("settings")
 		return true
 	end
-
-	function S.librarysettingstab:Configure(config)
-		S.librarysetsettingstab(config)
-		self.Name = S.settingstext.Text
-	end
-
-	function S.librarysettingstab:SetVisible(value)
-		S.librarysetsettingstab({
-			Enabled = value == true,
-			Name = S.settingstext.Text,
-			Icon = S.settingsicon.Image,
-			GroupName = S.othertext.Text,
-		})
-	end
-
-	return S.librarysettingstab
-end
-
-function S.libraryresetnavigation()
-	for _, button in ipairs({
-		S.homebutton,
-		S.combatbutton,
-		S.farmingbutton,
-		S.componentsbutton,
-	}) do
-		button.Visible = false
-	end
-
-	S.subholder.Visible = false
-
-	for _, page in pairs({
-		S.home,
-		S.combatmain,
-		S.combatvisuals,
-		S.combatextras,
-		S.farming,
-		S.components,
-	}) do
-		if page and page.frame then page.frame.Visible = false end
-	end
-
-	S.mainnavorder = {}
-	S.subnavorder = {}
-	S.libraryactivetabsection = nil
-	S.currentnav = nil
-	S.currentsub = nil
-	S.currentpage = nil
-
-	S.topnavigation.Visible = false
-	S.breadcrumb.Visible = true
-
-	if S.topnavigationtoggle and S.topnavigationtoggle.Object then
-		S.topnavigationtoggle.Object.Visible = true
-	end
-
-	S.refreshsidegroups(false)
+	function tab:Configure(config) S.librarysetsettingstab(config); self.Name = S.settingstext.Text end
+	function tab:SetVisible(value) S.settingsbutton.Visible = value == true end
+	S.librarysettingstab = tab
+	return tab
 end
 
 function S.librarycreatetab(
 	windowapi,
 	options,
 	icon,
-	group,
 	name14,
 	asset,
 	requestedgroup,
@@ -22584,7 +17100,6 @@ function S.librarycreatetab(
 	indicator,
 	iconobject,
 	glow,
-	applysectionorder,
 	tab,
 	parenttab
 )
@@ -22592,7 +17107,6 @@ function S.librarycreatetab(
 		options = {
 			Name = options,
 			Icon = icon,
-			Group = group,
 		}
 	end
 
@@ -22601,26 +17115,11 @@ function S.librarycreatetab(
 
 	name14 = tostring(options.Name or options.Title or ("Tab " .. S.librarytabserial))
 	asset = S.librarynormalizeicon(options.Icon or options.Asset)
-	requestedgroup = options.Group
-		or options.Section
-		or (S.libraryactivetabsection and S.libraryactivetabsection.Name)
-		or "main"
-	destination = string.lower(tostring(requestedgroup))
-	sectiontab = S.librarytabsectionlookup[destination]
-	parentobject = nil
+	sectiontab = S.currenttabgroup
+	parentobject = sectiontab and sectiontab.Content or S.nav
+	S.navorder += 1
 
-	if destination == "other" then
-		parentobject = S.othercontent
-	elseif destination == "main" then
-		parentobject = S.maincontent
-	elseif sectiontab then
-		parentobject = sectiontab.Content
-	else
-		destination = "main"
-		parentobject = S.maincontent
-	end
-
-	pageid = "__blush_library_tab_" .. tostring(S.librarytabserial)
+pageid = "__blush_library_tab_" .. tostring(S.librarytabserial)
 	page = S.createpage(pageid, parenttab and parenttab.Name or name14, parenttab and name14 or nil)
 	page.icon = asset
 
@@ -22635,43 +17134,14 @@ function S.librarycreatetab(
 			S.createtopsub(name14, asset or S.icons["layout-grid"], #parenttab.SubTabs + 1)
 		button14.Visible = false
 	else
-		button14, textobject, indicator, iconobject, glow =
-			S.navbutton(parentobject, name14, asset, false)
-
-		S.naventries[button14] = {
-			button = button14,
-			sub = false,
-			text = textobject,
-			indicator = indicator,
-			icon = iconobject,
-			glow = glow,
-		}
-
+		button14, textobject, iconobject = S.navbutton(parentobject, name14, asset, false)
+		S.naventries[button14] = { button = button14, text = textobject, icon = iconobject, sub = false }
 		S.setsidebarentrycompact(S.naventries[button14], S.sidebarcompact, false)
-
 		S.bindnavhover(button14, false)
-
-		if destination == "main" then
-			table.insert(S.mainnavorder, button14)
-			S.bindnavdrag(button14, S.mainnavorder)
-			S.applynavorder()
-		elseif sectiontab then
-			table.insert(sectiontab.Order, button14)
-
-			applysectionorder = function()
-				for index, item in ipairs(sectiontab.Order) do
-					item.LayoutOrder = index * 10
-				end
-			end
-
-			applysectionorder()
-			S.bindnavdrag(button14, sectiontab.Order, applysectionorder)
-		else
-			button14.LayoutOrder = #S.librarytaborder + 1
-		end
+		button14.LayoutOrder = S.navorder * 2
 	end
 
-	tab = {
+tab = {
 		Name = name14,
 		ParentTab = parenttab,
 		SubTabs = {},
@@ -22679,7 +17149,6 @@ function S.librarycreatetab(
 		Page = page,
 		Button = button14,
 		TextObject = textobject,
-		Group = destination,
 	}
 
 	page.tab = tab
@@ -22783,6 +17252,8 @@ function S.librarycreatetab(
 		end
 
 		if S.currentpage == page then S.titleprimary.Text = name14 end
+		if parenttab and S.syncsubtabnavigation then S.syncsubtabnavigation(false) end
+		if parenttab and S.updatetopnavigationstate then S.updatetopnavigationstate(false) end
 	end
 
 	function tab:SetIcon(value, assetvalue)
@@ -22795,37 +17266,38 @@ function S.librarycreatetab(
 			iconobject = S.setnaventryicon(S.naventries[button14], assetvalue)
 		end
 
-		S.refreshhotkeylist()
+		S.refreshkeybindlist()
 	end
 
-	function tab:SetGradient(value) return S.settextgradient(textobject, value) end
+	function tab:SetGradient(value, animated, speed)
+		if animated ~= nil and type(value) == "string" then
+			value = { Theme = value, Animated = animated == true, Speed = speed }
+		end
+		return S.settextgradient(textobject, value)
+	end
 
-	function tab:SetRainbow(value) return S.settextrainbow(textobject, value) end
 
 	function tab:SetVisible(value)
 		self.Hidden = value == false
 		button14.Visible = value ~= false
+		if parenttab and S.syncsubtabnavigation then S.syncsubtabnavigation(false) end
 		if parenttab then S.updatetopnavigationstate(false) end
 
-		if self.Group == "other" then S.libraryrefreshothergroupvisibility() end
+		
 
 		S.refreshsidegroups(false)
 	end
 
 	function tab:GetPage() return page end
 
-	button14.Activated:Connect(function()
-		if button14:GetAttribute("BlushDragSuppress") then return end
-
-		tab:Select()
-	end)
+	button14.Activated:Connect(function() tab:Select() end)
 
 	if not parenttab then
 		S.librarytabs[name14] = tab
 		table.insert(S.librarytaborder, tab)
 	end
 
-	if destination == "other" then S.libraryrefreshothergroupvisibility() end
+	
 
 	if not parenttab and not windowapi._firsttab then
 		windowapi._firsttab = tab
@@ -22839,6 +17311,7 @@ function S.librarycreatetab(
 		if not parenttab.SelectedSubTab then
 			tab:Select()
 		else
+			if S.syncsubtabnavigation then S.syncsubtabnavigation(false) end
 			S.updatetopnavigationstate(false)
 		end
 	end
@@ -22865,26 +17338,13 @@ function S.library:CreateWindow(
 )
 	options = options or {}
 
-	customfolders = options.StorageFolder ~= nil
-		or options.Folder ~= nil
-		or options.ConfigFolder ~= nil
-		or options.ThemeFolder ~= nil
-		or options.BackgroundFolder ~= nil
-		or options.SettingsFile ~= nil
-		or type(options.Folders) == "table"
-
-	if customfolders then
-		S.configurestoragefolders(options)
-		S.ensurestorage()
-		foldersettings = S.readuisettingsfile()
-		if next(foldersettings) ~= nil then S.applysaveduisettings(foldersettings, true) end
-	end
-
 	if S.librarywindow then return S.librarywindow end
+	S.options = options
+	S.configurestoragefolders(options)
+	S.initializeStorageState()
+	S.applysaveduisettings(S.rawsavedsettings, true)
 
-	S.libraryresetnavigation()
-
-	title = options.Title or options.Name or "blush."
+title = options.Title or options.Name or "blush."
 	subtitletext = options.Subtitle or options.Version or ("v" .. S.library.Version)
 	size = options.Size
 	position = options.Position
@@ -22901,29 +17361,15 @@ function S.library:CreateWindow(
 	S.librarysetlogo(options.Logo, options.LogoColor)
 	S.librarysetsettingstab(settingsconfig)
 
-	S.windowresizeenabled = options.Resize ~= false
 	S.windowdragenabled = options.Draggable ~= false
-
-	if options.SidebarResize ~= nil then
-		S.sidebarresizehandle.Visible = options.SidebarResize == true
-		S.sidebarresizehandle.Active = options.SidebarResize == true
-	end
-
 	if options.SidebarWidth ~= nil then S.applysidebarlayout(options.SidebarWidth, false) end
 
-	S.windowminsize = typeof(options.MinSize) == "Vector2" and options.MinSize
-		or Vector2.new(620, 440)
-
-	S.windowmaxsize = typeof(options.MaxSize) == "Vector2" and options.MaxSize or nil
-
-	S.resizehandle.Visible = S.windowresizeenabled
-	S.resizehandle.Active = S.windowresizeenabled
-
-	if options.Roundness ~= nil then
+if options.Roundness ~= nil then
 		S.windowcorner.CornerRadius = UDim.new(0, math.max(0, tonumber(options.Roundness) or 12))
+		S.shellcorner.CornerRadius = S.windowcorner.CornerRadius
 	end
 
-	S.windowstroke.Enabled = false
+	
 
 	if options.Shadow ~= nil then
 		S.windowshadowenabled = options.Shadow == true
@@ -23084,110 +17530,40 @@ function S.library:CreateWindow(
 		if S.notificationtoggle then S.notificationtoggle:Set(S.notificationsenabled, false) end
 	end
 
-	local backgroundoption = options.BackgroundImage
-	if backgroundoption == nil and typeof(options.Background) ~= "Color3" then
-		backgroundoption = options.Background
-	end
-	if backgroundoption ~= nil then
-		local backgroundsource = backgroundoption
-		local backgroundopacity
-		local backgroundblur
-		local backgroundexclude
-
-		if type(backgroundoption) == "table" then
-			backgroundsource = backgroundoption.Source or backgroundoption.Image or backgroundoption.Asset
-			backgroundopacity = backgroundoption.Opacity
-			backgroundblur = backgroundoption.Blur
-			backgroundexclude = backgroundoption.ExcludeSidebar
-		end
-
-		if backgroundopacity ~= nil then S.setbackgroundimageopacity(backgroundopacity, false) end
-		if backgroundblur ~= nil then S.setbackgroundimageblur(backgroundblur, false) end
-		if backgroundexclude ~= nil then S.setbackgroundexcludesidebar(backgroundexclude == true) end
-
-		if backgroundsource == false or tostring(backgroundsource or "") == "" then
-			S.clearbackgroundimage(false)
-		else
-			S.loadbackgroundimage(tostring(backgroundsource), false, false)
-		end
+	if options.TopNavigation ~= nil then
+		S.topnavigationenabled = options.TopNavigation == true
+		if S.topnavigationtoggle then S.topnavigationtoggle:Set(S.topnavigationenabled, false) end
+		S.applytopnavigation(S.topnavigationenabled, false)
 	end
 
-	local watermarkinfo = type(options.Watermark) == "table" and options.Watermark
-		or options.WatermarkInfo
-
-	if options.Watermark ~= nil then
-		visible = type(options.Watermark) == "table" and options.Watermark.Enabled ~= false
-			or options.Watermark == true
-		S.setwatermarkvisible(visible, false)
-
-		if S.watermarktoggle then S.watermarktoggle:Set(visible, false) end
+	if type(options.WatermarkInfo) == "table" then
+		for key, value in pairs(options.WatermarkInfo) do
+			if S.watermarkconfig[key] ~= nil then S.watermarkconfig[key] = value == true end
+		end
 	end
+	S.setwatermarkvisible(options.Watermark == true, false)
+	S.updatewatermarklayout()
 
-	if type(watermarkinfo) == "table" then
-		for _, item in ipairs({ "Player", "Ping", "Time", "Game" }) do
-			if watermarkinfo[item] ~= nil then
-				S.watermarkconfig[item] = watermarkinfo[item] == true
-			end
-		end
-
-		if watermarkinfo.FPS ~= nil then
-			S.watermarkconfig.FPS = watermarkinfo.FPS == true
-		elseif watermarkinfo.Fps ~= nil then
-			S.watermarkconfig.FPS = watermarkinfo.Fps == true
-		end
-
-		if watermarkinfo.PlayerMode ~= nil then
-			S.watermarkconfig.PlayerMode = S.normalizewatermarkplayermode(watermarkinfo.PlayerMode)
-		end
-
-		if S.watermarkinfocontrol then
-			values = {}
-
-			for _, item in ipairs({ "Player", "Fps", "Ping", "Time", "Game" }) do
-				enabled = item == "Fps" and S.watermarkconfig.FPS or S.watermarkconfig[item]
-
-				if enabled then table.insert(values, item) end
-			end
-
-			S.watermarkinfocontrol:Set(values, false)
-		end
-
-		if S.watermarkplayermodecontrol then
-			mode = S.normalizewatermarkplayermode(S.watermarkconfig.PlayerMode)
-			values3 = {}
-			if mode == "Display" or mode == "Both" then values3[#values3 + 1] = "Display" end
-			if mode == "Username" or mode == "Both" then values3[#values3 + 1] = "Username" end
-			S.watermarkplayermodecontrol:Set(values3, false)
-		end
-
-		S.updatewatermarklayout()
-	end
-
-	local keybindsoption = options.Keybinds
-	if keybindsoption == nil then keybindsoption = options.HotkeyList end
+local keybindsoption = options.Keybinds
+	if keybindsoption == nil then keybindsoption = options.KeybindList end
 
 	if keybindsoption ~= nil then
 		visible2 = type(keybindsoption) == "table" and keybindsoption.Enabled ~= false
 			or keybindsoption == true
-		S.sethotkeylistvisible(visible2)
+		S.setkeybindlistvisible(visible2)
 
-		if S.hotkeylisttoggle then S.hotkeylisttoggle:Set(visible2, false) end
+		if S.keybindlisttoggle then S.keybindlisttoggle:Set(visible2, false) end
 	end
 
-	if options.AutoSave ~= nil and S.autosaveconfigcontrol then
-		local autosaveenabled = type(options.AutoSave) == "table" and options.AutoSave.Enabled ~= false
-			or options.AutoSave == true
-		S.autosaveconfigcontrol:Set(autosaveenabled, false)
-		if not autosaveenabled then S.cancelautosaves() end
-	end
+	S.setautosave(options.AutoSave == true)
 
-	if S.refreshsettingsdependencies then S.refreshsettingsdependencies(false) end
+if S.refreshsettingsdependencies then S.refreshsettingsdependencies(false) end
 
 	S.constructing = false
 	S.flushpagelayouts()
 	S.gui.Enabled = true
 	S.watermarkgui.Enabled = true
-	S.reopengui.Enabled = false
+	
 
 	S.modalguard.Modal = true
 	S.modalguard.Active = false
@@ -23203,15 +17579,16 @@ function S.library:CreateWindow(
 		TextObject = S.brand,
 	}
 
-	S.librarywindow.Settings = S.librarygetsettingstab()
+	-- Settings controls are created by GetSettingsTab or the Settings button.
+	S.librarywindow.GradientThemes = table.clone(S.gradientthemenames)
 
-	function S.librarywindow:AddSectionTab(name, sectiontab)
-		sectiontab = S.createlibrarytabsection(name)
-		S.libraryactivetabsection = sectiontab
-		return sectiontab
+	function S.librarywindow:CreateTabGroup(name)
+		S.createlibrarytabgroup(name)
+		return self
 	end
+	function S.librarywindow:CreateTab(...) return S.librarycreatetab(self, ...) end
 
-	function S.librarywindow:AddTab(...) return S.librarycreatetab(self, ...) end
+S.librarywindow.AddTab = S.librarywindow.CreateTab
 
 	function S.librarywindow:GetTab(name) return S.librarytabs[tostring(name)] end
 
@@ -23228,46 +17605,53 @@ function S.library:CreateWindow(
 		return false
 	end
 
-	function S.librarywindow:Notify(
-		titletext,
-		bodytext,
-		duration,
-		callback,
-		buttontext,
-		iconasset
-	)
+	function S.librarywindow:Notify(titletext, bodytext, duration, action, callback, iconasset)
 		if type(titletext) == "table" then return S.notify(titletext) end
-		return S.notify(titletext, bodytext, duration, buttontext, callback, iconasset)
+
+		if type(action) == "function" then
+			action, callback = callback, action
+		end
+
+		return S.notify(titletext, bodytext, duration, action, callback, iconasset)
 	end
 
-	function S.librarywindow:SetGradient(element, value)
+	function S.librarywindow:SetGradient(element, value, animated, speed)
 		if
 			value == nil
 			and (
 				typeof(element) == "ColorSequence"
-				or type(element) == "table"
-				or type(element) == "string"
+					or type(element) == "table"
+					or type(element) == "string"
 			)
 		then
 			value = element
 			element = self
 		end
 
+		if animated ~= nil and type(value) == "string" then
+			value = {
+				Theme = value,
+				Animated = animated == true,
+				Speed = speed,
+			}
+		end
+
 		return S.settextgradient(element, value)
 	end
 
-	function S.librarywindow:SetTitleGradient(value) return S.settextgradient(S.brand, value) end
-
-	function S.librarywindow:SetRainbow(element, value)
-		if type(element) == "boolean" and value == nil then
-			value = element
-			element = self
+	function S.librarywindow:SetTitleGradient(value, animated, speed)
+		if animated ~= nil and type(value) == "string" then
+			value = {
+				Theme = value,
+				Animated = animated == true,
+				Speed = speed,
+			}
 		end
-
-		return S.settextrainbow(element, value)
+		return S.settextgradient(S.brand, value)
 	end
 
-	function S.librarywindow:SetTitleRainbow(value) return S.settextrainbow(S.brand, value) end
+	function S.librarywindow:GetGradientThemes() return table.clone(S.gradientthemenames) end
+
 
 	function S.librarywindow:SetVisible(value) S.requestvisibilitytoggle(value == true) end
 
@@ -23279,51 +17663,21 @@ function S.library:CreateWindow(
 
 	function S.librarywindow:GetSidebarWidth() return S.sidebarwidth end
 
-	function S.librarywindow:SetSidebarResizeEnabled(value, enabled2)
-		enabled2 = value == true
-		S.sidebarresizehandle.Visible = enabled2
-		S.sidebarresizehandle.Active = enabled2
-
-		if not enabled2 then
-			S.sidebarresize = nil
-			S.sidebarresizeaccent.BackgroundTransparency = 1
-		end
-	end
-
-	function S.librarywindow:SetResizeEnabled(value)
-		S.windowresizeenabled = value == true
-		S.resizehandle.Visible = S.windowresizeenabled
-		S.resizehandle.Active = S.windowresizeenabled
-
-		if not S.windowresizeenabled then S.windowresize = nil end
+	function S.librarywindow:SetTopNavigation(value, animate)
+		S.topnavigationenabled = value == true
+		if S.topnavigationtoggle then S.topnavigationtoggle:Set(S.topnavigationenabled, false) end
+		S.applytopnavigation(S.topnavigationenabled, animate ~= false)
 	end
 
 	function S.librarywindow:SetDraggable(value)
 		S.windowdragenabled = value == true
-
-		if not S.windowdragenabled then S.windowdrag = nil end
-	end
-
-	function S.librarywindow:SetMinSize(value)
-		if typeof(value) ~= "Vector2" then return false end
-
-		S.windowminsize = value
-		return true
-	end
-
-	function S.librarywindow:SetMaxSize(value)
-		if value == nil then
-			S.windowmaxsize = nil
-			return true
+		if not S.windowdragenabled and S.windowdrag then
+			S.releaseinteraction(S.windowdrag.input)
+			S.windowdrag = nil
 		end
-
-		if typeof(value) ~= "Vector2" then return false end
-
-		S.windowmaxsize = value
-		return true
 	end
 
-	function S.librarywindow:SetSize(value, recenter)
+function S.librarywindow:SetSize(value, recenter)
 		if typeof(value) ~= "Vector2" then return false end
 
 		S.originalwindowsize = value
@@ -23429,9 +17783,10 @@ function S.library:CreateWindow(
 
 	function S.librarywindow:SetRoundness(value)
 		S.windowcorner.CornerRadius = UDim.new(0, math.max(0, tonumber(value) or 0))
+		S.shellcorner.CornerRadius = S.windowcorner.CornerRadius
 	end
 
-	function S.librarywindow:SetStrokeVisible(value) S.windowstroke.Enabled = false end
+	
 
 	function S.librarywindow:SetShadowVisible(value)
 		S.windowshadowenabled = value == true
@@ -23464,66 +17819,34 @@ function S.library:CreateWindow(
 		if S.refreshsettingsdependencies then S.refreshsettingsdependencies(true) end
 	end
 
-	function S.librarywindow:SetWatermarkInfo(config, values4, enabled3, mode2, values5)
+	function S.librarywindow:SetWatermarkInfo(config)
 		if type(config) ~= "table" then return false end
-
-		for _, item in ipairs({ "Player", "Ping", "Time", "Game" }) do
-			if config[item] ~= nil then S.watermarkconfig[item] = config[item] == true end
+		for key, value in pairs(config) do
+			if S.watermarkconfig[key] ~= nil then S.watermarkconfig[key] = value == true end
 		end
-
-		if config.FPS ~= nil then
-			S.watermarkconfig.FPS = config.FPS == true
-		elseif config.Fps ~= nil then
-			S.watermarkconfig.FPS = config.Fps == true
-		end
-
-		if config.PlayerMode ~= nil then
-			S.watermarkconfig.PlayerMode = S.normalizewatermarkplayermode(config.PlayerMode)
-		end
-
-		if S.watermarkinfocontrol then
-			values4 = {}
-
-			for _, item in ipairs({ "Player", "Fps", "Ping", "Time", "Game" }) do
-				enabled3 = item == "Fps" and S.watermarkconfig.FPS or S.watermarkconfig[item]
-
-				if enabled3 then table.insert(values4, item) end
-			end
-
-			S.watermarkinfocontrol:Set(values4, false)
-		end
-
-		if S.watermarkplayermodecontrol then
-			mode2 = S.normalizewatermarkplayermode(S.watermarkconfig.PlayerMode)
-			values5 = {}
-			if mode2 == "Display" or mode2 == "Both" then values5[#values5 + 1] = "Display" end
-			if mode2 == "Username" or mode2 == "Both" then values5[#values5 + 1] = "Username" end
-			S.watermarkplayermodecontrol:Set(values5, false)
-		end
-
 		S.updatewatermarklayout()
+		S.syncsettingscontrols()
 		return true
 	end
 
-	function S.librarywindow:SetHotkeyList(value, visible4)
+function S.librarywindow:SetKeybindList(value, visible4)
 		visible4 = type(value) == "table" and value.Enabled ~= false or value == true
-		S.sethotkeylistvisible(visible4)
+		S.setkeybindlistvisible(visible4)
 
-		if S.hotkeylisttoggle then S.hotkeylisttoggle:Set(visible4, false) end
+		if S.keybindlisttoggle then S.keybindlisttoggle:Set(visible4, false) end
 		if S.refreshsettingsdependencies then S.refreshsettingsdependencies(true) end
 	end
 
-	function S.librarywindow:SetKeybinds(value) self:SetHotkeyList(value) end
+	function S.librarywindow:SetKeybinds(value) self:SetKeybindList(value) end
 
-	function S.librarywindow:SetAutoSave(value)
-		value = type(value) == "table" and value.Enabled ~= false or value == true
-		if S.autosaveconfigcontrol then S.autosaveconfigcontrol:Set(value, false) end
-		if not value then S.cancelautosaves() end
-	end
+	function S.librarywindow:SetAutoSave(value) S.setautosave(value == true) end
+	function S.librarywindow:GetAutoSave() return S.autosave end
+	function S.librarywindow:SavePreset(name) return S.savepreset(name) end
+	function S.librarywindow:LoadPreset(name) return S.loadpreset(name) end
+	function S.librarywindow:DeletePreset(name) return S.deletepreset(name) end
+	function S.librarywindow:GetPresets() return S.listpresetnames() end
 
-	function S.librarywindow:GetAutoSave() return S.autosaveenabled() end
-
-	function S.librarywindow:SetAnimations(value)
+function S.librarywindow:SetAnimations(value)
 		S.animationsenabled = value == true
 
 		if S.animationtoggle then S.animationtoggle:Set(S.animationsenabled, false) end
@@ -23543,36 +17866,9 @@ function S.library:CreateWindow(
 		if S.notificationtoggle then S.notificationtoggle:Set(S.notificationsenabled, false) end
 	end
 
-	function S.librarywindow:SetBackground(source, opacity, blur)
-		if source == nil or tostring(source) == "" then
-			S.clearbackgroundimage(true)
-			return true
-		end
+	
 
-		if opacity ~= nil then S.setbackgroundimageopacity(opacity, false) end
-
-		if blur ~= nil then S.setbackgroundimageblur(blur, false) end
-
-		return S.loadbackgroundimage(tostring(source), true, false)
-	end
-
-	function S.librarywindow:ClearBackground() S.clearbackgroundimage(true) end
-
-	function S.librarywindow:SetBackgroundOpacity(value) S.setbackgroundimageopacity(value, true) end
-
-	function S.librarywindow:SetBackgroundBlur(value) S.setbackgroundimageblur(value, true) end
-
-	function S.librarywindow:SetBackgroundExcludeSidebar(value)
-		S.setbackgroundexcludesidebar(value == true)
-	end
-
-	function S.librarywindow:SetAutoBackgroundColors()
-		S.autobackgroundcolors = false
-		S.backgroundautobase = nil
-		return false
-	end
-
-	function S.librarywindow:SetTheme(config, derived)
+function S.librarywindow:SetTheme(config, derived)
 		if type(config) == "string" then
 			if not S.themepresets[config] then return false end
 			if S.themeselector then
@@ -23656,7 +17952,7 @@ function S.library:CreateWindow(
 
 	function S.librarywindow:SetSettingsVisible(value)
 		S.settingsbutton.Visible = value ~= false
-		S.libraryrefreshothergroupvisibility()
+		
 	end
 
 	function S.librarywindow:SetTitle(value) S.librarysetbrand(value, S.subtitle.Text) end
@@ -23680,32 +17976,17 @@ function S.library:CreateWindow(
 		S.librarywindow = nil
 	end
 
-	if options.BackgroundExcludeSidebar ~= nil then
-		S.librarywindow:SetBackgroundExcludeSidebar(options.BackgroundExcludeSidebar == true)
-	end
+	
 
-	if options.AutoBackgroundColors ~= nil then
-		S.librarywindow:SetAutoBackgroundColors(options.AutoBackgroundColors == true)
-	end
-
-	if options.Background ~= nil then
-		task.defer(
-			function()
-				S.librarywindow:SetBackground(
-					options.Background,
-					options.BackgroundOpacity,
-					options.BackgroundBlur
-				)
-			end
-		)
-	end
-
-	return S.librarywindow
+return S.librarywindow
 end
 
 function S.library:GetSettingsTab() return S.librarygetsettingstab() end
 
-function S.library:Notify(...) S.notify(...) end
+function S.library:Notify(titletext, ...)
+	if type(titletext) == "table" then return S.notify(titletext) end
+	return S.notify(titletext, ...)
+end
 
 function S.library:SetLocked(element, value) return S.applylockedoption(element, value) end
 
@@ -23715,9 +17996,19 @@ function S.library:IsLocked(element, root, state)
 	return state and state.locked == true or false
 end
 
-function S.library:SetGradient(element, value) return S.settextgradient(element, value) end
+function S.library:SetGradient(element, value, animated, speed)
+	if animated ~= nil and type(value) == "string" then
+		value = {
+			Theme = value,
+			Animated = animated == true,
+			Speed = speed,
+		}
+	end
+	return S.settextgradient(element, value)
+end
 
-function S.library:SetRainbow(element, value) return S.settextrainbow(element, value) end
+function S.library:GetGradientThemes() return table.clone(S.gradientthemenames) end
+
 
 function S.library:Destroy()
 	S.__blush_cleanup()
@@ -23726,7 +18017,7 @@ end
 
 S.gui.Enabled = false
 S.watermarkgui.Enabled = false
-S.reopengui.Enabled = false
+
 S.modalguard.Modal = true
 S.modalguard.Active = false
 S.modalguard.Visible = false
