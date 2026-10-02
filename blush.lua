@@ -25,7 +25,13 @@ S.contextactionservice = game:GetService("ContextActionService")
 
 
 S.player = S.players.LocalPlayer
-S.parent = gethui and gethui() or S.player:WaitForChild("PlayerGui")
+S.coregui = game:GetService("CoreGui")
+S.parent = S.coregui
+if type(gethui) == "function" then
+	S.parentok, S.parent = pcall(gethui)
+	if not S.parentok or typeof(S.parent) ~= "Instance" then S.parent = S.coregui end
+	S.parentok = nil
+end
 
 S.runtimebridge = S.parent:FindFirstChild("blush_runtime")
 if S.runtimebridge and S.runtimebridge:IsA("BindableEvent") then
@@ -3682,7 +3688,7 @@ S.modalguard = S.new("TextButton", {
 	AutoButtonColor = false,
 	Active = false,
 	Selectable = false,
-	Modal = true,
+	Modal = false,
 	Visible = false,
 	ZIndex = 1,
 })
@@ -5291,46 +5297,25 @@ end
 
 -- popup
 
-function S.fadepopup(popup, target, objects, properties2, primary, goals, animation)
+function S.fadepopup(popup, target)
+	if not popup.panel or not popup.panel.Parent then return nil end
 	if target == 1 and not popup.panel.Visible then return nil end
-	if popup.panel:IsA("CanvasGroup") then
-		return S.tween(popup.panel, { GroupTransparency = target }, S.dropti)
-	end
-	if not popup.fadeentries or popup.fadedirty then
-		popup.fadedirty = false
-		popup.fadeentries = popup.fadeentries or {}
-		objects = popup.panel:GetDescendants()
-		objects[#objects + 1] = popup.panel
-		for _, object in ipairs(objects) do
-			properties2 = {}
-			if object:IsA("GuiObject") then
-				properties2.BackgroundTransparency = object.BackgroundTransparency
-			end
-			if object:IsA("TextLabel") or object:IsA("TextButton") or object:IsA("TextBox") then
-				properties2.TextTransparency = object.TextTransparency
-				properties2.TextStrokeTransparency = object.TextStrokeTransparency
-			elseif object:IsA("ImageLabel") or object:IsA("ImageButton") then
-				properties2.ImageTransparency = object.ImageTransparency
-			elseif object:IsA("UIStroke") or object:IsA("UIShadow") then
-				properties2.Transparency = object.Transparency
-			end
-			if next(properties2) then popup.fadeentries[object] = properties2 end
-		end
-	end
-	primary = nil
-	for object, properties in pairs(popup.fadeentries) do
-		if object.Parent then
-			goals = {}
-			for property, base in pairs(properties) do
-				if target == 0 then object[property] = 1 end
-				goals[property] = 1 - (1 - base) * (1 - target)
-			end
-			animation = S.tween(object, goals, S.dropti, true)
-			primary = primary or animation
-		end
-	end
-	popup.panel.Visible = true
-	return primary
+	return S.tween(popup.panel, { GroupTransparency = target }, S.dropti)
+end
+
+function S.dropdownrow(parent, height, zindex, color, role)
+	local row = S.new("TextButton", {
+		Parent = parent,
+		Size = UDim2.new(1, 0, 0, height or 32),
+		BackgroundColor3 = color or S.theme.input,
+		BackgroundTransparency = 1,
+		BorderSizePixel = 0,
+		Text = "",
+		AutoButtonColor = false,
+		ZIndex = zindex or 514,
+	}, { BackgroundColor3 = role or "hover" })
+	S.corner(row, 6)
+	return row
 end
 
 function S.closepopup(expected)
@@ -5353,7 +5338,6 @@ function S.createpopup(
 	width,
 	height,
 	zindex,
-	kind,
 	rootsize,
 	x,
 	y,
@@ -5363,85 +5347,46 @@ function S.createpopup(
 	margin,
 	group,
 	popupshadow,
-	popupshadow2,
 	popup
 )
 	S.closepopup()
 
 	rootsize = S.popuplayer.AbsoluteSize
 
-	x = math.clamp(position.X, 8, math.max(8, rootsize.X - width - 8))
+	margin = 12
+	x = math.clamp(position.X, margin, math.max(margin, rootsize.X - width - margin))
 
-	y = math.clamp(position.Y, 8, math.max(8, rootsize.Y - height - 8))
+	y = math.clamp(position.Y, margin, math.max(margin, rootsize.Y - height - margin))
 
 	blocker = nil
 
-	panel = nil
-	animationobject = nil
+	group = S.new("CanvasGroup", {
+		Parent = S.popuplayer,
+		Position = UDim2.fromOffset(math.round(x - margin), math.round(y - margin)),
+		Size = UDim2.fromOffset(width + margin * 2, height + margin * 2),
+		BackgroundTransparency = 1,
+		BorderSizePixel = 0,
+		GroupTransparency = 1,
+		ClipsDescendants = true,
+		Active = true,
+		ZIndex = zindex + 1,
+	})
 
-	if kind == "color" then
-		margin = 12
+	panel = S.new("Frame", {
+		Parent = group,
+		Position = UDim2.fromOffset(margin, margin),
+		Size = UDim2.fromOffset(width, height),
+		BackgroundColor3 = S.theme.popup,
+		BorderSizePixel = 0,
+		ClipsDescendants = true,
+		Active = true,
+		ZIndex = zindex + 1,
+	}, { BackgroundColor3 = "popup" })
 
-		group = S.new("CanvasGroup", {
-			Parent = S.popuplayer,
-
-			Position = UDim2.fromOffset(x - margin, y - margin),
-
-			Size = UDim2.fromOffset(width + margin * 2, height + margin * 2),
-
-			BackgroundTransparency = 1,
-			BorderSizePixel = 0,
-
-			GroupTransparency = 1,
-			ClipsDescendants = true,
-			Active = true,
-
-			ZIndex = zindex + 1,
-		})
-
-		panel = S.new("Frame", {
-			Parent = group,
-
-			Position = UDim2.fromOffset(margin, margin),
-
-			Size = UDim2.fromOffset(width, height),
-
-			BackgroundColor3 = S.theme.popup,
-
-			BorderSizePixel = 0,
-			ClipsDescendants = false,
-			Active = true,
-
-			ZIndex = zindex + 1,
-		}, { BackgroundColor3 = "popup" })
-
-		S.corner(panel, 9)
-		popupshadow = S.adddepthshadow(panel, "popup")
-		if popupshadow then popupshadow:SetAttribute("BlushBaseTransparency", 0.62) end
-		animationobject = group
-	else
-		panel = S.new("Frame", {
-			Parent = S.popuplayer,
-
-			Position = UDim2.fromOffset(math.round(x), math.round(y)),
-
-			Size = UDim2.fromOffset(width, height),
-
-			BackgroundColor3 = S.theme.popup,
-
-			BorderSizePixel = 0,
-			Visible = false,
-			ClipsDescendants = true,
-			Active = true,
-
-			ZIndex = zindex + 1,
-		}, { BackgroundColor3 = "popup" })
-
-		S.corner(panel, 9)
-		popupshadow2 = S.adddepthshadow(panel, "popup")
-		if popupshadow2 then popupshadow2:SetAttribute("BlushBaseTransparency", 0.62) end
-		animationobject = panel
-	end
+	S.corner(panel, 9)
+	popupshadow = S.adddepthshadow(panel, "popup")
+	if popupshadow then popupshadow:SetAttribute("BlushBaseTransparency", 0.62) end
+	animationobject = group
 
 	
 	popup = {
@@ -5452,7 +5397,6 @@ function S.createpopup(
 		width = width,
 		height = height,
 
-		kind = kind,
 	}
 
 	S.activepopup = popup
@@ -5462,7 +5406,6 @@ function S.createpopup(
 			popup.closing = true
 			if popup.onclose then popup.onclose() end
 		end
-		popup.fadeentries = nil
 	end)
 
 	task.defer(function()
@@ -5497,8 +5440,7 @@ S.connect(S.uis.InputBegan, function(input, kind, inputpoint, content)
 	end
 
 	if
-		kind == Enum.UserInputType.MouseButton1
-		and S.activepopup.anchor
+		S.activepopup.anchor
 		and S.activepopup.anchor.Parent
 		and S.inside(S.activepopup.anchor, inputpoint)
 	then
@@ -5506,8 +5448,7 @@ S.connect(S.uis.InputBegan, function(input, kind, inputpoint, content)
 	end
 
 	if
-		kind == Enum.UserInputType.MouseButton1
-		and S.activepopup.toggleconfig
+		S.activepopup.toggleconfig
 		and S.activepopup.binding
 		and S.activepopup.binding.configbutton
 		and S.activepopup.binding.configbutton.Parent
@@ -5545,7 +5486,7 @@ function S.opencontextmenu(
 	rootpos = S.popuplayer.AbsolutePosition
 	localpos = position - rootpos
 	panel, popup =
-		S.createpopup(Vector2.new(localpos.X + 4, localpos.Y + 4), width, height, 560, "dropdown")
+		S.createpopup(Vector2.new(localpos.X + 4, localpos.Y + 4), width, height, 560)
 
 	content = S.new("Frame", {
 		Parent = panel,
@@ -6979,15 +6920,7 @@ function S.opentoggleconfig(
 			S.closepopup()
 			return
 		end
-
-		previous = S.activepopup
-		S.activepopup = nil
-
-		if previous.onclose then previous.onclose() end
-
-		if previous.blocker and previous.blocker.Parent then previous.blocker:Destroy() end
-
-		if previous.panel and previous.panel.Parent then previous.panel:Destroy() end
+		S.closepopup()
 	end
 
 	anchorpos = S.overlayposition(anchor)
@@ -7014,7 +6947,7 @@ function S.opentoggleconfig(
 
 	y = math.clamp(y, 8, math.max(8, S.popuplayer.AbsoluteSize.Y - expandedheight - 8))
 
-	panel, popup = S.createpopup(Vector2.new(x, y), width, collapsedheight, 540, "dropdown")
+	panel, popup = S.createpopup(Vector2.new(x, y), width, collapsedheight, 540)
 
 	popup.toggleconfig = true
 	popup.binding = binding
@@ -8749,7 +8682,7 @@ function S.opencolorpicker(
 
 	y = math.clamp(y, 8, math.max(8, S.popuplayer.AbsoluteSize.Y - height - 8))
 
-	panel, popup = S.createpopup(Vector2.new(x, y), width, height, 520, "color")
+	panel, popup = S.createpopup(Vector2.new(x, y), width, height, 520)
 
 	svholder = S.new("Frame", {
 		Parent = panel,
@@ -11014,7 +10947,7 @@ function S.createsection(
 		height = math.max(34, math.min(wanted, available))
 
 		panel, popup =
-			S.createpopup(Vector2.new(position.X, popupy), size.X, height, 510, "dropdown")
+			S.createpopup(Vector2.new(position.X, popupy), size.X, height, 510)
 
 		popup.anchor = button
 		return panel, popup
@@ -11470,17 +11403,7 @@ function S.createsection(
 						dividerrows[#dividerrows + 1] = iteration5.dividerrow
 					end
 
-					iteration5.optionbutton = S.new("TextButton", {
-						Parent = scroll,
-						Size = UDim2.new(1, 0, 0, 32),
-						BackgroundColor3 = S.theme.input,
-						BackgroundTransparency = 1,
-						BorderSizePixel = 0,
-						Text = "",
-						AutoButtonColor = false,
-						ZIndex = 514,
-					}, { BackgroundColor3 = "hover" })
-					S.corner(iteration5.optionbutton, 6)
+					iteration5.optionbutton = S.dropdownrow(scroll, 32, 514, S.theme.input, "hover")
 
 					iteration5.x = 9
 					iteration5.asset = optionicons[option]
@@ -11608,7 +11531,7 @@ function S.createsection(
 
 						setselected(option, true)
 
-						S.closepopup()
+						S.closepopup(popup)
 					end)
 				end
 
@@ -11627,7 +11550,6 @@ function S.createsection(
 						end
 					end)
 
-					if searchbox and searchbox.Parent then searchbox:CaptureFocus() end
 				end
 			end
 		)
@@ -12024,7 +11946,7 @@ function S.createsection(
 				height = math.max(70, math.min(wanted, math.min(330, available)))
 
 				panel, popup =
-					S.createpopup(Vector2.new(position.X, popupy), size.X, height, 510, "dropdown")
+					S.createpopup(Vector2.new(position.X, popupy), size.X, height, 510)
 				popup.anchor = button7
 				S.tween(arrow, { Rotation = 180 }, S.tabti)
 				popup.onclose = function() S.tween(arrow, { Rotation = 0 }, S.tabti) end
@@ -12167,7 +12089,16 @@ function S.createsection(
 						usernamelabel.ZIndex = 515
 					end
 					selectedstroke = nil
-					selectedicon = S.image(row, S.icons.check, 13, S.theme.text2, 516)
+					selectedicon = S.new("ImageLabel", {
+						Parent = row,
+						Size = UDim2.fromOffset(11, 13),
+						BackgroundTransparency = 1,
+						BorderSizePixel = 0,
+						Image = S.icons.check,
+						ImageColor3 = S.theme.text2,
+						ScaleType = Enum.ScaleType.Fit,
+						ZIndex = 516,
+					}, { ImageColor3 = "text2" })
 					selectedicon.AnchorPoint = Vector2.new(1, 0.5)
 					selectedicon.Position = UDim2.new(1, -9, 0.5, 0)
 					selectedicon.ImageTransparency = issel(value) and 0 or 1
@@ -12249,7 +12180,7 @@ function S.createsection(
 								)
 							end
 						end
-						if not multiselect then S.closepopup() end
+						if not multiselect then S.closepopup(popup) end
 					end)
 				end
 
@@ -12426,7 +12357,6 @@ function S.createsection(
 						if dividerrow2 then dividerrow2.Visible = query == "" end
 					end)
 
-					if playersearch and playersearch.Parent then playersearch:CaptureFocus() end
 				end
 			end
 		)
@@ -12642,7 +12572,7 @@ function S.createsection(
 				pickerlabel,
 				pickerkey
 			)
-				panel, popup = dropdownpopup(button8, #options + (keypickerenabled and 1 or 0))
+				panel, popup = dropdownpopup(button8, #options + (keypickerenabled and 1.24 or 0))
 
 				if not panel or not popup then return end
 
@@ -12694,17 +12624,7 @@ function S.createsection(
 				binddropdownscrollbar(scroll, 2)
 
 				if keypickerenabled then
-					pickerrow = S.new("TextButton", {
-						Parent = scroll,
-						Size = UDim2.new(1, 0, 0, 32),
-						BackgroundColor3 = S.theme.hover,
-						BackgroundTransparency = 1,
-						BorderSizePixel = 0,
-						Text = "",
-						AutoButtonColor = false,
-						ZIndex = 514,
-					}, { BackgroundColor3 = "input" })
-					S.corner(pickerrow, 6)
+					pickerrow = S.dropdownrow(scroll, 32, 514, S.theme.hover, "input")
 					S.keyeditbuttons[pickerrow] = true
 
 					pickerlabel = S.label(
@@ -12812,31 +12732,31 @@ function S.createsection(
 							pickerkey.Text = "Press"
 						end
 					end)
+
+					local separator = S.new("Frame", {
+						Parent = scroll,
+						Size = UDim2.new(1, 0, 0, 8),
+						BackgroundTransparency = 1,
+						BorderSizePixel = 0,
+						ZIndex = 514,
+					})
+					local separatorline = S.new("Frame", {
+						Parent = separator,
+						AnchorPoint = Vector2.new(0.5, 0.5),
+						Position = UDim2.fromScale(0.5, 0.5),
+						Size = UDim2.new(1, -14, 0, 1),
+						BackgroundColor3 = S.theme.border,
+						BackgroundTransparency = 0.38,
+						BorderSizePixel = 0,
+						ZIndex = 515,
+					}, { BackgroundColor3 = "border" })
+					S.corner(separatorline, 999)
 				end
 
 				optionmaker = function(option, iteration6)
 					if optionchecks[option] then return end
-					popup.fadedirty = true
 					iteration6 = {}
-					iteration6.row = S.new("TextButton", {
-						Parent = scroll,
-
-						Size = UDim2.new(1, 0, 0, 32),
-
-						BackgroundColor3 = S.theme.hover,
-
-						BackgroundTransparency = 1,
-
-						BorderSizePixel = 0,
-
-						Text = "",
-
-						AutoButtonColor = false,
-
-						ZIndex = 514,
-					}, { BackgroundColor3 = "hover" })
-
-					S.corner(iteration6.row, 6)
+					iteration6.row = S.dropdownrow(scroll, 32, 514, S.theme.hover, "hover")
 
 					iteration6.textobject = S.label(
 						iteration6.row,
@@ -14862,7 +14782,6 @@ function S.refreshsettingsdependencies()
 	S.setsettingsvisible(S.watermarkinfocontrol.Object, S.watermarkshown)
 	S.setsettingsvisible(S.watermarkdisplaynametoggle.Object, S.watermarkshown)
 	S.setsettingsvisible(S.watermarkusernametoggle.Object, S.watermarkshown)
-	S.setsettingsvisible(S.keybindblacklistcontrol.Object, S.keybindshown)
 	S.setsettingsvisible(S.windowglowintensitycontrol.Object, S.windowglowenabled)
 	S.setsettingsvisible(S.windowglowsizecontrol.Object, S.windowglowenabled)
 	for _, data in ipairs({ { S.panelthemes.Watermark, S.watermarkshown }, { S.panelthemes.Keybinds, S.keybindshown } }) do
@@ -14881,10 +14800,10 @@ function S.ensureSettings()
 	S.ensurekeybindlist()
 	S.loadingsettings = true
 	S.settingssection = S.createsection(S.settings, "left", "Interface", S.icons.settings)
+	S.themessection = S.createsection(S.settings, "right", "Themes", S.icons.palette)
 	S.watermarksettingssection = S.createsection(S.settings, "right", "Watermark", S.icons.tag)
 	S.keybindssection = S.createsection(S.settings, "left", "Keybinds", S.icons.keyboard)
 	S.windowsection = S.createsection(S.settings, "left", "Window", S.icons.sliders)
-	S.themessection = S.createsection(S.settings, "right", "Themes", S.icons.palette)
 	S.presetsection = S.createsection(S.settings, "right", "Presets", S.icons.save)
 
 	S.watermarktoggle = S.watermarksettingssection:AddToggle("Watermark", S.watermarkshown, function(value)
@@ -14987,7 +14906,11 @@ function S.ensureSettings()
 
 	S.themeselector = S.themessection:AddDropdown("Theme", S.themeoptions, S.selectedtheme, function(name)
 		if S.settheme(name, true) then S.requestconfigautosave() end
-	end, nil, { dividers = { Snow = "Light themes" }, colors = S.themecolors })
+	end, nil, {
+		dividers = { Snow = "Light themes" },
+		colors = S.themecolors,
+		icons = { Default = S.icons["circle-dot"] },
+	})
 	S.maincolorpicker = S.themessection:AddColorPicker("Main color", S.theme.main, function(color, alpha)
 		S.applymaincolor(color, false)
 		S.applymainalpha(alpha)
@@ -15185,6 +15108,8 @@ S.currenttabgroup = nil
 S.subholder = S.new("Frame", { Parent = S.nav, Size = UDim2.new(1, 0, 0, 0), BackgroundTransparency = 1, BorderSizePixel = 0, ClipsDescendants = true, Visible = false, ZIndex = 13 })
 S.sublist = S.new("Frame", { Parent = S.subholder, Position = UDim2.fromOffset(18, 3), Size = UDim2.new(1, -22, 1, -6), BackgroundTransparency = 1, BorderSizePixel = 0, ZIndex = 14 })
 S.sublistlayout = S.list(S.sublist, 3)
+S.subindicator = S.new("Frame", { Parent = S.subholder, Position = UDim2.fromOffset(1, 11), Size = UDim2.fromOffset(2, 14), BackgroundColor3 = S.theme.highlight, BackgroundTransparency = 1, BorderSizePixel = 0, Visible = false, ZIndex = 16 }, { BackgroundColor3 = "highlight" })
+S.corner(S.subindicator, 999)
 S.topnavigation = S.new("CanvasGroup", { Parent = S.header, Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, BorderSizePixel = 0, Visible = false, ZIndex = 18 })
 S.topprimarybutton = S.new("TextButton", { Parent = S.topnavigation, AnchorPoint = Vector2.new(0, 0.5), Position = UDim2.fromOffset(14, 31), Size = UDim2.fromOffset(120, 38), BackgroundTransparency = 1, BorderSizePixel = 0, Text = "", Font = S.bold, TextSize = 19, TextColor3 = S.theme.text, TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd, AutoButtonColor = false, ZIndex = 19 })
 S.topsubholder = S.new("ScrollingFrame", { Parent = S.topnavigation, AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromOffset(200, 31), Size = UDim2.fromOffset(120, 40), CanvasSize = UDim2.fromOffset(0, 0), AutomaticCanvasSize = Enum.AutomaticSize.None, ScrollingDirection = Enum.ScrollingDirection.X, ScrollBarThickness = 0, BackgroundTransparency = 1, BorderSizePixel = 0, ClipsDescendants = true, ZIndex = 19 })
@@ -15277,7 +15202,9 @@ function S.createtopsub(name, asset, order)
 	label.ZIndex = 21
 	label.TextTransparency = 1
 	label.ClipsDescendants = true
-	S.topsubentries[button] = { button = button, icon = icon, text = label, name = name }
+	local indicator = S.new("Frame", { Parent = button, Position = UDim2.new(0, 6, 1, -4), Size = UDim2.new(1, -12, 0, 2), BackgroundColor3 = S.theme.highlight, BackgroundTransparency = 1, BorderSizePixel = 0, ZIndex = 22 }, { BackgroundColor3 = "highlight" })
+	S.corner(indicator, 999)
+	S.topsubentries[button] = { button = button, icon = icon, text = label, name = name, indicator = indicator }
 	S.connect(button:GetPropertyChangedSignal("Size"), function()
 		if S.topnavigationenabled then S.updatetopnavigationlayout() end
 	end, button)
@@ -15345,6 +15272,8 @@ function S.syncsubtabnavigation(animate)
 			entry.sub = true
 			S.setsidebarentrycompact(entry, S.sidebarcompact, true)
 			S.rendernaventry(button, true, false)
+			entry.indicator.BackgroundTransparency = 1
+			entry.indicator.Visible = false
 		else
 			entry.icon.AnchorPoint = Vector2.new(0, 0.5)
 			entry.icon.Position = UDim2.new(0, 8, 0.5, 0)
@@ -15361,10 +15290,40 @@ function S.syncsubtabnavigation(animate)
 				entry.text.TextTransparency = active and 0 or 1
 			end
 			S.tween(entry.icon, { ImageColor3 = active and S.theme.text or S.theme.text3 }, S.hoverti)
+			entry.indicator.Visible = true
+			if animate and S.animationsenabled then
+				S.tween(entry.indicator, { BackgroundTransparency = active and 0 or 1 }, S.quart28)
+			else
+				entry.indicator.BackgroundTransparency = active and 0 or 1
+			end
+			entry.indicator.Visible = active or entry.indicator.BackgroundTransparency < 1
 		end
 	end
 	S.subholder.Visible = sidebar and count > 0
 	S.subholder.Size = UDim2.new(1, 0, 0, math.max(0, count * 33 + 3))
+	if sidebar then
+		local selectedindex = 0
+		local index = 0
+		for _, tab in ipairs(root and root.SubTabs or {}) do
+			if not tab.Hidden and tab.Button.Visible then
+				index += 1
+				if tab.Page == S.currentpage then selectedindex = index end
+			end
+		end
+		if selectedindex > 0 then
+			S.subindicator.Visible = true
+			local goal = {
+				Position = UDim2.fromOffset(S.sidebarcompact and 1 or 4, 3 + (selectedindex - 1) * 33 + 8),
+				BackgroundTransparency = 0,
+			}
+			if animate and S.animationsenabled then S.tween(S.subindicator, goal, S.quart28)
+			else S.subindicator.Position = goal.Position; S.subindicator.BackgroundTransparency = 0 end
+		else
+			S.subindicator.Visible = false
+		end
+	else
+		S.subindicator.Visible = false
+	end
 end
 
 function S.updatetopnavigationstate(animate)
@@ -16986,6 +16945,9 @@ function S.libraryenhancesection(
 		return S.settextgradient(self.TextObject, value)
 	end
 
+	for name, method in pairs(section) do
+		if type(method) == "function" then builders[name] = method end
+	end
 
 	return section
 end
@@ -18018,7 +17980,7 @@ end
 S.gui.Enabled = false
 S.watermarkgui.Enabled = false
 
-S.modalguard.Modal = true
+S.modalguard.Modal = false
 S.modalguard.Active = false
 S.modalguard.Visible = false
 
