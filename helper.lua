@@ -9,6 +9,15 @@ local rs = game:GetService("ReplicatedStorage")
 local tcs = game:GetService("TextChatService")
 
 local lp = pls.LocalPlayer
+local env = getgenv()
+
+if env.helper then
+	for _, con in env.helper do
+		con:Disconnect()
+	end
+end
+
+env.helper = {}
 
 local scripts = {
 	[Enum.KeyCode.Insert] = "https://raw.githubusercontent.com/EdgeIY/infiniteyield/master/source",
@@ -17,6 +26,8 @@ local scripts = {
 }
 
 function rejoin()
+	warn("[h] rejoin")
+
 	tp:TeleportToPlaceInstance(game.PlaceId, game.JobId, lp)
 
 	while task.wait(0.1) do
@@ -25,19 +36,23 @@ function rejoin()
 end
 
 function thirdperson()
+	warn("[h] thirdperson")
+
 	lp.CameraMode = Enum.CameraMode.Classic
 	lp.CameraMinZoomDistance = 10
 	lp.CameraMaxZoomDistance = 1000
 
-	task.wait()
+	task.wait(0.03)
 
 	lp.CameraMinZoomDistance = 0
 end
 
 function shutdown()
+	warn("[h] shutdown")
+
 	tcs.TextChannels.RBXGeneral:SendAsync("Shutting down server...")
 
-	lp.PlayerGui.MenuToys:Destroy()
+	lp.PlayerGui:Destroy()
 	lp.Character.Humanoid:ChangeState(Enum.HumanoidStateType.Dead)
 
 	task.wait(0.1)
@@ -48,35 +63,34 @@ function shutdown()
 	events.UpdateLineColorsEvent:FireServer(("a"):rep(1e6))
 
 	task.wait(0.1)
-	for i = 1, 1e6 do
+	for i = 1, 1e6 do 
 		events.DataRemoteEvent:FireServer()
 	end
 end
 
-uis.InputBegan:Connect(function(input)
+env.helper.input = uis.InputBegan:Connect(function(input)
 	local url = scripts[input.KeyCode]
 
 	if url then
+		warn("[h]", input.KeyCode.Name)
 		loadstring(game:HttpGet(url))()
 	elseif input.KeyCode == Enum.KeyCode.End then
 		thirdperson()
 	end
 end)
 
-tcs.SendingMessage:Connect(function(message)
-	if message.Text == "rj" then
+env.helper.chat = lp.Chatted:Connect(function(message)
+	if message == "rj" then
 		rejoin()
-	end
-end)
-
-local cmd = Instance.new("TextChatCommand")
-
-cmd.PrimaryAlias = "/shutdown"
-cmd.AutocompleteVisible = false
-cmd.Parent = tcs
-
-cmd.Triggered:Connect(function(source)
-	if source.UserId == lp.UserId and game.PlaceId == 6961824067 then
+	elseif message == "/shutdown" and game.PlaceId == 6961824067 then
 		shutdown()
 	end
 end)
+
+env.helper.tp = tp.TeleportInitFailed:Connect(function(player, result, message)
+	if player == lp then
+		warn("[h] teleport failed:", result.Name, message)
+	end
+end)
+
+warn("[h] ready")
