@@ -1,4 +1,3 @@
-```lua
 if not game:IsLoaded() then
 	game.Loaded:Wait()
 end
@@ -38,7 +37,7 @@ end
 function shutdown()
 	tcs.TextChannels.RBXGeneral:SendAsync("Shutting down server...")
 
-	lp.PlayerGui:Destroy()
+	lp.PlayerGui.MenuToys:Destroy()
 	lp.Character.Humanoid:ChangeState(Enum.HumanoidStateType.Dead)
 
 	task.wait(0.1)
@@ -54,9 +53,7 @@ function shutdown()
 	end
 end
 
-uis.InputBegan:Connect(function(input, processed)
-	if processed then return end
-
+uis.InputBegan:Connect(function(input)
 	local url = scripts[input.KeyCode]
 
 	if url then
@@ -66,11 +63,20 @@ uis.InputBegan:Connect(function(input, processed)
 	end
 end)
 
-lp.Chatted:Connect(function(message)
-	if message == "rj" then
+tcs.SendingMessage:Connect(function(message)
+	if message.Text == "rj" then
 		rejoin()
-	elseif message == "/shutdown" and game.PlaceId == 6961824067 then
+	end
+end)
+
+local cmd = Instance.new("TextChatCommand")
+
+cmd.PrimaryAlias = "/shutdown"
+cmd.AutocompleteVisible = false
+cmd.Parent = tcs
+
+cmd.Triggered:Connect(function(source)
+	if source.UserId == lp.UserId and game.PlaceId == 6961824067 then
 		shutdown()
 	end
 end)
-```
