@@ -2177,25 +2177,25 @@ function S.bindtheme(
 			entries = S.__blush_accent_alpha[object]
 
 			if entries and entries[alphafield] ~= nil then
-				object[alphafield] = S.effectiveaccentalpha(entries[alphafield])
+				if object:IsA("UIShadow") and alphafield == "Transparency" and S.decorationbases[object] then S.setshadowalpha(object, S.effectiveaccentalpha(entries[alphafield])) else object[alphafield] = S.effectiveaccentalpha(entries[alphafield]) end
 			end
 		elseif role == "text" or role == "text2" or role == "text3" then
 			entries2 = S.__blush_font_alpha[object]
 
 			if entries2 and entries2[alphafield] ~= nil then
-				object[alphafield] = S.effectivefontalpha(entries2[alphafield], object, alphafield)
+				if object:IsA("UIShadow") and alphafield == "Transparency" and S.decorationbases[object] then S.setshadowalpha(object, S.effectivefontalpha(entries2[alphafield], object, alphafield)) else object[alphafield] = S.effectivefontalpha(entries2[alphafield], object, alphafield) end
 			end
 		elseif role == "highlight" then
 			entries3 = S.__blush_highlight_alpha[object]
 
 			if entries3 and entries3[alphafield] ~= nil then
-				object[alphafield] = S.effectivehighlightalpha(entries3[alphafield])
+				if object:IsA("UIShadow") and alphafield == "Transparency" and S.decorationbases[object] then S.setshadowalpha(object, S.effectivehighlightalpha(entries3[alphafield])) else object[alphafield] = S.effectivehighlightalpha(entries3[alphafield]) end
 			end
 		elseif S.mainroles and S.mainroles[role] then
 			entries4 = S.__blush_main_alpha[object]
 
 			if entries4 and entries4[alphafield] ~= nil then
-				object[alphafield] = S.effectivemainalpha(entries4[alphafield])
+				if object:IsA("UIShadow") and alphafield == "Transparency" and S.decorationbases[object] then S.setshadowalpha(object, S.effectivemainalpha(entries4[alphafield])) else object[alphafield] = S.effectivemainalpha(entries4[alphafield]) end
 			end
 		end
 	end
@@ -2297,7 +2297,10 @@ function S.registeraccentalpha(object, colorproperty, role, property, entries, o
 	end
 
 	if entries[property] == nil then
-		ok, value = pcall(function() return object[property] end)
+		ok, value = pcall(function()
+			local opacity = S.decorationbases and S.decorationbases[object]
+			return property == "Transparency" and opacity and opacity.Value or object[property]
+		end)
 
 		if ok then entries[property] = value end
 	end
@@ -2326,7 +2329,9 @@ function S.applyaccentalpha(value)
 			S.__blush_accent_alpha[object] = nil
 		else
 			for property, base in pairs(entries) do
-				object[property] = S.effectiveaccentalpha(base)
+				if object:IsA("UIShadow") and property == "Transparency" then
+					S.setshadowalpha(object, S.effectiveaccentalpha(base))
+				else object[property] = S.effectiveaccentalpha(base) end
 			end
 		end
 	end
@@ -2351,7 +2356,10 @@ function S.registerfontalpha(object, colorproperty, role, property, entries, ok,
 	end
 
 	if entries[property] == nil then
-		ok, value = pcall(function() return object[property] end)
+		ok, value = pcall(function()
+			local opacity = S.decorationbases and S.decorationbases[object]
+			return property == "Transparency" and opacity and opacity.Value or object[property]
+		end)
 
 		if ok then entries[property] = value end
 	end
@@ -2397,7 +2405,9 @@ function S.applyfontalpha(value)
 			S.__blush_font_alpha[object] = nil
 		else
 			for property, base in pairs(entries) do
-				object[property] = S.effectivefontalpha(base, object, property)
+				if object:IsA("UIShadow") and property == "Transparency" then
+					S.setshadowalpha(object, S.effectivefontalpha(base, object, property))
+				else object[property] = S.effectivefontalpha(base, object, property) end
 			end
 		end
 	end
@@ -2442,7 +2452,10 @@ function S.registermainalpha(object, colorproperty, role, property, entries, ok,
 	end
 
 	if entries[property] == nil then
-		ok, value = pcall(function() return object[property] end)
+		ok, value = pcall(function()
+			local opacity = S.decorationbases and S.decorationbases[object]
+			return property == "Transparency" and opacity and opacity.Value or object[property]
+		end)
 		if ok then entries[property] = value end
 	end
 end
@@ -2467,7 +2480,9 @@ function S.applymainalpha(value)
 			S.__blush_main_alpha[object] = nil
 		else
 			for property, base in pairs(entries) do
-				object[property] = S.effectivemainalpha(base)
+				if object:IsA("UIShadow") and property == "Transparency" then
+					S.setshadowalpha(object, S.effectivemainalpha(base))
+				else object[property] = S.effectivemainalpha(base) end
 			end
 		end
 	end
@@ -2488,7 +2503,10 @@ function S.registerhighlightalpha(object, colorproperty, role, property, entries
 		S.__blush_highlight_alpha[object] = entries
 	end
 	if entries[property] == nil then
-		ok, value = pcall(function() return object[property] end)
+		ok, value = pcall(function()
+			local opacity = S.decorationbases and S.decorationbases[object]
+			return property == "Transparency" and opacity and opacity.Value or object[property]
+		end)
 		if ok then entries[property] = value end
 	end
 end
@@ -2513,7 +2531,9 @@ function S.applyhighlightalpha(value)
 			S.__blush_highlight_alpha[object] = nil
 		else
 			for property, base in pairs(entries) do
-				object[property] = S.effectivehighlightalpha(base)
+				if object:IsA("UIShadow") and property == "Transparency" then
+					S.setshadowalpha(object, S.effectivehighlightalpha(base))
+				else object[property] = S.effectivehighlightalpha(base) end
 			end
 		end
 	end
@@ -2555,31 +2575,62 @@ S.transparencybase = setmetatable({}, {
 
 S.shadowchildren = setmetatable({}, { __mode = "k" })
 S.groupdecorationconnections = setmetatable({}, { __mode = "k" })
+S.decorationbases = setmetatable({}, { __mode = "k" })
+S.decorationowners = setmetatable({}, { __mode = "k" })
 
-function S.syncgroupdecorations(group)
-	for object in pairs(S.shadowchildren[group] or {}) do
-		if not object.Parent then
-			S.shadowchildren[group][object] = nil
-		else
-			local alpha = 1
-			local parent = object.Parent
-			if object:GetAttribute("BlushIgnoreGroupTransparency") ~= true then
-				while parent do
-					if parent:IsA("CanvasGroup") then alpha *= 1 - parent.GroupTransparency end
-					parent = parent.Parent
-				end
+function S.syncshadow(object)
+	if object.Parent then
+		local alpha = 1
+		local parent = S.decorationowners[object] or object.Parent
+		if object:GetAttribute("BlushIgnoreGroupTransparency") ~= true then
+			while parent do
+				if parent:IsA("CanvasGroup") then alpha *= 1 - parent.GroupTransparency end
+				parent = parent.Parent
 			end
-			local base = object:GetAttribute("BlushGroupBaseTransparency") or 0
-			local value = 1 - (1 - base) * alpha
-			if object.Transparency ~= value then object.Transparency = value end
+		end
+		local base = S.decorationbases[object] and S.decorationbases[object].Value
+			or object:GetAttribute("BlushGroupBaseTransparency") or 0
+		local value = 1 - (1 - base) * alpha
+		if object.Transparency ~= value then
+			object.Transparency = value
 		end
 	end
 end
 
+function S.syncgroupdecorations(group)
+	for object in pairs(S.shadowchildren[group] or {}) do
+		if object.Parent then S.syncshadow(object)
+		else S.shadowchildren[group][object] = nil end
+	end
+end
+
+function S.setshadowalpha(object, value)
+	local base = S.decorationbases[object]
+	if base then
+		local animation = S.activetweens[base] and S.activetweens[base].Value
+		if animation then animation:Cancel() end
+		base.Value = value
+		S.syncshadow(object)
+	else
+		object.Transparency = value
+	end
+end
+
 function S.registergroupdecoration(object, parent)
-	if not parent then return end
+	if not parent or not object:IsA("UIShadow") then return end
 	local base = object:GetAttribute("BlushBaseTransparency") or object.Transparency
 	object:SetAttribute("BlushGroupBaseTransparency", base)
+	if not S.decorationbases[object] then
+		local opacity = S.trackobject(Instance.new("NumberValue"))
+		opacity.Value = base
+		opacity.Parent = object
+		S.decorationbases[object] = opacity
+		S.connect(opacity:GetPropertyChangedSignal("Value"), function()
+			S.syncshadow(object)
+		end, object)
+		S.own(object, function() S.decorationbases[object] = nil; S.decorationowners[object] = nil end)
+	end
+	if parent ~= object.Parent then S.decorationowners[object] = parent end
 	while parent do
 		if parent:IsA("CanvasGroup") then
 			local group = parent
@@ -2712,12 +2763,9 @@ function S.tween(
 	raw,
 	roles,
 	goals,
-	groupshadows,
 	grouptarget,
-	base,
 	tweeninfo,
 	animation,
-	shadowanimation,
 	tracked,
 	previous
 )
@@ -2762,6 +2810,14 @@ function S.tween(
 		end
 	end
 
+	if object:IsA("UIShadow") and properties.Transparency ~= nil and S.decorationbases[object] then
+		local remaining = table.clone(properties)
+		remaining.Transparency = nil
+		local opacity = S.tween(S.decorationbases[object], { Value = goals.Transparency }, info, true)
+		if next(remaining) then return S.tween(object, remaining, info, raw, roles) or opacity end
+		return opacity
+	end
+
 	for property, value in pairs(goals) do
 		if property == "TextColor3" and S.__blush_gradientstates[object] then
 			goals[property] = Color3.new(1, 1, 1)
@@ -2793,8 +2849,6 @@ function S.tween(
 	then
 		object:SetAttribute("BlushGroupBaseTransparency", properties.Transparency)
 	end
-
-	groupshadows = nil
 
 	if object:IsA("CanvasGroup") and goals.GroupTransparency ~= nil then
 		grouptarget = math.clamp(goals.GroupTransparency, 0, 1)
@@ -3128,6 +3182,7 @@ function S.plaintext(value)
 	value = string.gsub(value, "&nbsp;", " ")
 	value = string.gsub(value, "&quot;", '"')
 	value = string.gsub(value, "&#39;", "'")
+	value = string.gsub(value, "&apos;", "'")
 	value = string.gsub(value, "&lt;", "<")
 	value = string.gsub(value, "&gt;", ">")
 	value = string.gsub(value, "&amp;", "&")
@@ -3504,7 +3559,7 @@ function S.label(parentobject, value, size, face, color, object4)
 		TextColor3 = color or S.theme.text,
 
 		Font = face or S.font,
-		TextSize = 17,
+		TextSize = 18,
 
 		TextXAlignment = Enum.TextXAlignment.Left,
 		TextYAlignment = Enum.TextYAlignment.Center,
@@ -3646,7 +3701,7 @@ function S.guivisible(object, current)
 end
 
 S.originalposition = UDim2.fromScale(0.5, 0.52)
-S.originalwindowsize = Vector2.new(926, 676)
+S.originalwindowsize = Vector2.new(950, 694)
 
 function S.centeredwindowposition(size, camera, viewport)
 	size = size or S.originalwindowsize
@@ -3702,7 +3757,7 @@ S.window = S.new("CanvasGroup", {
 	BackgroundTransparency = 1,
 	BorderSizePixel = 0,
 	ClipsDescendants = true,
-	GroupTransparency = 0,
+	GroupTransparency = 1,
 
 	ZIndex = 10,
 }, { BackgroundColor3 = "window" })
@@ -3725,6 +3780,8 @@ S.windowglow = S.addshadow(
 )
 
 S.windowdragenabled = true
+if S.windowshadow then S.registergroupdecoration(S.windowshadow, S.window) end
+if S.windowglow then S.registergroupdecoration(S.windowglow, S.window) end
 
 S.windowshadowenabled = true
 S.windowglowenabled = true
@@ -3744,7 +3801,7 @@ function S.applywindowshadow(base)
 
 	S.windowshadow:SetAttribute("BlushBaseTransparency", base)
 
-	S.windowshadow.Transparency = base
+	S.setshadowalpha(S.windowshadow, base)
 end
 
 function S.applyglow(shadow, enabled, color, intensity, size, alpha, opacity)
@@ -3761,8 +3818,9 @@ function S.applyglow(shadow, enabled, color, intensity, size, alpha, opacity)
 	shadow.Color = color or S.theme.white
 	shadow.BlurRadius = UDim.new(0, size)
 	shadow.Spread = UDim2.fromOffset(size * 0.06, size * 0.06)
-	shadow.Transparency = enabled and 1 - opacity or 1
-	shadow:SetAttribute("BlushBaseTransparency", shadow.Transparency)
+	local transparency = enabled and 1 - opacity or 1
+	shadow:SetAttribute("BlushBaseTransparency", transparency)
+	S.setshadowalpha(shadow, transparency)
 end
 
 function S.applywindowglow()
@@ -3896,6 +3954,12 @@ if S.watermarkshadow then
 		"Transparency",
 		S.watermarkshadow:GetAttribute("BlushBaseTransparency") or S.watermarkshadow.Transparency,
 		"direct",
+	}
+end
+
+if S.watermarkglow then
+	S.watermarkfadeparts[#S.watermarkfadeparts + 1] = {
+		S.watermarkglow, "Transparency", S.watermarkglow.Transparency, "direct",
 	}
 end
 
@@ -4035,7 +4099,10 @@ function S.setwatermarkvisible(
 
 	if not animate or not S.animationsenabled or not changed then
 		for _, part in ipairs(S.watermarkfadeparts) do
-			if part[1] and part[1].Parent then part[1][part[2]] = targetalpha(part) end
+			if part[1] and part[1].Parent then
+				if part[1]:IsA("UIShadow") then S.setshadowalpha(part[1], targetalpha(part))
+				else part[1][part[2]] = targetalpha(part) end
+			end
 		end
 		S.watermark.Visible = value
 		return
@@ -4079,7 +4146,7 @@ function S.watermarktext(value, strong, width, object7)
 
 	object7.LayoutOrder = S.watermarkorder
 
-	object7.TextSize = strong and 16 or 15
+	object7.TextSize = strong and 17 or 16
 
 	object7.TextXAlignment = Enum.TextXAlignment.Center
 
@@ -4134,12 +4201,12 @@ function S.watermarkplayertext()
 	return ""
 end
 
-function S.resizewatermarktext(object, value, strong, size, fontface, bounds)
+function S.updatewatermarktext(object, value, strong, size, fontface, bounds)
 	if not object or not object.Parent then return end
 
 	value = tostring(value or "")
 
-	size = strong and 16 or 15
+	size = strong and 17 or 16
 	fontface = strong and S.bold or S.font
 
 	bounds = S.measuretext(value, size, fontface, Vector2.new(4096, 38))
@@ -4178,7 +4245,7 @@ function S.updatewatermarklayout(playerenabled, fpsenabled, pingenabled, timeena
 	S.__blush_watermark_time.Visible = timeenabled
 	S.__blush_watermark_game.Visible = S.watermarkconfig.Game == true
 	S.__blush_watermark_divider_game.Visible = S.watermarkconfig.Game == true
-	S.resizewatermarktext(S.__blush_watermark_game, S.watermarkgamename, false)
+	S.updatewatermarktext(S.__blush_watermark_game, S.watermarkgamename, false)
 
 	S.__blush_watermark_divider_player.Visible = playerenabled
 
@@ -4188,7 +4255,7 @@ function S.updatewatermarklayout(playerenabled, fpsenabled, pingenabled, timeena
 
 	S.__blush_watermark_divider_time.Visible = timeenabled
 
-	S.resizewatermarktext(S.__blush_watermark_player, S.watermarkplayertext(), false)
+	S.updatewatermarktext(S.__blush_watermark_player, S.watermarkplayertext(), false)
 
 	S.updatewatermarksize()
 end
@@ -4198,7 +4265,7 @@ function S.setwatermarktitle(value)
 	if not S.watermark then return end
 	value = tostring(value or "blush.")
 
-	S.resizewatermarktext(S.__blush_watermark_title, value, true)
+	S.updatewatermarktext(S.__blush_watermark_title, value, true)
 
 	S.updatewatermarksize()
 end
@@ -4255,19 +4322,19 @@ function S.updatewatermarkstats(dt, elapsed, frames, fps, ping)
 	ping = math.floor(S.calculatewatermarkping() + 0.5)
 
 	if S.__blush_watermark_fps and S.__blush_watermark_fps.Parent then
-		S.resizewatermarktext(S.__blush_watermark_fps, tostring(fps) .. " fps", false)
+		S.updatewatermarktext(S.__blush_watermark_fps, tostring(fps) .. " fps", false)
 	end
 
 	if S.__blush_watermark_ping and S.__blush_watermark_ping.Parent then
-		S.resizewatermarktext(S.__blush_watermark_ping, tostring(ping) .. " ms", false)
+		S.updatewatermarktext(S.__blush_watermark_ping, tostring(ping) .. " ms", false)
 	end
 
 	if S.__blush_watermark_time and S.__blush_watermark_time.Parent then
-		S.resizewatermarktext(S.__blush_watermark_time, os.date("%H:%M"), false)
+		S.updatewatermarktext(S.__blush_watermark_time, os.date("%H:%M"), false)
 	end
 
 	if S.__blush_watermark_player and S.__blush_watermark_player.Parent then
-		S.resizewatermarktext(S.__blush_watermark_player, S.watermarkplayertext(), false)
+		S.updatewatermarktext(S.__blush_watermark_player, S.watermarkplayertext(), false)
 	end
 
 	S.updatewatermarksize()
@@ -4322,14 +4389,14 @@ S.brand = S.label(S.sidebar, "blush.", UDim2.fromOffset(125, 23), S.bold)
 
 S.brand.Position = UDim2.fromOffset(72, 23)
 
-S.brand.TextSize = 21
+S.brand.TextSize = 22
 S.brand.ZIndex = 14
 
 S.subtitle = S.label(S.sidebar, "v1.0.0", UDim2.fromOffset(48, 18), S.font, S.theme.text3)
 
 S.subtitle.Position = UDim2.fromOffset(72, 48)
 
-S.subtitle.TextSize = 15
+S.subtitle.TextSize = 16
 S.subtitle.ZIndex = 14
 
 S.subtitledivider = S.new("Frame", {
@@ -4351,7 +4418,7 @@ S.username = S.label(S.sidebar, S.player.Name, UDim2.fromOffset(72, 18), S.font,
 
 S.username.Position = UDim2.fromOffset(132, 48)
 
-S.username.TextSize = 15
+S.username.TextSize = 16
 S.username.TextTruncate = Enum.TextTruncate.AtEnd
 S.username.ZIndex = 14
 
@@ -4558,7 +4625,7 @@ S.titleprimary = S.label(S.breadcrumb, "", UDim2.fromOffset(0, 28), S.bold)
 
 S.titleprimary.LayoutOrder = 1
 
-S.titleprimary.TextSize = 20
+S.titleprimary.TextSize = 21
 S.titleprimary.ZIndex = 14
 
 S.arrowholder = S.new("Frame", {
@@ -4583,7 +4650,7 @@ S.titlesecondary = S.label(S.breadcrumb, "", UDim2.fromOffset(0, 28), S.medium, 
 
 S.titlesecondary.LayoutOrder = 3
 
-S.titlesecondary.TextSize = 18
+S.titlesecondary.TextSize = 19
 S.titlesecondary.ZIndex = 14
 
 S.searchholder = S.new("Frame", {
@@ -4768,7 +4835,8 @@ function S.setsearchvisible(
 
 	if not animate or not S.animationsenabled or not changed then
 		for _, part in ipairs(parts) do
-			part[1][part[2]] = part[3]
+			if part[1]:IsA("UIShadow") then S.setshadowalpha(part[1], part[3])
+			else part[1][part[2]] = part[3] end
 		end
 		S.searchholder.Visible = value
 		return
@@ -4820,7 +4888,7 @@ S.search = S.new("TextBox", {
 	TextColor3 = S.theme.text,
 
 	Font = S.font,
-	TextSize = 18,
+	TextSize = 19,
 
 	TextXAlignment = Enum.TextXAlignment.Left,
 
@@ -4959,7 +5027,7 @@ function S.notify(
 )
 	if not S.alive or S.notificationsenabled == false then return nil end
 	S.ensurenotifications()
-	if S.watermarkgui and S.watermarkgui.Parent then S.watermarkgui.Enabled = true end
+	if not S.constructing and S.watermarkgui and S.watermarkgui.Parent then S.watermarkgui.Enabled = true end
 
 	options = nil
 
@@ -5023,7 +5091,7 @@ function S.notify(
 	rightpadding = 14
 	textwidth = cardwidth - leftpadding - rightpadding
 
-	bodysize = S.measuretext(S.plaintext(bodyvalue), 15, S.font, Vector2.new(textwidth, 1000))
+	bodysize = S.measuretext(S.plaintext(bodyvalue), 16, S.font, Vector2.new(textwidth, 1000))
 
 	contentheight = math.max(18, bodysize.Y)
 
@@ -5100,7 +5168,7 @@ function S.notify(
 	)
 
 	title.Position = UDim2.fromOffset(leftpadding, 8)
-	title.TextSize = 16
+	title.TextSize = 17
 	title.TextTruncate = Enum.TextTruncate.AtEnd
 	title.ZIndex = 704
 
@@ -5113,7 +5181,7 @@ function S.notify(
 	)
 
 	bodytextobject.Position = UDim2.fromOffset(leftpadding, 30)
-	bodytextobject.TextSize = 15
+	bodytextobject.TextSize = 16
 	bodytextobject.TextWrapped = true
 	bodytextobject.TextYAlignment = Enum.TextYAlignment.Top
 	bodytextobject.ZIndex = 704
@@ -5128,7 +5196,7 @@ function S.notify(
 			Position = UDim2.new(1, -11, 1, -10),
 			Size = UDim2.fromOffset(
 				math.clamp(
-					S.measuretext(S.plaintext(actionvalue), 14, S.medium, Vector2.new(180, 22)).X
+					S.measuretext(S.plaintext(actionvalue), 15, S.medium, Vector2.new(180, 22)).X
 						+ 22,
 					58,
 					160
@@ -5142,7 +5210,7 @@ function S.notify(
 
 			Text = actionvalue,
 			TextColor3 = S.theme.black,
-			TextSize = 14,
+			TextSize = 15,
 			Font = S.medium,
 			AutoButtonColor = false,
 
@@ -5548,7 +5616,7 @@ function S.opencontextmenu(
 				S.theme.text2
 			)
 			iteration1.textobject.Position = UDim2.fromOffset(iteration1.x, 0)
-			iteration1.textobject.TextSize = 15
+			iteration1.textobject.TextSize = 16
 			iteration1.textobject.ZIndex = 564
 
 			iteration1.button.MouseEnter:Connect(
@@ -5626,6 +5694,7 @@ function S.showmodal(
 	modalviewport,
 	modalwidth,
 	modalheight,
+	modalpanel,
 	card,
 	titleobject,
 	bodyobject,
@@ -5660,10 +5729,19 @@ function S.showmodal(
 	modalwidth = math.min(400, math.max(260, modalviewport.X - 32))
 
 	modalheight = 188
-	card = S.new("Frame", {
+	modalpanel = S.new("CanvasGroup", {
 		Parent = root,
 		AnchorPoint = Vector2.new(0.5, 0.5),
 		Position = UDim2.fromScale(0.5, 0.5),
+		Size = UDim2.fromOffset(modalwidth + 48, modalheight + 48),
+		GroupTransparency = 1,
+		BackgroundTransparency = 1,
+		BorderSizePixel = 0,
+		ZIndex = 701,
+	})
+	card = S.new("Frame", {
+		Parent = modalpanel,
+		Position = UDim2.fromOffset(24, 24),
 		Size = UDim2.fromOffset(modalwidth, modalheight),
 		BackgroundColor3 = S.theme.popup,
 		BackgroundTransparency = 0,
@@ -5689,12 +5767,12 @@ function S.showmodal(
 	titleobject =
 		S.label(card, titletext or "Dialog", UDim2.new(1, -32, 0, 28), S.bold, S.theme.text)
 	titleobject.Position = UDim2.fromOffset(16, 13)
-	titleobject.TextSize = 19
+	titleobject.TextSize = 20
 	titleobject.ZIndex = 702
 
 	bodyobject = S.label(card, bodytext or "", UDim2.new(1, -32, 0, 64), S.font, S.theme.text2)
 	bodyobject.Position = UDim2.fromOffset(16, 46)
-	bodyobject.TextSize = 15
+	bodyobject.TextSize = 16
 	bodyobject.TextWrapped = true
 	bodyobject.TextYAlignment = Enum.TextYAlignment.Top
 	bodyobject.ZIndex = 702
@@ -5739,7 +5817,7 @@ function S.showmodal(
 			Text = action.Text or "Action",
 			TextColor3 = iteration2.primary and S.theme.black or S.theme.text2,
 			Font = S.medium,
-			TextSize = 15,
+			TextSize = 16,
 			AutoButtonColor = false,
 			ZIndex = 703,
 		})
@@ -5778,7 +5856,7 @@ function S.showmodal(
 		root = root,
 		blocker = blocker,
 		card = card,
-		panel = card,
+		panel = modalpanel,
 	}
 
 	modalinfo = S.dropti
@@ -5823,6 +5901,7 @@ S.keybindshadowframe = S.new("Frame", {
 })
 S.corner(S.keybindshadowframe, 8)
 S.keybinddepthshadow = S.adddepthshadow(S.keybindshadowframe, "floating")
+if S.keybinddepthshadow then S.registergroupdecoration(S.keybinddepthshadow, S.keybindlist) end
 for _, property in ipairs({ "Position", "Size", "Visible" }) do
 	S.connect(S.keybindlist:GetPropertyChangedSignal(property), function()
 		S.keybindshadowframe[property] = S.keybindlist[property]
@@ -5849,7 +5928,7 @@ S.keybindheadericon.ImageTransparency = 0.08
 S.keybindtitle = S.label(S.keybindlist, "Keybinds", UDim2.new(1, -72, 0, 30), S.medium, S.theme.text)
 S.keybindtitle.Position = UDim2.fromOffset(34, 1)
 S.keybindtitle.TextXAlignment = Enum.TextXAlignment.Left
-S.keybindtitle.TextSize = 16
+S.keybindtitle.TextSize = 17
 S.keybindtitle.ZIndex = 321
 
 S.keybindcollapse = S.new("ImageButton", {
@@ -5962,7 +6041,7 @@ end
 S.keybindrows = setmetatable({}, { __mode = "k" })
 S.keybindgroups = {}
 S.keybindshown = false
-S.keybindfontsize = 14
+S.keybindfontsize = 15
 S.keybindlistwidth = 288
 S.keybindminimized = false
 
@@ -6172,7 +6251,7 @@ function S.createkeybindgroup(key, category, binding, holder, textobject, data)
 	textobject =
 		S.label(holder, tostring(category), UDim2.new(1, -8, 0, 24), S.medium, S.theme.text2)
 	textobject.Position = UDim2.fromOffset(4, 3)
-	textobject.TextSize = 13
+	textobject.TextSize = 14
 	textobject.TextXAlignment = Enum.TextXAlignment.Left
 	textobject.ZIndex = 323
 
@@ -6224,7 +6303,7 @@ function S.createkeybindrow(
 		S.theme.text3
 	)
 	nametext.Position = UDim2.fromOffset(36, 0)
-	nametext.TextSize = 13
+	nametext.TextSize = 14
 	nametext.TextXAlignment = Enum.TextXAlignment.Left
 	nametext.TextTruncate = Enum.TextTruncate.AtEnd
 	nametext.ZIndex = 323
@@ -6245,7 +6324,7 @@ function S.createkeybindrow(
 	S.stroke(keyholder, 0.7, S.theme.border, 0.6)
 
 	keytext = S.label(keyholder, "", UDim2.fromScale(1, 1), S.medium, S.theme.text3)
-	keytext.TextSize = 13
+	keytext.TextSize = 14
 	keytext.TextXAlignment = Enum.TextXAlignment.Center
 	keytext.ZIndex = 324
 
@@ -6365,7 +6444,7 @@ function S.updatekeybindrow(
 		data.keytext.Text = keyname
 	end
 
-	keybounds = S.measuretext(keyname, 13, S.medium, Vector2.new(200, 22))
+	keybounds = S.measuretext(keyname, 14, S.medium, Vector2.new(200, 22))
 	singlecharacter = #S.plaintext(keyname) == 1
 	keywidth = math.clamp(
 		math.ceil(keybounds.X) + (singlecharacter and 14 or 18),
@@ -6963,7 +7042,7 @@ function S.opentoggleconfig(
 
 	title.Position = UDim2.fromOffset(10, 5)
 
-	title.TextSize = 16
+	title.TextSize = 17
 	title.ZIndex = 544
 
 	keylabel = S.label(panel, "Key", UDim2.fromOffset(90, 28), S.font, S.theme.text2)
@@ -6971,7 +7050,7 @@ function S.opentoggleconfig(
 	keylabel.Position = UDim2.fromOffset(10, 37)
 	keylabel.Visible = true
 
-	keylabel.TextSize = 15
+	keylabel.TextSize = 16
 	keylabel.ZIndex = 544
 
 	keybutton = S.new("TextButton", {
@@ -7000,7 +7079,7 @@ function S.opentoggleconfig(
 
 	keytext = S.label(keybutton, "", UDim2.fromScale(1, 1), S.medium, S.theme.text2)
 
-	keytext.TextSize = 14
+	keytext.TextSize = 15
 	keytext.TextXAlignment = Enum.TextXAlignment.Center
 	keytext.ZIndex = 546
 
@@ -7008,7 +7087,7 @@ function S.opentoggleconfig(
 
 	modelabel.Position = UDim2.fromOffset(10, 68)
 
-	modelabel.TextSize = 15
+	modelabel.TextSize = 16
 	modelabel.ZIndex = 544
 
 	modebutton = S.new("TextButton", {
@@ -7036,7 +7115,7 @@ function S.opentoggleconfig(
 
 	modetext.Position = UDim2.fromOffset(9, 0)
 
-	modetext.TextSize = 14
+	modetext.TextSize = 15
 	modetext.ZIndex = 546
 
 	modearrow = S.image(modebutton, S.icons.down, 12, S.theme.text3, 546)
@@ -7077,7 +7156,7 @@ function S.opentoggleconfig(
 
 		keytext.Text = value
 
-		bounds = S.measuretext(value, 14, S.medium, Vector2.new(200, 27))
+		bounds = S.measuretext(value, 15, S.medium, Vector2.new(200, 27))
 
 		widthvalue = math.clamp(math.ceil(bounds.X) + 20, 42, 112)
 
@@ -7127,7 +7206,7 @@ function S.opentoggleconfig(
 			Text = mode,
 			TextColor3 = mode == binding.mode and S.theme.text or S.theme.text2,
 			Font = S.font,
-			TextSize = 14,
+			TextSize = 15,
 			TextXAlignment = Enum.TextXAlignment.Left,
 			AutoButtonColor = false,
 			ZIndex = 546,
@@ -7584,7 +7663,7 @@ function S.attachinlinekeypicker(
 	S.stroke(keybutton, 0.72, S.theme.border, 0.6)
 
 	keytext = S.label(keybutton, "", UDim2.fromScale(1, 1), S.medium, S.theme.text2)
-	keytext.TextSize = 13
+	keytext.TextSize = 14
 	keytext.TextXAlignment = Enum.TextXAlignment.Center
 	keytext.ZIndex = 20
 
@@ -7599,7 +7678,7 @@ function S.attachinlinekeypicker(
 		value = state.listening and "..." or S.togglekeyname(binding.key)
 		keytext.Text = value
 
-		bounds = S.measuretext(value, 13, S.medium, Vector2.new(120, 20))
+		bounds = S.measuretext(value, 14, S.medium, Vector2.new(120, 20))
 
 		width = math.clamp(math.ceil(bounds.X) + 18, 36, 72)
 		keybutton.Size = UDim2.fromOffset(width, 20)
@@ -7983,22 +8062,21 @@ function S.fadepage(page, transparency, callback, previous, animation)
 		return
 	end
 
-	animation.Completed:Connect(function()
+	animation.Completed:Once(function(playback)
 		if page.fadeanimation ~= animation then return end
 
 		page.fadeanimation = nil
-		if callback then callback() end
+		if playback == Enum.PlaybackState.Completed and callback then callback() end
 	end)
 end
 
-function S.showpage(name, page, previous, hassubtitle, wasvisible)
+function S.showpage(name, page, hassubtitle)
 	page = S.pages[name]
 
 	if not page or page == S.currentpage then return end
 
 	S.closepopup()
 
-	previous = S.currentpage
 	S.currentpage = page
 
 	S.titleprimary.Text = page.primary
@@ -8008,21 +8086,27 @@ function S.showpage(name, page, previous, hassubtitle, wasvisible)
 	S.titlesecondary.Visible = hassubtitle
 	S.titlesecondary.Text = page.secondary or ""
 
-	if S.syncsubtabnavigation then S.syncsubtabnavigation(true) end
-	if S.updatetopnavigationstate then S.updatetopnavigationstate() end
-
-	if previous then
-		S.fadepage(previous, 1, function()
-			if previous ~= S.currentpage then previous.frame.Visible = false end
-		end)
+	if S.updatetopnavigationstate then S.updatetopnavigationstate(true) end
+	S.pagetransitiontoken = (S.pagetransitiontoken or 0) + 1
+	local token = S.pagetransitiontoken
+	local outgoing = S.visiblepage
+	local function reveal()
+		if not S.alive or token ~= S.pagetransitiontoken then return end
+		for _, other in pairs(S.pages) do
+			if other ~= page then other.frame.Visible = false end
+		end
+		page:reflowall(false, true)
+		page.frame.Position = UDim2.fromOffset(0, 0)
+		page.frame.GroupTransparency = 1
+		page.frame.Visible = true
+		S.visiblepage = page
+		S.fadepage(page, 0)
 	end
-
-	wasvisible = page.frame.Visible
-	page.frame.Visible = true
-	page.frame.Position = UDim2.fromOffset(0, 0)
-	if not wasvisible then page.frame.GroupTransparency = 1 end
-	page:reflowall(false)
-	S.fadepage(page, 0)
+	if outgoing and outgoing ~= page and outgoing.frame.Visible then
+		S.fadepage(outgoing, 1, reveal)
+	else
+		reveal()
+	end
 
 	S.search.Text = ""
 end
@@ -8101,7 +8185,7 @@ function S.refreshcheckboxcolors(
 					}, info, true, { Color = "white" })
 				else
 					data.glow.Color = S.theme.white
-					data.glow.Transparency = glowbase
+					S.setshadowalpha(data.glow, glowbase)
 				end
 			end
 
@@ -8255,7 +8339,7 @@ function S.makecheckbox(
 			end
 			if checkedglow then
 				checkedglow.Color = S.panelcolor(checkedglow, "white", S.theme.white)
-				checkedglow.Transparency = glowbase
+				S.setshadowalpha(checkedglow, glowbase)
 			end
 			fill.BackgroundColor3 = S.panelcolor(fill, "white", S.theme.white)
 			fill.BackgroundTransparency = filltarget
@@ -8483,7 +8567,7 @@ function S.createcolorstate(color, callback, swatch, h, s, v, state)
 
 			if self.swatchglow then
 				self.swatchglow.Color = colorvalue
-				self.swatchglow.Transparency = math.clamp(0.58 + (1 - alphavalue) * 0.26, 0.58, 0.9)
+				S.setshadowalpha(self.swatchglow, math.clamp(0.58 + (1 - alphavalue) * 0.26, 0.58, 0.9))
 			end
 		end
 
@@ -8959,7 +9043,7 @@ function S.opencolorpicker(
 			PlaceholderColor3 = S.theme.text3,
 			TextColor3 = S.theme.text2,
 			Font = S.font,
-			TextSize = 13,
+			TextSize = 14,
 			TextXAlignment = Enum.TextXAlignment.Left,
 			TextYAlignment = Enum.TextYAlignment.Center,
 			ClearTextOnFocus = false,
@@ -9022,7 +9106,7 @@ function S.opencolorpicker(
 
 		textobject.Position = UDim2.fromOffset(30, 0)
 
-		textobject.TextSize = 15
+		textobject.TextSize = 16
 		textobject.ZIndex = 526
 
 		button3.Activated:Connect(function(value)
@@ -9258,7 +9342,7 @@ function S.createsection(
 	bodylayout,
 	section,
 	sectiontransition,
-	resize,
+	updatelayout,
 	register,
 	dropdownpopup,
 	binddropdownscrollbar
@@ -9313,7 +9397,7 @@ function S.createsection(
 
 	titleobject.Position = UDim2.fromOffset(titleoffset, 0)
 
-	titleobject.TextSize = 17
+	titleobject.TextSize = 18
 	titleobject.ZIndex = 15
 
 	headerbutton = S.new("TextButton", {
@@ -9448,7 +9532,7 @@ function S.createsection(
 		owner:reflow(section.column, false)
 	end)
 
-	resize = function(
+	updatelayout = function(
 		animate,
 		layoutanimate,
 		bodyheight,
@@ -9496,7 +9580,7 @@ function S.createsection(
 	end
 
 	function section:RefreshLayout(animate, layoutanimate)
-		resize(animate == true, layoutanimate == true)
+		updatelayout(animate == true, layoutanimate == true)
 	end
 
 	function section:SetTitleVisible(value, animate, visible)
@@ -9537,7 +9621,7 @@ function S.createsection(
 				or UDim2.new(1, -38, 0, 32)
 		end
 
-		resize(animate == true, animate == true)
+		updatelayout(animate == true, animate == true)
 	end
 
 	function section:SetCollapsed(value, animate, layoutanimate)
@@ -9552,15 +9636,15 @@ function S.createsection(
 
 		sectiontransition("bodyalpha", body, { GroupTransparency = self.collapsed and 1 or 0 }, animate)
 
-		resize(animate, layoutanimate)
+		updatelayout(animate, layoutanimate)
 	end
 
 	bodylayout
 		:GetPropertyChangedSignal("AbsoluteContentSize")
-		:Connect(function() resize(section.ready and true, section.ready and true) end)
+		:Connect(function() updatelayout(section.ready and true, section.ready and true) end)
 
 	section.ready = true
-	resize(false, false)
+	updatelayout(false, false)
 
 	page:reflow(column, false)
 
@@ -9600,12 +9684,12 @@ function S.createsection(
 
 	-- label
 
-	function section:AddLabel(text, wrap, target, parentobject, object10, resize)
+	function section:AddLabel(text, wrap, target, parentobject, object10, updatelayout)
 		parentobject = target or body
 
 		object10 = S.label(parentobject, text, UDim2.new(1, 0, 0, 20), S.font, S.theme.text2)
 
-		object10.TextSize = 16
+		object10.TextSize = 17
 		object10.TextWrapped = wrap ~= false
 		object10.TextTruncate = Enum.TextTruncate.None
 		object10.TextYAlignment = wrap ~= false and Enum.TextYAlignment.Top
@@ -9613,7 +9697,7 @@ function S.createsection(
 		object10.AutomaticSize = Enum.AutomaticSize.None
 
 		if wrap ~= false then
-			resize = function(bounds, width, height)
+			updatelayout = function(bounds, width, height)
 				width = object10.AbsoluteSize.X
 				if width <= 1 then return end
 				bounds = S.measuretext(
@@ -9627,9 +9711,9 @@ function S.createsection(
 					object10.Size = UDim2.new(1, 0, 0, height)
 				end
 			end
-			S.connect(object10:GetPropertyChangedSignal("AbsoluteSize"), resize, object10)
-			S.connect(object10:GetPropertyChangedSignal("Text"), resize, object10)
-			resize()
+			S.connect(object10:GetPropertyChangedSignal("AbsoluteSize"), updatelayout, object10)
+			S.connect(object10:GetPropertyChangedSignal("Text"), updatelayout, object10)
+			updatelayout()
 		end
 
 		register(object10, text)
@@ -9653,7 +9737,7 @@ function S.createsection(
 
 			Text = name,
 			TextColor3 = S.theme.text2,
-			TextSize = 16,
+			TextSize = 17,
 			Font = S.medium,
 			TextXAlignment = Enum.TextXAlignment.Center,
 
@@ -9882,7 +9966,7 @@ function S.createsection(
 
 		textobject.Position = UDim2.fromOffset(29, 0)
 
-		textobject.TextSize = 17
+		textobject.TextSize = 18
 		textobject.TextTruncate = Enum.TextTruncate.AtEnd
 		textobject.ZIndex = 16
 
@@ -10068,7 +10152,7 @@ function S.createsection(
 
 		textobject.Position = UDim2.fromOffset(29, 0)
 
-		textobject.TextSize = 17
+		textobject.TextSize = 18
 		textobject.TextTruncate = Enum.TextTruncate.AtEnd
 		textobject.ZIndex = 17
 
@@ -10261,7 +10345,7 @@ function S.createsection(
 		S.stroke(keybutton, 0.72, S.theme.border, 0.6)
 
 		keytext = S.label(keybutton, "", UDim2.fromScale(1, 1), S.medium, S.theme.text2)
-		keytext.TextSize = 13
+		keytext.TextSize = 14
 		keytext.TextXAlignment = Enum.TextXAlignment.Center
 		keytext.ZIndex = 19
 
@@ -10274,7 +10358,7 @@ function S.createsection(
 			value = listening and "..." or S.togglekeyname(binding.key)
 			keytext.Text = value
 
-			bounds = S.measuretext(value, 13, S.medium, Vector2.new(120, 22))
+			bounds = S.measuretext(value, 14, S.medium, Vector2.new(120, 22))
 
 			width = math.clamp(math.ceil(bounds.X) + 18, 38, 76)
 			keybutton.Size = UDim2.fromOffset(width, 22)
@@ -10410,7 +10494,7 @@ function S.createsection(
 
 		title = S.label(holder, name, UDim2.new(1, -80, 0, 19), S.font)
 
-		title.TextSize = 17
+		title.TextSize = 18
 
 		valueobject = S.new("TextBox", {
 			Parent = holder,
@@ -10422,7 +10506,7 @@ function S.createsection(
 			Text = "",
 			TextColor3 = S.theme.text3,
 			Font = S.medium,
-			TextSize = 16,
+			TextSize = 17,
 			TextXAlignment = Enum.TextXAlignment.Right,
 			TextYAlignment = Enum.TextYAlignment.Center,
 			ClearTextOnFocus = false,
@@ -10485,7 +10569,7 @@ function S.createsection(
 		S.corner(fill, 999)
 		fillglow = S.addglow(fill, "active")
 
-		if fillglow then fillglow.Transparency = 0.66 end
+		if fillglow then S.setshadowalpha(fillglow, 0.66) end
 
 		knob = S.new("Frame", {
 			Parent = track,
@@ -10639,7 +10723,7 @@ function S.createsection(
 
 		title = S.label(holder, name, UDim2.new(1, -130, 0, 19), S.font)
 
-		title.TextSize = 17
+		title.TextSize = 18
 
 		valueobject = S.new("TextBox", {
 			Parent = holder,
@@ -10651,7 +10735,7 @@ function S.createsection(
 			Text = "",
 			TextColor3 = S.theme.text3,
 			Font = S.medium,
-			TextSize = 16,
+			TextSize = 17,
 			TextXAlignment = Enum.TextXAlignment.Right,
 			TextYAlignment = Enum.TextYAlignment.Center,
 			ClearTextOnFocus = false,
@@ -10712,7 +10796,7 @@ function S.createsection(
 		S.corner(rangefill, 999)
 		rangeglow = S.addglow(rangefill, "active")
 
-		if rangeglow then rangeglow.Transparency = 0.66 end
+		if rangeglow then S.setshadowalpha(rangeglow, 0.66) end
 
 		lowknob = S.new("Frame", {
 			Parent = track,
@@ -11004,7 +11088,9 @@ function S.createsection(
 		updatepreview,
 		setselected,
 		optionbinding,
-		arrow
+		arrow,
+		togglecontrol,
+		keycontrol
 	)
 		parentobject = target or body
 		config = config or {}
@@ -11065,8 +11151,34 @@ function S.createsection(
 		})
 
 		title = S.label(holder, name, UDim2.new(1, 0, 0, 18), S.font)
-		title.TextSize = 17
+		title.TextSize = 18
 
+		local togglespec = config.toggle or config.Toggle
+		local keyspec = config.keypicker or config.KeyPicker
+		if togglespec then
+			local toggleoptions = type(togglespec) == "table" and table.clone(togglespec) or {}
+			toggleoptions.Name = name
+			toggleoptions.Target = holder
+			toggleoptions.KeyPicker = keyspec
+			toggleoptions.Keybindable = config.Keybindable == true or toggleoptions.Keybindable == true
+			toggleoptions.Flag = toggleoptions.Flag or (config.flag and tostring(config.flag) .. "/enabled")
+			togglecontrol = self:AddToggle(toggleoptions)
+			title:Destroy()
+			title = togglecontrol.TextObject
+		elseif keyspec then
+			local keyoptions = type(keyspec) == "table" and table.clone(keyspec) or {}
+			keyoptions.Name = name .. " Key"
+			keyoptions.Target = holder
+			keyoptions.Flag = keyoptions.Flag or (config.flag and tostring(config.flag) .. "/key")
+			keyoptions.CaptureOptions = table.clone(keyoptions.CaptureOptions or {})
+			keyoptions.CaptureOptions.HideLabel = true
+			keyoptions.CaptureOptions.Compact = true
+			keycontrol = self:AddKeyPicker(keyoptions)
+			keycontrol.Object.AnchorPoint = Vector2.new(1, 0)
+			keycontrol.Object.Position = UDim2.new(1, 0, 0, -4)
+			keycontrol.Object.Size = UDim2.fromOffset(48, 24)
+			title.Size = UDim2.new(1, -60, 0, 18)
+		end
 		button6 = S.new("TextButton", {
 			Parent = holder,
 			Position = UDim2.fromOffset(0, 25),
@@ -11099,7 +11211,7 @@ function S.createsection(
 		S.stroke(previewcolor, 0.62, S.theme.border, 0.5)
 
 		valuetext = S.label(button6, tostring(selected or "None"), UDim2.new(1, -38, 1, 0), S.font)
-		valuetext.TextSize = 17
+		valuetext.TextSize = 18
 		valuetext.ZIndex = 17
 
 		updatepreview = function(asset2, color3, offset)
@@ -11306,7 +11418,7 @@ function S.createsection(
 						PlaceholderColor3 = S.theme.text3,
 						TextColor3 = S.theme.text,
 						Font = S.font,
-						TextSize = 15,
+						TextSize = 16,
 						TextXAlignment = Enum.TextXAlignment.Left,
 						ClearTextOnFocus = false,
 						ZIndex = 515,
@@ -11372,7 +11484,7 @@ function S.createsection(
 							)
 							iteration5.dividerlabel.AnchorPoint = Vector2.new(0.5, 0.5)
 							iteration5.dividerlabel.Position = UDim2.fromScale(0.5, 0.5)
-							iteration5.dividerlabel.TextSize = 14
+							iteration5.dividerlabel.TextSize = 15
 							iteration5.dividerlabel.TextXAlignment = Enum.TextXAlignment.Center
 							iteration5.dividerlabel.ZIndex = 515
 
@@ -11453,7 +11565,7 @@ function S.createsection(
 					)
 					iteration5.optionkey.AnchorPoint = Vector2.new(1, 0.5)
 					iteration5.optionkey.Position = UDim2.new(1, -7, 0.5, 0)
-					iteration5.optionkey.TextSize = 13
+					iteration5.optionkey.TextSize = 14
 					iteration5.optionkey.TextXAlignment = Enum.TextXAlignment.Center
 					iteration5.optionkey.Visible = false
 					iteration5.optionkey.ZIndex = 516
@@ -11466,7 +11578,7 @@ function S.createsection(
 						option == selected and S.theme.text or S.theme.text2
 					)
 					iteration5.optionlabel.Position = UDim2.fromOffset(iteration5.x, 0)
-					iteration5.optionlabel.TextSize = 16
+					iteration5.optionlabel.TextSize = 17
 					iteration5.optionlabel.ZIndex = 515
 
 					iteration5.renderoptionkey = function(keyname, bounds, width)
@@ -11482,7 +11594,7 @@ function S.createsection(
 
 						keyname = S.togglekeyname(iteration5.binding.key)
 
-						bounds = S.measuretext(keyname, 13, S.medium, Vector2.new(120, 25))
+						bounds = S.measuretext(keyname, 14, S.medium, Vector2.new(120, 25))
 
 						width = math.clamp(math.ceil(bounds.X) + 14, 28, 72)
 
@@ -11558,6 +11670,15 @@ function S.createsection(
 
 		return {
 			Get = function() return selected end,
+			Toggle = togglecontrol,
+			KeyPicker = keycontrol,
+			KeyObject = togglecontrol and togglecontrol.KeyObject or keycontrol and keycontrol.Object,
+			SetEnabled = function(_, value, fire)
+				if not togglecontrol then return false end
+				togglecontrol:Set(value, fire)
+				return true
+			end,
+			GetEnabled = function() return togglecontrol and togglecontrol:Get() or false end,
 
 			Set = function(_, option, fire) setselected(option, fire) end,
 
@@ -11704,7 +11825,7 @@ function S.createsection(
 		})
 
 		title = S.label(holder, name, UDim2.new(1, 0, 0, 18), S.font)
-		title.TextSize = 17
+		title.TextSize = 18
 
 		button7 = S.new("TextButton", {
 			Parent = holder,
@@ -11720,7 +11841,7 @@ function S.createsection(
 
 		display = S.label(button7, "Select player", UDim2.new(1, -38, 1, 0), S.font, S.theme.text2)
 		display.Position = UDim2.fromOffset(10, 0)
-		display.TextSize = 16
+		display.TextSize = 17
 		display.TextTruncate = Enum.TextTruncate.None
 		display.TextWrapped = multiselect
 		display.ZIndex = 17
@@ -11982,7 +12103,7 @@ function S.createsection(
 						PlaceholderColor3 = S.theme.text3,
 						TextColor3 = S.theme.text,
 						Font = S.font,
-						TextSize = 15,
+						TextSize = 16,
 						TextXAlignment = Enum.TextXAlignment.Left,
 						ClearTextOnFocus = false,
 						ZIndex = 515,
@@ -12070,7 +12191,7 @@ function S.createsection(
 						issel(value) and S.theme.text or S.theme.text2
 					)
 					rowlabel.Position = UDim2.fromOffset(left, playerrow and 4 or 0)
-					rowlabel.TextSize = playerrow and 14 or (iseveryone and 16 or 16)
+					rowlabel.TextSize = playerrow and 15 or (iseveryone and 17 or 17)
 					rowlabel.TextTruncate = Enum.TextTruncate.AtEnd
 					rowlabel.ZIndex = 515
 
@@ -12084,7 +12205,7 @@ function S.createsection(
 							S.theme.text3
 						)
 						usernamelabel.Position = UDim2.fromOffset(left, 21)
-						usernamelabel.TextSize = 11
+						usernamelabel.TextSize = 12
 						usernamelabel.TextTruncate = Enum.TextTruncate.AtEnd
 						usernamelabel.ZIndex = 515
 					end
@@ -12231,7 +12352,7 @@ function S.createsection(
 								S.theme.text3
 							)
 							divlabel.Position = UDim2.fromOffset(7, 0)
-							divlabel.TextSize = 13
+							divlabel.TextSize = 14
 							divlabel.ZIndex = 515
 						end
 					end
@@ -12255,7 +12376,7 @@ function S.createsection(
 
 					if playersdivider and playersdivider ~= "" then
 						dividertext = S.plaintext(tostring(playersdivider))
-						bounds = S.measuretext(dividertext, 15, S.medium, Vector2.new(240, 24))
+						bounds = S.measuretext(dividertext, 16, S.medium, Vector2.new(240, 24))
 						labelwidth = math.max(48, math.ceil(bounds.X) + 14)
 						halfgap = labelwidth * 0.5 + 8
 
@@ -12292,7 +12413,7 @@ function S.createsection(
 						)
 						divlabel2.AnchorPoint = Vector2.new(0.5, 0.5)
 						divlabel2.Position = UDim2.fromScale(0.5, 0.5)
-						divlabel2.TextSize = 15
+						divlabel2.TextSize = 16
 						divlabel2.TextXAlignment = Enum.TextXAlignment.Center
 						divlabel2.ZIndex = 516
 					else
@@ -12337,13 +12458,13 @@ function S.createsection(
 					emptytitle =
 						S.label(empty, "No other players", UDim2.new(1, -52, 0, 22), S.medium, S.theme.text2)
 					emptytitle.Position = UDim2.fromOffset(38, 8)
-					emptytitle.TextSize = 14
+					emptytitle.TextSize = 15
 					emptytitle.ZIndex = 515
 
 					emptytext =
 						S.label(empty, "You're the only player here", UDim2.new(1, -52, 0, 18), S.font, S.theme.text3)
 					emptytext.Position = UDim2.fromOffset(38, 28)
-					emptytext.TextSize = 12
+					emptytext.TextSize = 13
 					emptytext.ZIndex = 515
 				end
 
@@ -12468,7 +12589,7 @@ function S.createsection(
 
 		title = S.label(holder, name, UDim2.new(1, 0, 0, 18), S.font)
 
-		title.TextSize = 17
+		title.TextSize = 18
 
 		button8 = S.new("TextButton", {
 			Parent = holder,
@@ -12493,7 +12614,7 @@ function S.createsection(
 
 		valuetext.Position = UDim2.fromOffset(10, 0)
 
-		valuetext.TextSize = 17
+		valuetext.TextSize = 18
 
 		valuetext.TextTruncate = Enum.TextTruncate.AtEnd
 
@@ -12635,7 +12756,7 @@ function S.createsection(
 						S.theme.text2
 					)
 					pickerlabel.Position = UDim2.fromOffset(9, 0)
-					pickerlabel.TextSize = 15
+					pickerlabel.TextSize = 16
 					pickerlabel.ZIndex = 515
 
 					pickerkey = S.label(
@@ -12651,7 +12772,7 @@ function S.createsection(
 					pickerkey.BackgroundTransparency = 0
 					S.bindtheme(pickerkey, "BackgroundColor3", S.theme.window, "window")
 					S.corner(pickerkey, 5)
-					pickerkey.TextSize = 13
+					pickerkey.TextSize = 14
 					pickerkey.TextXAlignment = Enum.TextXAlignment.Center
 					pickerkey.ZIndex = 515
 
@@ -12768,7 +12889,7 @@ function S.createsection(
 
 					iteration6.textobject.Position = UDim2.fromOffset(9, 0)
 
-					iteration6.textobject.TextSize = 15
+					iteration6.textobject.TextSize = 16
 					iteration6.textobject.ZIndex = 515
 
 					iteration6.check =
@@ -12881,7 +13002,7 @@ function S.createsection(
 		})
 
 		title = S.label(holder, name, UDim2.new(1, 0, 0, 18), S.font)
-		title.TextSize = 17
+		title.TextSize = 18
 
 		field = S.new("ScrollingFrame", {
 			Parent = holder,
@@ -12910,7 +13031,7 @@ function S.createsection(
 			PlaceholderColor3 = S.theme.text3,
 			TextColor3 = S.theme.text2,
 			Font = S.font,
-			TextSize = 17,
+			TextSize = 18,
 			TextXAlignment = Enum.TextXAlignment.Left,
 			TextYAlignment = Enum.TextYAlignment.Center,
 			TextWrapped = false,
@@ -13079,7 +13200,7 @@ function S.createsection(
 
 		title = S.label(row, name, UDim2.new(1, -68, 1, 0), S.font)
 
-		title.TextSize = 17
+		title.TextSize = 18
 		title.Visible = not hidelabel
 
 		button9 = S.new("TextButton", {
@@ -13105,7 +13226,7 @@ function S.createsection(
 
 		keytext = S.label(button9, "", UDim2.fromScale(1, 1), S.medium, S.theme.text2)
 
-		keytext.TextSize = 14
+		keytext.TextSize = 15
 		keytext.TextXAlignment = Enum.TextXAlignment.Center
 		keytext.ZIndex = 17
 
@@ -13121,7 +13242,7 @@ function S.createsection(
 
 			keytext.Text = value
 
-			bounds = S.measuretext(value, 14, S.medium, Vector2.new(200, 25))
+			bounds = S.measuretext(value, 15, S.medium, Vector2.new(200, 25))
 
 			singlecharacter = #S.plaintext(value) == 1
 
@@ -13268,7 +13389,7 @@ function S.createsection(
 
 		title = S.label(row, name, UDim2.new(1, -38, 1, 0), S.font)
 
-		title.TextSize = 17
+		title.TextSize = 18
 
 		button10 = S.new("TextButton", {
 			Parent = row,
@@ -13354,7 +13475,7 @@ function S.createsection(
 			)
 			textobject.AnchorPoint = Vector2.new(0.5, 0.5)
 			textobject.Position = UDim2.fromScale(0.5, 0.5)
-			textobject.TextSize = 14
+			textobject.TextSize = 15
 			textobject.TextXAlignment = Enum.TextXAlignment.Center
 			textobject.ZIndex = 16
 
@@ -13427,7 +13548,7 @@ function S.createsection(
 		if hasname then
 			titleobject5 =
 				S.label(holder, tostring(name), UDim2.new(1, 0, 0, 18), S.font, S.theme.text2)
-			titleobject5.TextSize = 16
+			titleobject5.TextSize = 17
 		end
 		imageobject = S.new("ImageLabel", {
 			Parent = holder,
@@ -13486,11 +13607,11 @@ function S.createsection(
 		S.corner(avatar, 10)
 		nameobject = S.label(holder, display, UDim2.new(1, -50, 0, 20), S.medium, S.theme.text)
 		nameobject.Position = UDim2.fromOffset(50, 4)
-		nameobject.TextSize = 15
+		nameobject.TextSize = 16
 		nameobject.ZIndex = 16
 		userobject = S.label(holder, username, UDim2.new(1, -50, 0, 18), S.font, S.theme.text3)
 		userobject.Position = UDim2.fromOffset(50, 25)
-		userobject.TextSize = 14
+		userobject.TextSize = 15
 		userobject.ZIndex = 16
 		register(holder, name or display)
 		return holder
@@ -13561,7 +13682,7 @@ function S.createsection(
 		contentwidth,
 		scrollanimation,
 		scrollvalue,
-		resizehost,
+		updatehostlayout,
 		maxscroll,
 		updatescrollbar,
 		renderscroll,
@@ -13694,7 +13815,7 @@ function S.createsection(
 			Value = 0,
 		})
 
-		resizehost = function(
+		updatehostlayout = function(
 			animate,
 			container,
 			containerheight,
@@ -13944,7 +14065,7 @@ function S.createsection(
 							Transparency = active and 0.74 or 1,
 						}, S.tabti)
 					else
-						data.glow.Transparency = active and 0.74 or 1
+						S.setshadowalpha(data.glow, active and 0.74 or 1)
 					end
 				end
 			end
@@ -13963,12 +14084,12 @@ function S.createsection(
 
 			container2.Position = UDim2.fromOffset(0, contentoffset)
 
-			resizehost(false)
+			updatehostlayout(false)
 		end
 
 		for index, tabname, iteration8 in S.scopediterator(2, ipairs(taborder)) do
 			iteration8.measured =
-				S.measuretext(S.plaintext(tabname), 15, S.medium, Vector2.new(1000, 30))
+				S.measuretext(S.plaintext(tabname), 17, S.medium, Vector2.new(1000, 30))
 
 			iteration8.buttonwidth = math.max(38, iteration8.measured.X + 12)
 
@@ -13997,7 +14118,7 @@ function S.createsection(
 
 			iteration8.textobject.Position = UDim2.fromOffset(0, 0)
 
-			iteration8.textobject.TextSize = 16
+			iteration8.textobject.TextSize = 17
 			iteration8.textobject.ZIndex = 17
 
 			iteration8.button.MouseEnter:Connect(
@@ -14077,7 +14198,7 @@ function S.createsection(
 
 					iteration8.container.Size = UDim2.new(1, 0, 0, height)
 
-					if selected == tabname then resizehost(false) end
+					if selected == tabname then updatehostlayout(false) end
 				end)
 
 
@@ -14121,7 +14242,7 @@ function S.createsection(
 
 			SetCollapsed = function(_, value, animate)
 				tabsclosed = value == true
-				resizehost(animate ~= false)
+				updatehostlayout(animate ~= false)
 			end,
 
 			IsCollapsed = function() return tabsclosed end,
@@ -14725,7 +14846,7 @@ S.themeoptions = { "Default", "Violet", "Rose", "Mint", "Snow", "Pearl", "Ivory"
 S.selectedtheme = "Default"
 S.themecolors = {}
 for name, preset in pairs(S.themepresets) do S.themecolors[name] = preset.accent end
-S.themecolors.Default = Color3.fromRGB(176, 178, 184)
+S.themecolors.Default = S.themepresets.Default.accent
 
 function S.settheme(name, animate)
 	local preset = S.themepresets[name]
@@ -14780,8 +14901,7 @@ end
 function S.refreshsettingsdependencies()
 	if not S.settingsready then return end
 	S.setsettingsvisible(S.watermarkinfocontrol.Object, S.watermarkshown)
-	S.setsettingsvisible(S.watermarkdisplaynametoggle.Object, S.watermarkshown)
-	S.setsettingsvisible(S.watermarkusernametoggle.Object, S.watermarkshown)
+	S.setsettingsvisible(S.watermarknamerow.Frame, S.watermarkshown)
 	S.setsettingsvisible(S.windowglowintensitycontrol.Object, S.windowglowenabled)
 	S.setsettingsvisible(S.windowglowsizecontrol.Object, S.windowglowenabled)
 	for _, data in ipairs({ { S.panelthemes.Watermark, S.watermarkshown }, { S.panelthemes.Keybinds, S.keybindshown } }) do
@@ -14823,12 +14943,13 @@ function S.ensureSettings()
 		S.requestconfigautosave()
 	end)
 	
-	S.watermarkdisplaynametoggle = S.watermarksettingssection:AddToggle("Display Name", S.watermarkconfig.DisplayName, function(value)
+	S.watermarknamerow = S.watermarksettingssection:AddRow(10, 24)
+	S.watermarkdisplaynametoggle = S.watermarknamerow:AddToggle("Display Name", S.watermarkconfig.DisplayName, function(value)
 		S.watermarkconfig.DisplayName = value == true
 		S.updatewatermarklayout()
 		S.requestconfigautosave()
 	end)
-	S.watermarkusernametoggle = S.watermarksettingssection:AddToggle("Username", S.watermarkconfig.Username, function(value)
+	S.watermarkusernametoggle = S.watermarknamerow:AddToggle("Username", S.watermarkconfig.Username, function(value)
 		S.watermarkconfig.Username = value == true
 		S.updatewatermarklayout()
 		S.requestconfigautosave()
@@ -14909,7 +15030,6 @@ function S.ensureSettings()
 	end, nil, {
 		dividers = { Snow = "Light themes" },
 		colors = S.themecolors,
-		icons = { Default = S.icons["circle-dot"] },
 	})
 	S.maincolorpicker = S.themessection:AddColorPicker("Main color", S.theme.main, function(color, alpha)
 		S.applymaincolor(color, false)
@@ -14947,11 +15067,12 @@ function S.ensureSettings()
 	S.presetselector = S.presetsection:AddDropdown("Saved presets", { "None" }, S.selectedpreset or "None", function(name)
 		if name ~= "None" then S.selectedpreset = name; S.presetnameinput.Text = name end
 	end, nil, { searchable = true })
-	S.presetsection:AddRow(8, 32):AddButton("Load", function()
+	local presetrow = S.presetsection:AddRow(8, 32)
+	presetrow:AddButton("Load", function()
 		local ok = S.loadpreset(S.presetselector:Get(), false)
 		if not ok then S.notify("Unavailable", "Select a saved preset.", 2.4, nil, nil, S.icons.save) end
 	end)
-	S.presetsection:AddRow(8, 32):AddButton("Save", function()
+	presetrow:AddButton("Save", function()
 		local ok = S.savepreset(S.presetnameinput.Text)
 		S.notify(ok and "Saved" or "Invalid name", ok and "Preset saved." or "Enter a valid name.", 2.4, nil, nil, S.icons.save)
 	end)
@@ -15111,7 +15232,7 @@ S.sublistlayout = S.list(S.sublist, 3)
 S.subindicator = S.new("Frame", { Parent = S.subholder, Position = UDim2.fromOffset(1, 11), Size = UDim2.fromOffset(2, 14), BackgroundColor3 = S.theme.highlight, BackgroundTransparency = 1, BorderSizePixel = 0, Visible = false, ZIndex = 16 }, { BackgroundColor3 = "highlight" })
 S.corner(S.subindicator, 999)
 S.topnavigation = S.new("CanvasGroup", { Parent = S.header, Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, BorderSizePixel = 0, Visible = false, ZIndex = 18 })
-S.topprimarybutton = S.new("TextButton", { Parent = S.topnavigation, AnchorPoint = Vector2.new(0, 0.5), Position = UDim2.fromOffset(14, 31), Size = UDim2.fromOffset(120, 38), BackgroundTransparency = 1, BorderSizePixel = 0, Text = "", Font = S.bold, TextSize = 19, TextColor3 = S.theme.text, TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd, AutoButtonColor = false, ZIndex = 19 })
+S.topprimarybutton = S.new("TextButton", { Parent = S.topnavigation, AnchorPoint = Vector2.new(0, 0.5), Position = UDim2.fromOffset(14, 31), Size = UDim2.fromOffset(120, 38), BackgroundTransparency = 1, BorderSizePixel = 0, Text = "", Font = S.bold, TextSize = 20, TextColor3 = S.theme.text, TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd, AutoButtonColor = false, ZIndex = 19 })
 S.topsubholder = S.new("ScrollingFrame", { Parent = S.topnavigation, AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromOffset(200, 31), Size = UDim2.fromOffset(120, 40), CanvasSize = UDim2.fromOffset(0, 0), AutomaticCanvasSize = Enum.AutomaticSize.None, ScrollingDirection = Enum.ScrollingDirection.X, ScrollBarThickness = 0, BackgroundTransparency = 1, BorderSizePixel = 0, ClipsDescendants = true, ZIndex = 19 })
 
 function S.layoutnavcontent(button, label, icon, sub)
@@ -15126,7 +15247,7 @@ function S.navbutton(parent, name, asset, sub)
 	S.corner(button, sub and 7 or 8)
 	local icon = asset and S.image(button, asset, sub and 15 or 19, S.theme.text3, 14)
 	local label = S.label(button, name, UDim2.new(1, 0, 1, 0), S.font, S.theme.text3)
-	label.TextSize = sub and 16 or 17
+	label.TextSize = sub and 17 or 18
 	label.ZIndex = 14
 	S.layoutnavcontent(button, label, icon, sub)
 	return button, label, icon
@@ -15169,7 +15290,7 @@ function S.createlibrarytabgroup(name)
 	local header = S.new("TextButton", { Parent = group, Size = UDim2.new(1, 0, 0, 25), LayoutOrder = 0, BackgroundTransparency = 1, BorderSizePixel = 0, Text = "", AutoButtonColor = false, ZIndex = 13 })
 	local label = S.label(header, tostring(name or ""), UDim2.new(1, -24, 1, 0), S.medium, S.theme.text3)
 	label.Position = UDim2.fromOffset(10, 0)
-	label.TextSize = 13
+	label.TextSize = 14
 	local arrow = S.image(header, S.icons["chevron-down"], 12, S.theme.text3, 14)
 	arrow.AnchorPoint = Vector2.new(1, 0.5)
 	arrow.Position = UDim2.new(1, -8, 0.5, 0)
@@ -15198,13 +15319,11 @@ function S.createtopsub(name, asset, order)
 	icon.Position = UDim2.new(0, 8, 0.5, 0)
 	local label = S.label(button, name, UDim2.new(1, -35, 1, 0), S.medium, S.theme.text)
 	label.Position = UDim2.fromOffset(32, 0)
-	label.TextSize = 15
+	label.TextSize = 16
 	label.ZIndex = 21
 	label.TextTransparency = 1
 	label.ClipsDescendants = true
-	local indicator = S.new("Frame", { Parent = button, Position = UDim2.new(0, 6, 1, -4), Size = UDim2.new(1, -12, 0, 2), BackgroundColor3 = S.theme.highlight, BackgroundTransparency = 1, BorderSizePixel = 0, ZIndex = 22 }, { BackgroundColor3 = "highlight" })
-	S.corner(indicator, 999)
-	S.topsubentries[button] = { button = button, icon = icon, text = label, name = name, indicator = indicator }
+	S.topsubentries[button] = { button = button, icon = icon, text = label, name = name }
 	S.connect(button:GetPropertyChangedSignal("Size"), function()
 		if S.topnavigationenabled then S.updatetopnavigationlayout() end
 	end, button)
@@ -15219,10 +15338,10 @@ function S.updatetopnavigationlayout()
 	local compact = width < 560
 	local searchwidth = S.searchenabled and (compact and 116 or 150) or 0
 	local left = compact and 12 or 14
-	local primarywidth = math.clamp(S.measuretext(S.topprimarybutton.Text, compact and 18 or 19, S.bold, Vector2.new(600, 38)).X + 14, 64, math.max(64, width * 0.32))
+	local primarywidth = math.clamp(S.measuretext(S.topprimarybutton.Text, compact and 19 or 20, S.bold, Vector2.new(600, 38)).X + 14, 64, math.max(64, width * 0.32))
 	S.topprimarybutton.Position = UDim2.fromOffset(left, 31)
 	S.topprimarybutton.Size = UDim2.fromOffset(primarywidth, 38)
-	S.topprimarybutton.TextSize = compact and 18 or 19
+	S.topprimarybutton.TextSize = compact and 19 or 20
 	S.searchholder.Size = UDim2.fromOffset(searchwidth, 38)
 	S.searchholder.Position = UDim2.new(1, -14, 0.5, 0)
 	local leftbound = left + primarywidth + 10
@@ -15232,12 +15351,20 @@ function S.updatetopnavigationlayout()
 	root = root and (root.ParentTab or root)
 	local total = 0
 	local selectedcenter
+	local selectedbutton
 	for _, tab in ipairs(root and root.SubTabs or {}) do
 		local button = tab.Button
 		if button.Visible and not tab.Hidden then
 			button.Position = UDim2.fromOffset(total, 2)
-			if tab.Page == S.currentpage then selectedcenter = total + button.Size.X.Offset * 0.5 end
+			if tab.Page == S.currentpage then selectedcenter = total + button.Size.X.Offset * 0.5; selectedbutton = button end
 			total += button.Size.X.Offset + 6
+		end
+	end
+	if S.topsubindicator then
+		S.topsubindicator.Visible = selectedbutton ~= nil
+		if selectedbutton then
+			S.topsubindicator.Position = UDim2.fromOffset(selectedbutton.Position.X.Offset + 6, 34)
+			S.topsubindicator.Size = UDim2.fromOffset(math.max(0, selectedbutton.Size.X.Offset - 12), 2)
 		end
 	end
 	total = math.max(0, total - 6)
@@ -15260,6 +15387,12 @@ function S.syncsubtabnavigation(animate)
 	for button, entry in pairs(S.topsubentries) do
 		local tab = entry.tab
 		local visible = tab and tab.ParentTab == root and not tab.Hidden
+		if sidebar or animate == false or not S.animationsenabled then
+			local sizeanimation = S.activetweens[button] and S.activetweens[button].Size
+			local textanimation = S.activetweens[entry.text] and S.activetweens[entry.text].TextTransparency
+			if sizeanimation then sizeanimation:Cancel() end
+			if textanimation then textanimation:Cancel() end
+		end
 		button.Visible = visible == true
 		button.Parent = sidebar and S.sublist or S.topsubholder
 		entry.text.Visible = true
@@ -15272,15 +15405,13 @@ function S.syncsubtabnavigation(animate)
 			entry.sub = true
 			S.setsidebarentrycompact(entry, S.sidebarcompact, true)
 			S.rendernaventry(button, true, false)
-			entry.indicator.BackgroundTransparency = 1
-			entry.indicator.Visible = false
 		else
 			entry.icon.AnchorPoint = Vector2.new(0, 0.5)
 			entry.icon.Position = UDim2.new(0, 8, 0.5, 0)
 			entry.text.Position = UDim2.fromOffset(32, 0)
 			entry.text.Size = UDim2.new(1, -36, 1, 0)
 			local active = tab and tab.Page == S.currentpage
-			local target = active and math.ceil(S.measuretext(entry.text.Text, 15, S.medium, Vector2.new(2000, 40)).X) + 42 or 32
+			local target = active and math.ceil(S.measuretext(entry.text.Text, 16, S.medium, Vector2.new(2000, 40)).X) + 42 or 32
 			if animate and S.animationsenabled then
 				S.tween(button, { Size = UDim2.fromOffset(target, 36), BackgroundTransparency = 1 }, S.quart28)
 				S.tween(entry.text, { TextTransparency = active and 0 or 1 }, S.hoverti)
@@ -15290,13 +15421,6 @@ function S.syncsubtabnavigation(animate)
 				entry.text.TextTransparency = active and 0 or 1
 			end
 			S.tween(entry.icon, { ImageColor3 = active and S.theme.text or S.theme.text3 }, S.hoverti)
-			entry.indicator.Visible = true
-			if animate and S.animationsenabled then
-				S.tween(entry.indicator, { BackgroundTransparency = active and 0 or 1 }, S.quart28)
-			else
-				entry.indicator.BackgroundTransparency = active and 0 or 1
-			end
-			entry.indicator.Visible = active or entry.indicator.BackgroundTransparency < 1
 		end
 	end
 	S.subholder.Visible = sidebar and count > 0
@@ -15348,7 +15472,7 @@ function S.selectmain(button)
 	S.rendernaventry(button, false, false)
 end
 
-function S.expandsubtabs() S.syncsubtabnavigation(false) end
+
 
 function S.opentopmainmenu()
 	local actions = {}
@@ -15358,6 +15482,9 @@ function S.opentopmainmenu()
 	if S.settingsbutton and S.settingsbutton.Visible then actions[#actions + 1] = { Text = S.settingstext.Text, Icon = S.icons.settings, Callback = function() S.librarygetsettingstab():Select() end } end
 	S.opencontextmenu(S.topprimarybutton.AbsolutePosition + Vector2.new(0, 40), actions)
 end
+
+S.topsubindicator = S.new("Frame", { Parent = S.topsubholder, Position = UDim2.fromOffset(6, 34), Size = UDim2.fromOffset(20, 2), BackgroundColor3 = S.theme.highlight, BorderSizePixel = 0, Visible = false, ZIndex = 22 }, { BackgroundColor3 = "highlight" })
+S.corner(S.topsubindicator, 999)
 
 S.connect(S.header:GetPropertyChangedSignal("AbsoluteSize"), S.updatetopnavigationlayout, S.header)
 
@@ -15410,7 +15537,7 @@ S.footername = S.label(S.sidebar, S.player.DisplayName, UDim2.fromOffset(135, 19
 
 S.footername.Position = UDim2.new(0, 66, 1, -56)
 
-S.footername.TextSize = 16
+S.footername.TextSize = 17
 S.footername.ZIndex = 12
 
 S.footername.TextTruncate = Enum.TextTruncate.AtEnd
@@ -15420,7 +15547,7 @@ S.footerusername =
 
 S.footerusername.Position = UDim2.new(0, 66, 1, -35)
 
-S.footerusername.TextSize = 15
+S.footerusername.TextSize = 16
 S.footerusername.ZIndex = 12
 
 S.footerusername.TextTruncate = Enum.TextTruncate.AtEnd
@@ -16500,6 +16627,10 @@ function S.libraryenhancesection(
 
 			if config.Searchable ~= nil then settings.searchable = config.Searchable == true end
 
+			if config.Toggle ~= nil then settings.toggle = config.Toggle end
+			if config.KeyPicker ~= nil then settings.keypicker = config.KeyPicker end
+			settings.Keybindable = config.Keybindable
+			settings.flag = config.Flag or config.SaveKey or config.Id or config.ID
 			if config.Dividers ~= nil then settings.dividers = config.Dividers end
 
 			if config.Icons ~= nil then settings.icons = config.Icons end
@@ -17190,9 +17321,7 @@ tab = {
 		else
 			S.selectmain(button14)
 		end
-		S.expandsubtabs(false)
 		S.showpage(pageid)
-		S.updatetopnavigationstate(false)
 	end
 
 	function tab:SetName(value, oldname)
@@ -17521,18 +17650,17 @@ local keybindsoption = options.Keybinds
 
 if S.refreshsettingsdependencies then S.refreshsettingsdependencies(false) end
 
-	S.constructing = false
-	S.flushpagelayouts()
-	S.gui.Enabled = true
-	S.watermarkgui.Enabled = true
-	
-
-	S.modalguard.Modal = true
-	S.modalguard.Active = false
-	S.modalguard.Visible = true
-
-	S.__blush_windowvisible = true
-	S.setvisibilityrootsvisible(true)
+	S.__blush_windowvisible = false
+	S.setvisibilityrootsvisible(false)
+	task.defer(function()
+		if not S.alive then return end
+		S.flushpagelayouts()
+		S.constructing = false
+		S.window.GroupTransparency = 1
+		S.gui.Enabled = true
+		S.watermarkgui.Enabled = true
+		S.requestvisibilitytoggle(true)
+	end)
 
 	S.librarywindow = {
 		_tabs = S.librarytabs,
