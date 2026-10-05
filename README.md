@@ -1,721 +1,755 @@
-# blush UI
 
-Compact reference for the current blush API.
-
-## Load
 
 ```lua
 local blush = loadstring(game:HttpGet("https://raw.githubusercontent.com/Tracoskibidi/blush/refs/heads/main/blush.lua"))()
 ```
 
+---
+
 ## Window
 
 ```lua
 local window = blush:CreateWindow({
-    Title = "my hub",
-    Version = "v1.0.0",
-    Size = Vector2.new(926, 676),
-    Position = nil,
-
-    Resize = true,
-    Draggable = true,
-    MinimizeButton = true,
-
-    Logo = "sliders",
-    MenuKey = Enum.KeyCode.RightShift,
-
-    Search = true,
-    Animations = true,
-    Notifications = true,
-
-    Watermark = true,
-    HotkeyList = false,
-
-    Scale = 100,
-    Transparency = 0,
-    Roundness = 12,
-    Stroke = true,
-    Shadow = true,
-
-    Glow = true,
-    GlowIntensity = 16,
-    GlowSize = 10,
-    GlowAlpha = 1,
-
-    SidebarResize = true,
-    SidebarWidth = 190,
-
-    SettingsTab = {
-        Enabled = true,
-        Name = "Settings",
-        Icon = "settings",
-    },
+	Title = "My Hub",
+	Subtitle = "v1.0",
+	Size = Vector2.new(650, 500),
 })
 ```
 
-Useful optional window fields:
-
-`MinSize`, `MaxSize`, `LogoColor`, `GlowColor`, `Theme`, `Background`, `BackgroundOpacity`, `BackgroundBlur`, `BackgroundExcludeSidebar`, `AutoBackgroundColors`, `WatermarkInfo`, `NotifyLoaded`.
-
-## Window API
+### Window options
 
 ```lua
-window:SetVisible(true)
-window:Toggle()
-window:Destroy()
-
-window:SetTitle("new title")
-window:SetVersion("v2")
-window:SetLogo("home")
-window:SetMenuKey(Enum.KeyCode.RightShift)
-
-window:SetSize(Vector2.new(900, 650))
-window:SetPosition(Vector2.new(100, 100))
-window:SetMinSize(Vector2.new(620, 440))
-window:SetMaxSize(Vector2.new(1200, 800))
-
-window:SetResizeEnabled(true)
-window:SetDraggable(true)
-window:SetMinimizeButtonVisible(true)
-window:SetSidebarResizeEnabled(true)
-window:SetSidebarWidth(190)
-
-window:SetScale(100)
-window:SetTransparency(0)
-window:SetRoundness(12)
-window:SetStrokeVisible(true)
-window:SetShadowVisible(true)
-
-window:SetSearch(true)
-window:SetAnimations(true)
-window:SetNotifications(true)
-window:SetSettingsVisible(true)
-
-window:SetWatermark(true)
-window:SetHotkeyList(true)
-
-window:SetGlowEnabled(true)
-window:SetGlowColor(Color3.new(1, 1, 1))
-window:SetGlowIntensity(16)
-window:SetGlowSize(10)
-window:SetGlowAlpha(1)
+{
+	Title = "My Hub",
+	Subtitle = "v1.0",
+	Size = Vector2.new(650, 500),
+	Position = UDim2.fromOffset(300, 200),
+	Username = "7orm",
+	Logo = "settings",
+	LogoColor = Color3.new(1, 1, 1),
+	Draggable = true,
+	SidebarWidth = 160,
+	Roundness = 10,
+	Shadow = true,
+	Glow = true,
+	Transparency = 0,
+	Theme = "Default",
+	Settings = true,
+	SettingsTab = {},
+	Watermark = false,
+	WatermarkInfo = {},
+	Keybinds = false,
+	AutoSave = false,
+	TopNavigation = false,
+}
 ```
 
-Getters:
-
-```lua
-window:GetSize()
-window:GetPosition()
-window:GetSidebarWidth()
-window:GetTheme()
-window:GetGui()
-window:GetTab("Main")
-window:GetSettingsTab()
-```
-
-## Watermark
-
-```lua
-window:SetWatermarkInfo({
-    Player = true,
-    Fps = true,
-    Ping = true,
-    Time = true,
-    PlayerMode = "Display name",
-})
-```
-
-`PlayerMode`: `Display name`, `Username`, `Both`.
-
-## Notifications
-
-```lua
-window:Notify("Title", "Message", 3)
-```
-
-With button:
-
-```lua
-window:Notify("Delete?", "This cannot be undone", 5, function()
-    print("clicked")
-end, "Delete")
-```
+---
 
 ## Tabs
 
 ```lua
-local main = window:AddTab({
-    Name = "Main",
-    Icon = "home",
-})
-
-local misc = window:AddTab({
-    Name = "Misc",
-    Icon = "wrench",
-    Group = "other",
+local tab = window:CreateTab({
+	Name = "Combat",
+	Icon = "swords",
 })
 ```
 
-```lua
-main:Select()
-main:SetName("Combat")
-main:SetIcon("target")
-main:SetVisible(true)
-main:GetPage()
+Also:
 
+```lua
+window:AddTab(...)
+window:CreateTabGroup(...)
+window:GetTab("Combat")
 window:SelectTab("Combat")
 ```
 
-## Sections
+### Tab methods
 
 ```lua
-local left = main:AddLeftSection({
-    Name = "Aim",
-    Icon = "target",
-})
-
-local right = main:AddRightSection({
-    Name = "Visuals",
-    Icon = "eye",
-})
+tab:Select()
+tab:SetName("Combat")
+tab:SetIcon("swords")
+tab:SetGradient("Rainbow")
+tab:SetVisible(true)
+tab:GetPage()
 ```
 
-Generic form:
+### Sections
 
 ```lua
-local section = main:AddSection({
-    Name = "Section",
-    Side = "left", -- left / right
-    Icon = "settings",
+local left = tab:AddLeftSection({Name = "Main", Icon = "settings"})
+local right = tab:AddRightSection({Name = "Extra", Icon = "plus"})
+```
+
+Or:
+
+```lua
+local section = tab:AddSection({
+	Name = "Main",
+	Side = "left",
+	Icon = "settings",
 })
 ```
 
 ---
 
-# Elements
+# Controls
 
-## Toggle
+## Label
 
 ```lua
-local toggle = left:AddToggle({
-    Name = "Enabled",
-    Default = false,
-    Keybindable = true,
-    Badge = "NEW",
+section:AddLabel("Hello")
+```
 
-    Callback = function(value)
-        print(value)
-    end,
+```lua
+section:AddLabel({
+	Text = "Hello",
+	Wrap = true,
 })
-```
-
-```lua
-toggle:Get()
-toggle:Set(true)
-```
-
-Right-click a keybindable toggle for `Toggle`, `Hold`, or `Always On`.
-
-## Toggle + Key
-
-```lua
-local toggle = left:AddToggleKey({
-    Name = "Aim Assist",
-    Default = false,
-    Key = Enum.KeyCode.F,
-
-    Callback = function(value)
-        print(value)
-    end,
-
-    KeyCallback = function(key)
-        print(key)
-    end,
-})
-```
-
-## Toggle + Color
-
-```lua
-local toggle = right:AddToggleColor({
-    Name = "ESP",
-    Default = true,
-    Color = Color3.fromRGB(255, 255, 255),
-    Keybindable = true,
-
-    Callback = function(value)
-        print(value)
-    end,
-
-    ColorCallback = function(color, alpha)
-        print(color, alpha)
-    end,
-})
-```
-
-## Toggle + Color + Key
-
-```lua
-right:AddToggleColorKey({
-    Name = "ESP",
-    Default = true,
-    Color = Color3.new(1, 1, 1),
-    Key = Enum.KeyCode.E,
-
-    ToggleCallback = function(value)
-        print(value)
-    end,
-
-    ColorCallback = function(color, alpha)
-        print(color, alpha)
-    end,
-
-    KeyCallback = function(key)
-        print(key)
-    end,
-})
-```
-
-## Slider
-
-```lua
-local slider = left:AddSlider({
-    Name = "FOV",
-    Min = 0,
-    Max = 360,
-    Default = 120,
-    Suffix = "°",
-
-    Callback = function(value)
-        print(value)
-    end,
-})
-```
-
-```lua
-slider:Get()
-slider:Set(180)
-```
-
-## Range Slider
-
-```lua
-local range = left:AddRangeSlider({
-    Name = "Distance",
-    Min = 0,
-    Max = 5000,
-    DefaultMin = 100,
-    DefaultMax = 1500,
-    Suffix = "m",
-})
-```
-
-```lua
-range:Get()
-range:Set(250, 2000)
-```
-
-## Dropdown
-
-```lua
-local dropdown = left:AddDropdown({
-    Name = "Bone",
-    Options = {"Head", "Torso", "Arms", "Legs"},
-    Default = "Head",
-    Searchable = true,
-
-    Callback = function(value)
-        print(value)
-    end,
-})
-```
-
-```lua
-dropdown:Get()
-dropdown:Set("Torso")
-dropdown:SetOptions({"Head", "Torso"})
-```
-
-Options can include metadata:
-
-```lua
-Options = {
-    {Name = "Head", Icon = "target", Color = Color3.new(1, 1, 1)},
-    {Divider = true, Text = "Other"},
-    {Name = "Torso"},
-}
-```
-
-Right-click a dropdown option to assign a keybind.
-
-## Multi Dropdown
-
-```lua
-local dropdown = left:AddMultiDropdown({
-    Name = "Hitboxes",
-    Options = {"Head", "Torso", "Arms", "Legs"},
-    Default = {"Head", "Torso"},
-})
-```
-
-```lua
-dropdown:Get()
-dropdown:Set({"Head", "Arms"})
-dropdown:SetOptions({"Head", "Torso"})
-```
-
-## Player Dropdown
-
-```lua
-local players = left:AddPlayerDropdown({
-    Name = "Target",
-    Default = nil,
-    Searchable = true,
-    Everyone = true,
-    PlayersDivider = "Players",
-
-    Callback = function(value)
-        print(value)
-    end,
-})
-```
-
-You can also add custom entries:
-
-```lua
-Options = {"Closest", "Random"}
-```
-
-## Multi Player Dropdown
-
-```lua
-left:AddMultiPlayerDropdown({
-    Name = "Targets",
-    Default = {"Everyone"},
-    Searchable = true,
-    Everyone = true,
-})
-```
-
-## Input
-
-```lua
-local input = left:AddInput({
-    Name = "Name",
-    Default = "",
-    Placeholder = "type here...",
-
-    Callback = function(text)
-        print(text)
-    end,
-})
-```
-
-`AddInput` returns the TextBox, so `input.Text` is available directly.
-
-## Key Picker
-
-```lua
-local key = left:AddKeyPicker({
-    Name = "Key",
-    Default = Enum.KeyCode.F,
-
-    Callback = function(value)
-        print(value)
-    end,
-})
-```
-
-```lua
-key:Get()
-key:Set(Enum.KeyCode.Q)
-```
-
-Keyboard and supported mouse binds are accepted.
-
-## Color Picker
-
-```lua
-local color = right:AddColorPicker({
-    Name = "Color",
-    Color = Color3.fromRGB(255, 255, 255),
-
-    Callback = function(value, alpha)
-        print(value, alpha)
-    end,
-})
-```
-
-```lua
-color:Set(Color3.fromRGB(255, 0, 0), 1)
-```
-
-Color picker supports alpha, rainbow and fade controls in its popup.
-
-## Radio
-
-```lua
-local radio = left:AddRadio({
-    Name = "Mode",
-    Options = {"Normal", "Safe", "Fast"},
-    Default = "Normal",
-})
-```
-
-```lua
-radio:Get()
-radio:Set("Fast")
 ```
 
 ## Button
 
 ```lua
-left:AddButton({
-    Name = "Execute",
-    Callback = function()
-        print("clicked")
-    end,
-})
-```
-
-## Button Group
-
-```lua
-left:AddButtonGroup({
-    Buttons = {
-        {Text = "Load", Callback = function() end},
-        {Text = "Save", Callback = function() end},
-        {Text = "Delete", Callback = function() end},
-    },
+section:AddButton({
+	Name = "Load",
+	Callback = function()
+	end,
 })
 ```
 
 ## Row
 
 ```lua
-local row = left:AddRow({
-    Spacing = 8,
-    Height = 32,
+local row = section:AddRow({
+	Spacing = 8,
+	Height = 30,
 })
-
-row:AddButton({Name = "A"})
-row:AddButton({Name = "B"})
-row:AddToggle({Name = "C", Default = false})
 ```
 
-Useful for compact horizontal controls.
-
-## Label
+Rows support:
 
 ```lua
-left:AddLabel({
-    Text = "Example text",
-    Wrap = true,
+row:AddButton(...)
+row:AddToggle(...)
+row:AddKeyPicker(...)
+row:AddDropdown(...)
+row:AddMultiDropdown(...)
+row:AddColorPicker(...)
+```
+
+---
+
+## Toggle
+
+```lua
+section:AddToggle({
+	Name = "Enabled",
+	Default = false,
+	Callback = function(value)
+	end,
 })
 ```
+
+Also:
+
+```lua
+section:AddToggle("Enabled", false, function(value)
+end)
+```
+
+### Toggle + key
+
+```lua
+section:AddToggleKey({
+	Name = "Fly",
+	Default = false,
+	Key = Enum.KeyCode.F,
+	Callback = function(value)
+	end,
+})
+```
+
+### Toggle + color
+
+```lua
+section:AddToggleColor({
+	Name = "ESP",
+	Default = true,
+	Color = Color3.fromRGB(255, 70, 70),
+	ToggleCallback = function(value)
+	end,
+	ColorCallback = function(color)
+	end,
+})
+```
+
+### Toggle + color + key
+
+```lua
+section:AddToggleColorKey({
+	Name = "ESP",
+	Default = true,
+	Color = Color3.fromRGB(255, 70, 70),
+	Key = Enum.KeyCode.E,
+	ToggleCallback = function(value)
+	end,
+	ColorCallback = function(color)
+	end,
+	KeyCallback = function(key)
+	end,
+})
+```
+
+---
+
+## Slider
+
+```lua
+section:AddSlider({
+	Name = "Speed",
+	Min = 16,
+	Max = 100,
+	Default = 16,
+	Suffix = " studs",
+	Round = 0,
+	Callback = function(value)
+	end,
+})
+```
+
+Aliases:
+
+```text
+Min / Minimum
+Max / Maximum
+Default / Value
+```
+
+---
+
+## Range Slider
+
+```lua
+section:AddRangeSlider({
+	Name = "Distance",
+	Min = 0,
+	Max = 500,
+	DefaultMin = 50,
+	DefaultMax = 250,
+	Suffix = " studs",
+	MinimumDistance = 10,
+	Callback = function(min, max)
+	end,
+})
+```
+
+Also supports:
+
+```text
+ValueMin
+ValueMax
+Low
+High
+MinDistance
+MinGap
+```
+
+---
+
+## Dropdown
+
+```lua
+section:AddDropdown({
+	Name = "Mode",
+	Options = {"Legit", "Rage", "Silent"},
+	Default = "Legit",
+	Callback = function(value)
+	end,
+})
+```
+
+Supports:
+
+```text
+Options / Values / Items
+Default / Selected
+Searchable
+Locked
+```
+
+---
+
+## Multi Dropdown
+
+```lua
+section:AddMultiDropdown({
+	Name = "Modes",
+	Options = {"Legit", "Rage", "Silent"},
+	Default = {"Legit"},
+	Callback = function(values)
+	end,
+})
+```
+
+Also supports:
+
+```text
+Options / Values / Items
+Default / Selected
+Searchable
+KeyPicker
+KeyPickerLabel
+KeyFormatter
+Locked
+```
+
+---
+
+## Player Dropdown
+
+```lua
+section:AddPlayerDropdown({
+	Name = "Target",
+	Searchable = true,
+	Callback = function(player)
+	end,
+})
+```
+
+Supports:
+
+```text
+Searchable
+MultiSelect
+Everyone
+PlayersDivider
+Icons
+Colors
+Locked
+```
+
+---
+
+## Multi Player Dropdown
+
+```lua
+section:AddMultiPlayerDropdown({
+	Name = "Targets",
+	Default = {},
+	Searchable = true,
+	Everyone = true,
+	Callback = function(players)
+	end,
+})
+```
+
+---
+
+## Input
+
+```lua
+section:AddInput({
+	Name = "Username",
+	Default = "",
+	Placeholder = "Username...",
+	Callback = function(value)
+	end,
+})
+```
+
+---
+
+## Key Picker
+
+```lua
+section:AddKeyPicker({
+	Name = "Menu Key",
+	Default = Enum.KeyCode.RightShift,
+	Callback = function(key)
+	end,
+})
+```
+
+Capture options:
+
+```lua
+{
+	AllowBlacklisted = true,
+	AllowEscape = true,
+	KeepDelete = true,
+}
+```
+
+---
+
+## Color Picker
+
+```lua
+section:AddColorPicker({
+	Name = "Color",
+	Color = Color3.fromRGB(255, 0, 0),
+	Callback = function(color)
+	end,
+})
+```
+
+---
 
 ## Divider
 
 ```lua
-left:AddDivider({Text = "Advanced"})
+section:AddDivider("Combat")
+```
+
+Or:
+
+```lua
+section:AddDivider({
+	Text = "Combat",
+})
 ```
 
 ## Separator
 
 ```lua
-left:AddSeparator()
+section:AddSeparator()
 ```
 
-## Badge / Status
-
-```lua
-local badge = left:AddBadge({
-    Name = "Status",
-    Text = "Ready",
-    Color = Color3.fromRGB(100, 220, 140),
-})
-```
-
-```lua
-badge:SetText("Running")
-badge:SetColor(Color3.fromRGB(255, 180, 80))
-```
-
-## Progress Bar
-
-```lua
-local progress = left:AddProgressBar({
-    Name = "Progress",
-    Default = 25,
-    Suffix = "%",
-})
-```
-
-```lua
-progress:Get()
-progress:Set(80)
-```
+---
 
 ## Image
 
 ```lua
-local image = right:AddImage({
-    Name = "Preview",
-    Asset = "rbxassetid://123456",
-    Height = 120,
+section:AddImage({
+	Name = "Preview",
+	Asset = "rbxassetid://123456789",
+	Height = 100,
 })
 ```
 
-Returns the `ImageLabel`.
+Also accepts:
+
+```text
+Image
+```
+
+---
 
 ## Avatar
 
 ```lua
-right:AddAvatar({
-    Name = "Player",
-    Player = game.Players.LocalPlayer,
+section:AddAvatar({
+	Name = "Player",
+	Player = game.Players.LocalPlayer,
 })
 ```
 
-`Player`, `Source`, or `UserId` can be used.
+Also supports:
 
-## Loading Spinner
-
-```lua
-left:AddLoadingSpinner({Name = "Loading"})
+```text
+UserId
 ```
 
-## Loading Bar
-
-```lua
-left:AddLoadingBar({Name = "Loading"})
-```
+---
 
 ## Context Menu
 
 ```lua
-left:AddContextMenu({
-    Name = "Actions",
-    Entries = {
-        {Text = "Copy", Icon = "copy", Callback = function() end},
-        {Divider = true},
-        {Text = "Delete", Icon = "trash", Callback = function() end},
-    },
+section:AddContextMenu({
+	Name = "Actions",
+	Entries = {
+		{Name = "Copy", Callback = function() end},
+		{Name = "Delete", Callback = function() end},
+	},
 })
 ```
 
-Right-click the button to open it.
+---
 
 ## Confirm Button
 
 ```lua
-left:AddConfirmButton({
-    Name = "Delete",
-    Title = "Confirm",
-    Body = "Delete this item?",
-    Callback = function()
-        print("confirmed")
-    end,
+section:AddConfirmButton({
+	Name = "Delete",
+	Title = "Delete",
+	Body = "Are you sure?",
+	Callback = function()
+	end,
 })
 ```
+
+---
 
 ## Modal Button
 
 ```lua
-left:AddModalButton({
-    Name = "Info",
-    Title = "Information",
-    Body = "Example message",
+section:AddModalButton({
+	Name = "Info",
+	Title = "Info",
+	Body = "Hello.",
 })
 ```
 
 ---
 
-# Subtabs
+## Button Group
 
 ```lua
-local subtabs = left:AddSubTabs({
-    Tabs = {"Main", "Visuals", "Misc"},
+section:AddButtonGroup({
+	Buttons = {
+		{Name = "Load", Callback = function() end},
+		{Name = "Save", Callback = function() end},
+	},
 })
 ```
 
-Put controls inside a subtab with `Target`:
+Also supports:
 
-```lua
-left:AddToggle({
-    Name = "Enabled",
-    Default = true,
-    Target = subtabs:Get("Main"),
-})
-```
-
-```lua
-subtabs:Get("Main")
-subtabs:Select("Visuals")
-subtabs:SetCollapsed(true)
-subtabs:IsCollapsed()
+```text
+Spacing
+Height
 ```
 
 ---
 
-# Settings Tab
-
-Built-in settings already handle interface, themes, background, configs, hotkeys and auto-load.
+## Sub Tabs
 
 ```lua
-local settings = window:GetSettingsTab()
-```
-
-Add custom sections:
-
-```lua
-local scriptsettings = settings:AddRightSection({
-    Name = "Script",
-    Icon = "wrench",
-})
-
-scriptsettings:AddToggle({
-    Name = "Auto Farm",
-    Default = false,
-})
-```
-
-Settings API:
-
-```lua
-settings:Select()
-settings:SetVisible(true)
-settings:Configure({
-    Enabled = true,
-    Name = "Settings",
-    Icon = "settings",
-    GroupName = "Other",
-    Sections = {
-        Interface = true,
-        Themes = true,
-        Background = true,
-        Configs = true,
-    },
+local subtabs = section:AddSubTabs({
+	{Name = "Main", Icon = "home"},
+	{Name = "Extra", Icon = "settings"},
 })
 ```
 
 ---
 
-# Theme
+# Window API
+
+```lua
+window:CreateTab(...)
+window:AddTab(...)
+window:CreateTabGroup(...)
+window:GetTab(...)
+window:SelectTab(...)
+
+window:Notify(...)
+
+window:SetVisible(...)
+window:Toggle()
+
+window:SetSize(...)
+window:GetSize()
+
+window:SetPosition(...)
+window:GetPosition()
+
+window:SetSidebarWidth(...)
+window:GetSidebarWidth()
+
+window:SetTopNavigation(...)
+window:SetDraggable(...)
+
+window:SetLogo(...)
+
+window:SetGlow(...)
+window:SetGlowEnabled(...)
+window:SetGlowIntensity(...)
+window:SetGlowSize(...)
+window:SetGlowAlpha(...)
+window:SetGlowColor(...)
+
+window:SetTransparency(...)
+window:SetRoundness(...)
+window:SetShadowVisible(...)
+
+window:SetSettingsTab(...)
+window:GetSettingsTab(...)
+window:SetSettingsVisible(...)
+
+window:SetMenuKey(...)
+
+window:SetWatermark(...)
+window:SetWatermarkInfo(...)
+
+window:SetKeybindList(...)
+window:SetKeybinds(...)
+
+window:SetAutoSave(...)
+window:GetAutoSave()
+
+window:SavePreset(...)
+window:LoadPreset(...)
+window:DeletePreset(...)
+window:GetPresets()
+
+window:SetAnimations(...)
+window:SetSearch(...)
+window:SetNotifications(...)
+
+window:SetTheme(...)
+window:GetTheme()
+
+window:SetTitle(...)
+window:SetSubtitle(...)
+
+window:SetUsername(...)
+window:GetUsername()
+
+window:SetGradient(...)
+window:SetTitleGradient(...)
+window:GetGradientThemes()
+
+window:GetGui()
+window:Destroy()
+```
+
+---
+
+# Library API
+
+```lua
+blush:CreateWindow(...)
+blush:GetSettingsTab()
+
+blush:Notify(...)
+
+blush:SetLocked(element, true)
+blush:IsLocked(element)
+
+blush:SetGradient(element, "Rainbow")
+blush:GetGradientThemes()
+
+blush:Destroy()
+```
+
+---
+
+# Locking
+
+Any supported control can be locked.
+
+```lua
+local toggle = section:AddToggle({
+	Name = "Premium",
+})
+
+toggle:SetLocked(true)
+```
+
+Or:
+
+```lua
+blush:SetLocked(toggle, true)
+```
+
+Check:
+
+```lua
+toggle:IsLocked()
+```
+
+Or:
+
+```lua
+blush:IsLocked(toggle)
+```
+
+---
+
+# Gradients
+
+```lua
+window:SetGradient(element, "Rainbow")
+```
+
+Animated:
+
+```lua
+window:SetGradient(element, "Rainbow", true, 1)
+```
+
+Title:
+
+```lua
+window:SetTitleGradient("Rainbow", true, 1)
+```
+
+Available themes:
+
+```lua
+local themes = blush:GetGradientThemes()
+```
+
+---
+
+# Notifications
+
+```lua
+window:Notify("Success", "Loaded!", 5)
+```
+
+With config:
+
+```lua
+window:Notify({
+	Title = "Success",
+	Content = "Loaded!",
+	Duration = 5,
+})
+```
+
+Supports:
+
+```text
+title
+body
+duration
+action
+callback
+icon
+```
+
+---
+
+# Themes
+
+```lua
+window:SetTheme("Default")
+```
+
+Custom:
 
 ```lua
 window:SetTheme({
-    Background = Color3.fromRGB(15, 15, 16),
-    Accent = Color3.fromRGB(255, 255, 255),
-    Font = Color3.fromRGB(240, 240, 240),
-
-    BackgroundAlpha = 1,
-    AccentAlpha = 1,
-    FontAlpha = 1,
-
-    Animate = true,
+	Background = Color3.fromRGB(13, 13, 15),
+	Main = Color3.fromRGB(19, 19, 21),
+	Highlight = Color3.fromRGB(246, 246, 248),
+	Accent = Color3.fromRGB(246, 246, 248),
+	Font = Color3.fromRGB(235, 235, 239),
+	SecondaryText = Color3.fromRGB(113, 113, 116),
 })
 ```
+
+Alpha values:
+
+```text
+BackgroundAlpha
+MainAlpha
+HighlightAlpha
+AccentAlpha
+FontAlpha
+SecondaryTextAlpha
+```
+
+Animation:
+
+```lua
+Animate = true
+```
+
+Get current theme:
 
 ```lua
 local theme = window:GetTheme()
@@ -723,70 +757,68 @@ local theme = window:GetTheme()
 
 ---
 
-# Background
+# Presets
 
 ```lua
-window:SetBackground("https://example.com/image.png", 70, 4)
-window:SetBackgroundOpacity(70)
-window:SetBackgroundBlur(4)
-window:SetBackgroundExcludeSidebar(false)
-window:SetAutoBackgroundColors(false)
-window:ClearBackground()
+window:SavePreset("Main")
+window:LoadPreset("Main")
+window:DeletePreset("Main")
+
+local presets = window:GetPresets()
 ```
 
 ---
 
-# Configs / Hotkeys
+# Icons
 
-Configs are managed from the built-in `Settings > Saves` section.
+```lua
+local icons = blush.Icons
+```
 
-Saved configs include control/UI state and assigned keybinds. `Auto load` can automatically load the selected config on startup.
+Use an icon by name:
 
-Checkboxes and dropdown options can use right-click keybind configuration. Available modes are:
+```lua
+Icon = "settings"
+```
 
-`Toggle` · `Hold` · `Always On`
+Get every icon:
 
-The Hotkey List shows registered binds and their active state.
+```lua
+for name, asset in pairs(blush.Icons) do
+	print(name, asset)
+end
+```
 
 ---
 
-# Minimal Example
+# example
 
 ```lua
 local blush = loadstring(game:HttpGet("https://raw.githubusercontent.com/Tracoskibidi/blush/refs/heads/main/blush.lua"))()
 
 local window = blush:CreateWindow({
-    Title = "example",
-    Watermark = true,
-    HotkeyList = true,
+	Title = "My Hub",
+	Size = Vector2.new(650, 500),
 })
 
-local main = window:AddTab({
-    Name = "Main",
-    Icon = "home",
-})
+local tab = window:CreateTab({Name = "Main", Icon = "home"})
+local section = tab:AddLeftSection({Name = "Main"})
 
-local section = main:AddLeftSection({
-    Name = "Player",
-    Icon = "user",
-})
-
-section:AddToggleKey({
-    Name = "Enabled",
-    Default = false,
-    Key = Enum.KeyCode.F,
+section:AddToggle({
+	Name = "Enabled",
+	Default = false,
+	Callback = function(value)
+		print(value)
+	end,
 })
 
 section:AddSlider({
-    Name = "Speed",
-    Min = 0,
-    Max = 100,
-    Default = 50,
-})
-
-section:AddDropdown({
-    Name = "Mode",
-    Options = {"Normal", "Fast", "Safe"},
-    Default = "Normal",
+	Name = "Speed",
+	Min = 16,
+	Max = 100,
+	Default = 16,
+	Callback = function(value)
+		print(value)
+	end,
 })
 ```
