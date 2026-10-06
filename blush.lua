@@ -143,7 +143,7 @@ function S.__blush_cleanup()
 	for _, root in ipairs({ S.gui, S.watermarkgui, S.runtimebridge }) do
 		if root then root:Destroy() end
 	end
-	for _, field in ipairs({ "notifications", "pages", "panelthemes", "owners", "pendingpagelayouts", "__blush_togglebindings", "__blush_pending_keybinds", "configcontrols", "pendingcontrolvalues", "animatedpickers", "keybindrows", "keybindgroups", "naventries", "topsubentries", "topnavtargets", "librarytabs", "librarytaborder" }) do
+	for _, field in ipairs({ "notifications", "pages", "panelthemes", "owners", "pendingpagelayouts", "__blush_togglebindings", "__blush_pending_keybinds", "configcontrols", "pendingcontrolvalues", "animatedpickers", "keybindrows", "keybindgroups", "naventries", "topsubentries", "librarytabs", "librarytaborder" }) do
 		if type(S[field]) == "table" then table.clear(S[field]) end
 	end
 	S.interactionowner = nil
@@ -151,8 +151,6 @@ function S.__blush_cleanup()
 	S.windowdrag = nil
 	S.watermarkdrag = nil
 	S.keybinddrag = nil
-	S.subnavigationroot = nil
-	S.subnavigationtransition = nil
 	S.librarywindow = nil
 end
 
@@ -764,7 +762,6 @@ S.icons = {
 	["dog"] = "rbxassetid://71920105558570",
 	["dollar-sign"] = "rbxassetid://127320961224019",
 	["donut"] = "rbxassetid://72204922742657",
-	["door-closed-locked"] = "rbxassetid://74027613267551",
 	["door-closed"] = "rbxassetid://136249099949073",
 	["door-open"] = "rbxassetid://91306356501736",
 	["dot"] = "rbxassetid://137321056643916",
@@ -2000,7 +1997,6 @@ S.fastti = TweenInfo.new(0.16, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
 S.hoverti = TweenInfo.new(0.18, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
 S.checkti = S.fastti
 S.tabti = TweenInfo.new(0.22, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
-S.topnavti = TweenInfo.new(0.2, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut)
 S.pagefadeinfo = S.tabti
 S.sectionti = TweenInfo.new(0.24, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
 
@@ -3248,76 +3244,59 @@ S.rainbowgradientsequence = ColorSequence.new({
 S.gradientthemes = {
 	Rainbow = S.rainbowgradientsequence,
 	Sunset = ColorSequence.new({
-		ColorSequenceKeypoint.new(0.0000, Color3.fromRGB(224, 116, 103)),
-		ColorSequenceKeypoint.new(0.1667, Color3.fromRGB(238, 163, 115)),
-		ColorSequenceKeypoint.new(0.3333, Color3.fromRGB(235, 184, 138)),
-		ColorSequenceKeypoint.new(0.5000, Color3.fromRGB(204, 137, 162)),
-		ColorSequenceKeypoint.new(0.6667, Color3.fromRGB(165, 120, 183)),
-		ColorSequenceKeypoint.new(0.8333, Color3.fromRGB(194, 104, 145)),
-		ColorSequenceKeypoint.new(1.0000, Color3.fromRGB(224, 116, 103)),
+		ColorSequenceKeypoint.new(0.00, Color3.fromRGB(255, 112, 72)),
+		ColorSequenceKeypoint.new(0.27, Color3.fromRGB(255, 74, 146)),
+		ColorSequenceKeypoint.new(0.57, Color3.fromRGB(155, 92, 255)),
+		ColorSequenceKeypoint.new(0.82, Color3.fromRGB(255, 151, 80)),
+		ColorSequenceKeypoint.new(1.00, Color3.fromRGB(255, 112, 72)),
 	}),
 	Ocean = ColorSequence.new({
-		ColorSequenceKeypoint.new(0.0000, Color3.fromRGB(70, 172, 190)),
-		ColorSequenceKeypoint.new(0.1667, Color3.fromRGB(74, 151, 201)),
-		ColorSequenceKeypoint.new(0.3333, Color3.fromRGB(90, 123, 191)),
-		ColorSequenceKeypoint.new(0.5000, Color3.fromRGB(105, 118, 175)),
-		ColorSequenceKeypoint.new(0.6667, Color3.fromRGB(80, 143, 185)),
-		ColorSequenceKeypoint.new(0.8333, Color3.fromRGB(66, 178, 186)),
-		ColorSequenceKeypoint.new(1.0000, Color3.fromRGB(70, 172, 190)),
+		ColorSequenceKeypoint.new(0.00, Color3.fromRGB(64, 224, 255)),
+		ColorSequenceKeypoint.new(0.28, Color3.fromRGB(47, 126, 255)),
+		ColorSequenceKeypoint.new(0.58, Color3.fromRGB(80, 65, 230)),
+		ColorSequenceKeypoint.new(0.82, Color3.fromRGB(65, 191, 255)),
+		ColorSequenceKeypoint.new(1.00, Color3.fromRGB(64, 224, 255)),
 	}),
 	Aurora = ColorSequence.new({
-		ColorSequenceKeypoint.new(0.0000, Color3.fromRGB(96, 204, 158)),
-		ColorSequenceKeypoint.new(0.1667, Color3.fromRGB(75, 186, 184)),
-		ColorSequenceKeypoint.new(0.3333, Color3.fromRGB(94, 160, 198)),
-		ColorSequenceKeypoint.new(0.5000, Color3.fromRGB(142, 130, 192)),
-		ColorSequenceKeypoint.new(0.6667, Color3.fromRGB(175, 128, 180)),
-		ColorSequenceKeypoint.new(0.8333, Color3.fromRGB(126, 177, 168)),
-		ColorSequenceKeypoint.new(1.0000, Color3.fromRGB(96, 204, 158)),
+		ColorSequenceKeypoint.new(0.00, Color3.fromRGB(81, 255, 188)),
+		ColorSequenceKeypoint.new(0.30, Color3.fromRGB(55, 224, 255)),
+		ColorSequenceKeypoint.new(0.62, Color3.fromRGB(170, 87, 255)),
+		ColorSequenceKeypoint.new(0.84, Color3.fromRGB(80, 255, 211)),
+		ColorSequenceKeypoint.new(1.00, Color3.fromRGB(81, 255, 188)),
 	}),
 	Fire = ColorSequence.new({
-		ColorSequenceKeypoint.new(0.0000, Color3.fromRGB(218, 89, 73)),
-		ColorSequenceKeypoint.new(0.1667, Color3.fromRGB(232, 117, 65)),
-		ColorSequenceKeypoint.new(0.3333, Color3.fromRGB(239, 155, 69)),
-		ColorSequenceKeypoint.new(0.5000, Color3.fromRGB(243, 188, 103)),
-		ColorSequenceKeypoint.new(0.6667, Color3.fromRGB(231, 146, 73)),
-		ColorSequenceKeypoint.new(0.8333, Color3.fromRGB(222, 104, 63)),
-		ColorSequenceKeypoint.new(1.0000, Color3.fromRGB(218, 89, 73)),
+		ColorSequenceKeypoint.new(0.00, Color3.fromRGB(255, 68, 50)),
+		ColorSequenceKeypoint.new(0.28, Color3.fromRGB(255, 132, 31)),
+		ColorSequenceKeypoint.new(0.57, Color3.fromRGB(255, 221, 72)),
+		ColorSequenceKeypoint.new(0.82, Color3.fromRGB(255, 92, 38)),
+		ColorSequenceKeypoint.new(1.00, Color3.fromRGB(255, 68, 50)),
 	}),
 	Ice = ColorSequence.new({
-		ColorSequenceKeypoint.new(0.0000, Color3.fromRGB(186, 222, 232)),
-		ColorSequenceKeypoint.new(0.1667, Color3.fromRGB(142, 201, 222)),
-		ColorSequenceKeypoint.new(0.3333, Color3.fromRGB(119, 179, 212)),
-		ColorSequenceKeypoint.new(0.5000, Color3.fromRGB(133, 167, 212)),
-		ColorSequenceKeypoint.new(0.6667, Color3.fromRGB(159, 191, 227)),
-		ColorSequenceKeypoint.new(0.8333, Color3.fromRGB(173, 215, 229)),
-		ColorSequenceKeypoint.new(1.0000, Color3.fromRGB(186, 222, 232)),
+		ColorSequenceKeypoint.new(0.00, Color3.fromRGB(224, 248, 255)),
+		ColorSequenceKeypoint.new(0.28, Color3.fromRGB(127, 221, 255)),
+		ColorSequenceKeypoint.new(0.58, Color3.fromRGB(110, 151, 255)),
+		ColorSequenceKeypoint.new(0.82, Color3.fromRGB(191, 237, 255)),
+		ColorSequenceKeypoint.new(1.00, Color3.fromRGB(224, 248, 255)),
 	}),
 	Rose = ColorSequence.new({
-		ColorSequenceKeypoint.new(0.0000, Color3.fromRGB(221, 144, 174)),
-		ColorSequenceKeypoint.new(0.1667, Color3.fromRGB(229, 117, 159)),
-		ColorSequenceKeypoint.new(0.3333, Color3.fromRGB(214, 101, 155)),
-		ColorSequenceKeypoint.new(0.5000, Color3.fromRGB(189, 113, 171)),
-		ColorSequenceKeypoint.new(0.6667, Color3.fromRGB(204, 135, 181)),
-		ColorSequenceKeypoint.new(0.8333, Color3.fromRGB(228, 159, 181)),
-		ColorSequenceKeypoint.new(1.0000, Color3.fromRGB(221, 144, 174)),
+		ColorSequenceKeypoint.new(0.00, Color3.fromRGB(255, 193, 218)),
+		ColorSequenceKeypoint.new(0.30, Color3.fromRGB(255, 101, 162)),
+		ColorSequenceKeypoint.new(0.62, Color3.fromRGB(206, 83, 255)),
+		ColorSequenceKeypoint.new(0.84, Color3.fromRGB(255, 151, 196)),
+		ColorSequenceKeypoint.new(1.00, Color3.fromRGB(255, 193, 218)),
 	}),
 	Lavender = ColorSequence.new({
-		ColorSequenceKeypoint.new(0.0000, Color3.fromRGB(185, 164, 218)),
-		ColorSequenceKeypoint.new(0.1667, Color3.fromRGB(165, 145, 211)),
-		ColorSequenceKeypoint.new(0.3333, Color3.fromRGB(143, 137, 202)),
-		ColorSequenceKeypoint.new(0.5000, Color3.fromRGB(136, 158, 212)),
-		ColorSequenceKeypoint.new(0.6667, Color3.fromRGB(161, 169, 220)),
-		ColorSequenceKeypoint.new(0.8333, Color3.fromRGB(183, 158, 213)),
-		ColorSequenceKeypoint.new(1.0000, Color3.fromRGB(185, 164, 218)),
+		ColorSequenceKeypoint.new(0.00, Color3.fromRGB(218, 205, 255)),
+		ColorSequenceKeypoint.new(0.28, Color3.fromRGB(154, 119, 255)),
+		ColorSequenceKeypoint.new(0.58, Color3.fromRGB(111, 163, 255)),
+		ColorSequenceKeypoint.new(0.82, Color3.fromRGB(196, 162, 255)),
+		ColorSequenceKeypoint.new(1.00, Color3.fromRGB(218, 205, 255)),
 	}),
 	Mono = ColorSequence.new({
-		ColorSequenceKeypoint.new(0.0000, Color3.fromRGB(232, 232, 238)),
-		ColorSequenceKeypoint.new(0.1667, Color3.fromRGB(204, 205, 216)),
-		ColorSequenceKeypoint.new(0.3333, Color3.fromRGB(166, 169, 184)),
-		ColorSequenceKeypoint.new(0.5000, Color3.fromRGB(146, 150, 167)),
-		ColorSequenceKeypoint.new(0.6667, Color3.fromRGB(179, 182, 197)),
-		ColorSequenceKeypoint.new(0.8333, Color3.fromRGB(214, 215, 225)),
-		ColorSequenceKeypoint.new(1.0000, Color3.fromRGB(232, 232, 238)),
+		ColorSequenceKeypoint.new(0.00, Color3.fromRGB(248, 248, 250)),
+		ColorSequenceKeypoint.new(0.34, Color3.fromRGB(156, 156, 164)),
+		ColorSequenceKeypoint.new(0.66, Color3.fromRGB(225, 225, 230)),
+		ColorSequenceKeypoint.new(1.00, Color3.fromRGB(248, 248, 250)),
 	}),
 }
 
@@ -3997,7 +3976,7 @@ S.watermarklayout = S.new("UIListLayout", {
 
 S.watermarkorder = 0
 
-S.__blush_watermark_title = S.watermarktext("blush.", true, 48)
+S.__blush_watermark_title = S.watermarktext(S.watermarktitle or "", true, 48)
 
 S.__blush_watermark_divider_player = S.watermarkdivider()
 S.__blush_watermark_player = S.watermarktext(S.player.DisplayName, false, 64)
@@ -4053,9 +4032,7 @@ S.watermarkdragarea.InputBegan:Connect(function(input)
 end)
 
 S.connect(S.watermarklayout:GetPropertyChangedSignal("AbsoluteContentSize"), S.updatewatermarksize, S.watermark)
-S.connect(S.watermark:GetPropertyChangedSignal("AbsolutePosition"), function() S.updatenotificationposition() end, S.watermark)
-S.connect(S.watermark:GetPropertyChangedSignal("AbsoluteSize"), function() S.updatenotificationposition() end, S.watermark)
-S.setwatermarktitle(S.watermarktitle or 'blush.')
+S.setwatermarktitle(S.watermarktitle or S.brand.Text or "")
 S.updatewatermarklayout()
 end
 
@@ -4080,7 +4057,6 @@ function S.setwatermarkvisible(
 	changed = S.watermarkshown ~= value
 	S.watermarkshown = value
 	S.watermark.Active = value
-	if S.updatenotificationposition then S.updatenotificationposition() end
 
 	if S.setwatermarkstatsactive then S.setwatermarkstatsactive(value) end
 
@@ -4272,7 +4248,7 @@ end
 function S.setwatermarktitle(value)
 	S.watermarktitle = value
 	if not S.watermark then return end
-	value = tostring(value or "blush.")
+	value = tostring(value or S.brand.Text or "")
 
 	S.updatewatermarktext(S.__blush_watermark_title, value, true)
 
@@ -4942,21 +4918,6 @@ S.popuplayer = S.new("Frame", {
 
 S.notificationdrag = nil
 
-function S.updatenotificationposition()
-	if not S.notificationholder or not S.notificationlayout then return end
-	local height = S.notificationlayout.AbsoluteContentSize.Y
-	local right = S.popuplayer.AbsoluteSize.X - 18
-	local top = 18
-	if S.watermarkshown and S.watermark and S.watermark.Parent then
-		right = S.watermark.AbsolutePosition.X + S.watermark.AbsoluteSize.X
-		local above = S.watermark.AbsolutePosition.Y - 8 - height
-		top = above >= 18 and above or S.watermark.AbsolutePosition.Y + S.watermark.AbsoluteSize.Y + 8
-	end
-	top = math.clamp(top, 18, math.max(18, S.popuplayer.AbsoluteSize.Y - height - 18))
-	S.notificationholder.Position = UDim2.fromOffset(right, top)
-	S.notificationholder.Size = UDim2.fromOffset(336, height)
-end
-
 function S.ensurenotifications()
 	if S.notificationholder then return end
 	S.notificationholder = S.new("Frame", {
@@ -4964,14 +4925,11 @@ function S.ensurenotifications()
 		Position = UDim2.new(1, -18, 0, 18), Size = UDim2.fromOffset(336, 560),
 		BackgroundTransparency = 1, BorderSizePixel = 0, ClipsDescendants = false, ZIndex = 700,
 	})
-	S.notificationlayout = S.new("UIListLayout", {
+	S.new("UIListLayout", {
 		Parent = S.notificationholder, FillDirection = Enum.FillDirection.Vertical,
 		HorizontalAlignment = Enum.HorizontalAlignment.Right, VerticalAlignment = Enum.VerticalAlignment.Top,
 		Padding = UDim.new(0, 0), SortOrder = Enum.SortOrder.LayoutOrder,
 	})
-	S.connect(S.notificationlayout:GetPropertyChangedSignal("AbsoluteContentSize"), S.updatenotificationposition, S.notificationholder)
-	S.connect(S.popuplayer:GetPropertyChangedSignal("AbsoluteSize"), S.updatenotificationposition, S.notificationholder)
-	S.updatenotificationposition()
 end
 
 S.notifications = {}
@@ -5121,8 +5079,7 @@ function S.notify(
 	hasicon = iconvalue ~= nil and iconvalue ~= ""
 
 	cardwidth = 316
-	local isavatar = hasicon and string.find(iconvalue, "rbxthumb://", 1, true) == 1
-	leftpadding = hasicon and (isavatar and 66 or 54) or 14
+	leftpadding = hasicon and 54 or 14
 	rightpadding = 14
 	textwidth = cardwidth - leftpadding - rightpadding
 
@@ -5184,11 +5141,11 @@ function S.notify(
 	iconobject = nil
 
 	if hasicon then
-		iconobject = S.image(card, iconvalue, isavatar and 40 or 27, isavatar and Color3.new(1, 1, 1) or S.theme.text2, 704)
+		iconobject = S.image(card, iconvalue, 27, S.theme.text2, 704)
 		iconobject.AnchorPoint = Vector2.new(0.5, 0.5)
-		iconobject.Position = UDim2.fromOffset(isavatar and 34 or 28, 29)
+		iconobject.Position = UDim2.fromOffset(28, 29)
 
-		if isavatar then
+		if string.find(iconvalue, "rbxthumb://", 1, true) == 1 then
 			iconobject.ScaleType = Enum.ScaleType.Crop
 			S.corner(iconobject, 999)
 		end
@@ -5279,7 +5236,6 @@ function S.notify(
 		data.Dismiss = function() S.dismissnotification(data) end
 		data.Destroy = function() S.dismissnotification(data) end
 		table.insert(S.notifications, data)
-		S.updatenotificationposition()
 
 	while #S.notifications > S.maxnotifications do
 		S.dismissnotification(S.notifications[1])
@@ -5404,117 +5360,7 @@ end
 function S.fadepopup(popup, target)
 	if not popup.panel or not popup.panel.Parent then return nil end
 	if target == 1 and not popup.panel.Visible then return nil end
-	if popup.panel:IsA("CanvasGroup") then
-		return S.tween(popup.panel, { GroupTransparency = target }, S.dropti)
-	end
-	if not popup.revealed then return nil end
-	local animation
-	for _, object in ipairs(popup.content:GetDescendants()) do
-		local property = object:IsA("TextLabel") or object:IsA("TextBox") or object:IsA("TextButton")
-			property = property and "TextTransparency" or object:IsA("ImageLabel") and "ImageTransparency"
-				or object:IsA("UIStroke") and "Transparency"
-				or object:IsA("Frame") and object.BackgroundTransparency < 1 and "BackgroundTransparency"
-		if property then
-			local base = popup.fadebases[object]
-			if base == nil then base = object[property]; popup.fadebases[object] = base end
-			if target == 0 then object[property] = 1 end
-			local current = S.tween(object, { [property] = target == 1 and 1 or base }, S.dropti, true)
-			animation = animation or current
-		end
-	end
-	return animation
-end
-
-function S.revealdropdown(popup)
-	popup.revealed = true
-	popup.fadebases = setmetatable({}, { __mode = "k" })
-	S.fadepopup(popup, 0)
-end
-
-S.dropdownlayout = { Inset = 16, ListInset = 4, VerticalInset = 8, RowHeight = 34, RowGap = 3, RightInset = 12, IconSize = 18, IconGap = 8, ColorSize = 10, ColorGap = 8, MaxHeight = 280 }
-
-function S.normalizedropdownoptions(options, config)
-	local values = {}
-	local dividers = table.clone(config.dividers or config.Dividers or {})
-	local colors = table.clone(config.colors or config.Colors or {})
-	local icons = table.clone(config.icons or config.Icons or {})
-	local pending
-	for _, entry in ipairs(options or {}) do
-		local value = entry
-		if type(entry) == "table" then
-			if entry.Divider == true or entry.divider == true then
-				pending = entry.Text or entry.text or true
-				continue
-			end
-			value = entry.Value or entry.value or entry.Name or entry.name or entry.Text or entry.text
-			if value == nil then continue end
-			icons[value] = entry.Icon or entry.icon or icons[value]
-			colors[value] = entry.Color or entry.color or colors[value]
-		end
-		values[#values + 1] = value
-		if pending ~= nil then dividers[value] = pending; pending = nil end
-	end
-	for value, icon in pairs(icons) do icons[value] = S.librarynormalizeicon(icon) end
-	return values, dividers, colors, icons
-end
-
-function S.layoutdropdowndecorations(icon, swatch, left)
-	local offset = left
-	for _, item in ipairs({ { icon, S.dropdownlayout.IconSize, S.dropdownlayout.IconGap }, { swatch, S.dropdownlayout.ColorSize, S.dropdownlayout.ColorGap } }) do
-		local object = item[1]
-		if object and object.Visible then
-			object.AnchorPoint = Vector2.new(0, 0.5)
-			object.Position = UDim2.new(0, offset, 0.5, 0)
-			offset += item[2] + item[3]
-		end
-	end
-	return offset
-end
-
-function S.binddropdownlayout(panel, popup, scroll)
-	local layout = S.list(scroll, S.dropdownlayout.RowGap)
-	local padding = S.new("UIPadding", {
-		Parent = scroll,
-		PaddingTop = UDim.new(0, S.dropdownlayout.VerticalInset),
-		PaddingBottom = UDim.new(0, S.dropdownlayout.VerticalInset),
-	})
-	scroll.AutomaticCanvasSize = Enum.AutomaticSize.None
-	scroll.ScrollingDirection = Enum.ScrollingDirection.Y
-	local function update()
-		if popup.closing or not panel.Parent then return end
-		local canvas = math.ceil(layout.AbsoluteContentSize.Y + padding.PaddingTop.Offset + padding.PaddingBottom.Offset)
-		if scroll.CanvasSize.Y.Offset ~= canvas then scroll.CanvasSize = UDim2.fromOffset(0, canvas) end
-		local height = math.min(S.dropdownlayout.MaxHeight, scroll.Position.Y.Offset + canvas)
-		local viewport = math.max(0, height - scroll.Position.Y.Offset)
-		local maximum = math.max(0, canvas - viewport)
-		if scroll.CanvasPosition.Y > maximum then scroll.CanvasPosition = Vector2.new(0, maximum) end
-		if popup.height == height then return end
-		popup.height = height
-		panel.Size = UDim2.new(1, 0, 0, height)
-		S.tween(popup.panel, { Size = UDim2.new(1, 0, 0, height) }, S.dropti)
-		local holder = popup.inlineholder
-		if holder and holder.Parent then
-			S.tween(holder, { Size = UDim2.new(holder.Size.X.Scale, holder.Size.X.Offset, 0, popup.baseheight + height) }, S.dropti)
-		end
-	end
-	S.connect(layout:GetPropertyChangedSignal("AbsoluteContentSize"), update, popup.panel)
-	S.connect(padding:GetPropertyChangedSignal("PaddingTop"), update, popup.panel)
-	S.connect(padding:GetPropertyChangedSignal("PaddingBottom"), update, popup.panel)
-	update()
-	return layout
-end
-
-function S.rotatedropdownarrow(arrow, open)
-	local desired = open and 180 or 0
-	local delta = (desired - arrow.Rotation) % 360
-	if delta == 0 then return end
-	local token = (arrow:GetAttribute("BlushRotationToken") or 0) + 1
-	arrow:SetAttribute("BlushRotationToken", token)
-	local animation = S.tween(arrow, { Rotation = arrow.Rotation + delta }, S.dropti)
-	local function finish(state)
-		if (state == nil or state == Enum.PlaybackState.Completed) and arrow.Parent and arrow:GetAttribute("BlushRotationToken") == token then arrow.Rotation = desired end
-	end
-	if animation then animation.Completed:Once(finish) else finish() end
+	return S.tween(popup.panel, { GroupTransparency = target }, S.dropti)
 end
 
 function S.mergedropdown(holder, header)
@@ -5558,19 +5404,15 @@ function S.closepopup(expected)
 	if popup.blocker then popup.blocker:Destroy(); popup.blocker = nil end
 	if not popup.panel or not popup.panel.Parent then return end
 	local panel = popup.panel
-	local sizeanimation
 	if popup.inlineholder and popup.inlineholder.Parent then
 		local holder = popup.inlineholder
 		S.tween(holder, { Size = UDim2.new(holder.Size.X.Scale, holder.Size.X.Offset, 0, popup.baseheight) }, S.dropti)
-		sizeanimation = S.tween(panel, { Size = UDim2.new(1, 0, 0, 0) }, S.dropti)
+		S.tween(panel, { Size = UDim2.new(1, 0, 0, 0) }, S.dropti)
 	end
 	panel.Active = false
-	local fadeanimation = S.alive and S.fadepopup(popup, 1)
-	local animation = sizeanimation or fadeanimation
+	local animation = S.alive and S.fadepopup(popup, 1)
 	local function destroy() if panel.Parent then panel:Destroy() end end
-	if animation then animation.Completed:Once(function(state)
-		if state == Enum.PlaybackState.Completed then destroy() end
-	end) else destroy() end
+	if animation then animation.Completed:Once(destroy) else destroy() end
 end
 
 function S.createpopup(
@@ -5595,7 +5437,7 @@ function S.createpopup(
 	local inlineholder = inlineroot and inlineroot:GetAttribute("BlushDropdownSurface") and inlineroot.Parent or inlineroot
 	local baseheight = inlineholder and (inlineholder:GetAttribute("BlushDropdownBaseHeight") or inlineholder.Size.Y.Offset)
 	if inlineholder then inlineholder:SetAttribute("BlushDropdownBaseHeight", baseheight) end
-	if inlineholder then height = math.clamp(height, 0, S.dropdownlayout.MaxHeight) end
+	if inlineholder then height = math.clamp(height, 34, 280) end
 
 	rootsize = S.popuplayer.AbsoluteSize
 
@@ -5606,19 +5448,19 @@ function S.createpopup(
 
 	blocker = nil
 
-	group = S.new(inlineholder and "Frame" or "CanvasGroup", {
+	group = S.new("CanvasGroup", {
 		Name = "OptionsContainer",
 		Parent = inlineroot or S.popuplayer,
 		Position = inlineholder and UDim2.fromOffset(0, inlineanchor.Size.Y.Offset) or UDim2.fromOffset(math.round(x - margin), math.round(y - margin)),
 		Size = inlineholder and UDim2.new(1, 0, 0, 0) or UDim2.fromOffset(width + margin * 2, height + margin * 2),
 		BackgroundTransparency = 1,
 		BorderSizePixel = 0,
+		GroupTransparency = 1,
 		ClipsDescendants = true,
 		Active = true,
 		ZIndex = zindex + 1,
 	})
 
-	if group:IsA("CanvasGroup") then group.GroupTransparency = 1 end
 	panel = S.new("Frame", {
 		Parent = group,
 		Position = UDim2.fromOffset(margin, margin),
@@ -6274,7 +6116,7 @@ function S.synckeybindminimizedstate()
 		S.setkeybindheight(32)
 		S.keybindcontent.GroupTransparency = 1
 		S.keybindcontent.Visible = false
-		S.keybindcollapse.Rotation = 90
+		S.keybindcollapse.Rotation = -90
 	else
 		S.setkeybindheight(S.keybindfullheight)
 		S.keybindcontent.Visible = true
@@ -6511,7 +6353,7 @@ function S.createkeybindrow(
 		ZIndex = 323,
 	}, { BackgroundColor3 = "input" })
 	S.corner(keyholder, 6)
-	S.stroke(keyholder, 0.7, S.theme.border, 0.6)
+	S.keypickerstroke(keyholder)
 
 	keytext = S.label(keyholder, "", UDim2.fromScale(1, 1), S.medium, S.theme.text3)
 	keytext.TextSize = 14
@@ -7092,12 +6934,14 @@ function S.dispatchtogglebinding(key, began, anchor)
 	for _, binding in ipairs(S.__blush_togglebindings or {}) do
 		anchor = binding.anchor
 
-		if binding.key == key and (not anchor or anchor.Parent) then
+		if binding.key == key then
 			if began then
 				if not binding.held then
 					binding.held = true
 
-					if binding.mode == "Toggle" then
+					if binding.mode == "Button" then
+						binding.set(true, true)
+					elseif binding.mode == "Toggle" then
 						binding.set(not binding.get(), true)
 					elseif binding.mode == "Hold" then
 						binding.set(true, true)
@@ -7237,7 +7081,7 @@ function S.opentoggleconfig(
 		popup.blocker = nil
 	end
 
-	S.stroke(panel, 0.32, S.theme.border, 1)
+	S.stroke(panel, 0.44, S.theme.border, 0.65)
 
 	title = S.label(panel, binding.name, UDim2.new(1, -20, 0, 28), S.bold, S.theme.text)
 
@@ -7276,7 +7120,7 @@ function S.opentoggleconfig(
 	S.corner(keybutton, 6)
 	S.keyeditbuttons[keybutton] = true
 
-	keybuttonstroke = S.stroke(keybutton, 0.48, S.theme.border, 1)
+	keybuttonstroke = S.keypickerstroke(keybutton)
 
 	keytext = S.label(keybutton, "", UDim2.fromScale(1, 1), S.medium, S.theme.text2)
 
@@ -7310,7 +7154,7 @@ function S.opentoggleconfig(
 	}, { BackgroundColor3 = "input" })
 
 	S.corner(modebutton, 6)
-	S.stroke(modebutton, 0.48, S.theme.border, 1)
+	S.stroke(modebutton, 0.66, S.theme.border, 0.6)
 
 	modetext = S.label(modebutton, binding.mode, UDim2.new(1, -28, 1, 0), S.font, S.theme.text2)
 
@@ -7332,14 +7176,12 @@ function S.opentoggleconfig(
 
 		Size = UDim2.new(1, -20, 0, 88),
 
-		BackgroundColor3 = S.theme.input,
-		BackgroundTransparency = 0.04,
+		BackgroundTransparency = 1,
 		BorderSizePixel = 0,
 		Visible = false,
 		ZIndex = 545,
-	}, { BackgroundColor3 = "input" })
-	S.corner(options, 6)
-	S.stroke(options, 0.54, S.theme.border, 0.75)
+	})
+
 	S.list(options, 2)
 
 	listening = false
@@ -7352,7 +7194,7 @@ function S.opentoggleconfig(
 		for mode, button in pairs(modeentries) do
 			local selected = mode == binding.mode
 			local role = selected and "text" or "text2"
-			S.tween(button:FindFirstChild("ModeText"), { TextColor3 = S.theme[role] }, TweenInfo.new(0), nil, { TextColor3 = role })
+			S.tween(button, { TextColor3 = S.theme[role] }, TweenInfo.new(0), nil, { TextColor3 = role })
 			local check = button:FindFirstChild("ModeCheck")
 			if check then S.tween(check, { ImageTransparency = selected and 0 or 1 }, TweenInfo.new(0)) end
 		end
@@ -7373,7 +7215,7 @@ function S.opentoggleconfig(
 
 		S.tween(keybuttonstroke, {
 			Color = S.theme.border,
-			Transparency = listening and 0.28 or 0.48,
+			Transparency = listening and 0.38 or 0.66,
 		}, S.fastti, nil, { Color = "border" })
 
 		if binding.refreshkey then binding.refreshkey() end
@@ -7383,7 +7225,9 @@ function S.opentoggleconfig(
 		modeopen = value == true
 		options.Visible = modeopen
 
-		S.rotatedropdownarrow(modearrow, modeopen)
+		S.tween(modearrow, {
+			Rotation = modeopen and 180 or 0,
+		}, S.tabti)
 
 		popup.height = modeopen and expandedheight or collapsedheight
 
@@ -7408,7 +7252,7 @@ function S.opentoggleconfig(
 			BackgroundColor3 = S.theme.hover,
 			BackgroundTransparency = 1,
 			BorderSizePixel = 0,
-			Text = "",
+			Text = mode,
 			TextColor3 = mode == binding.mode and S.theme.text or S.theme.text2,
 			Font = S.font,
 			TextSize = 15,
@@ -7418,22 +7262,18 @@ function S.opentoggleconfig(
 		}, { BackgroundColor3 = "hover" })
 
 		S.corner(iteration3.option, 6)
-		local caption = S.label(iteration3.option, mode, UDim2.new(1, -38, 1, 0), S.font, mode == binding.mode and S.theme.text or S.theme.text2)
-		caption.Name = "ModeText"
-		caption.Position = UDim2.fromOffset(12, 0)
-		caption.TextSize = 15
-		caption.ZIndex = 547
+		S.padding(iteration3.option, 9, 30)
 		local check = S.image(iteration3.option, S.icons.check, 13, S.theme.text, 547)
 		check.Name = "ModeCheck"
 		check.AnchorPoint = Vector2.new(1, 0.5)
-		check.Position = UDim2.new(1, -5, 0.5, 0)
+		check.Position = UDim2.new(1, -9, 0.5, 0)
 		S.tween(check, { ImageTransparency = mode == binding.mode and 0 or 1 }, TweenInfo.new(0))
 		modeentries[mode] = iteration3.option
 
 		iteration3.option.MouseEnter:Connect(
 			function()
 				S.tween(
-					caption,
+					iteration3.option,
 					{ TextColor3 = S.theme.text },
 					S.hoverti,
 					nil,
@@ -7444,9 +7284,9 @@ function S.opentoggleconfig(
 
 		iteration3.option.MouseLeave:Connect(
 			function()
-				S.tween(caption, {
+				S.tween(iteration3.option, {
 					TextColor3 = mode == binding.mode and S.theme.text or S.theme.text2,
-				}, S.hoverti, nil, { TextColor3 = mode == binding.mode and "text" or "text2" })
+				}, S.hoverti)
 			end
 		)
 
@@ -7636,28 +7476,22 @@ function S.attachtoggleconfig(anchor, binding, destroying)
 
 	S.registertogglebinding(binding)
 
-	destroying = nil
-	destroying = anchor.Destroying:Connect(function()
-		if destroying then
-			destroying:Disconnect()
-			destroying = nil
-		end
-
+	destroying = S.connect(anchor.Destroying, function()
 		if binding.anchor ~= anchor then return end
 		if binding.owner and binding.owner.Parent then
 			binding.anchor = binding.owner
 			binding.configattached = false
 			binding.refreshkey = nil
 		else S.unregistertogglebinding(binding) end
-	end)
+	end, anchor)
 
-	anchor.InputBegan:Connect(function(input)
+	S.connect(anchor.InputBegan, function(input)
 		if input.UserInputType == Enum.UserInputType.MouseButton2 then
 			binding.suppressclick = true
 			S.opentoggleconfig(anchor, binding, S.point(input), false)
 			binding.suppressclick = false
 		end
-	end)
+	end, anchor)
 end
 
 function S.addtoggleconfigicon(
@@ -7830,6 +7664,20 @@ S.connect(S.uis.InputEnded, function(input, physical)
 	end
 end)
 
+S.inlinekeycapture = nil
+
+function S.stopinlinekeycapture(suppresskey, state)
+	state = S.inlinekeycapture
+	if not state then return end
+
+	S.inlinekeycapture = nil
+	state.listening = false
+	S.endkeycapture(state, suppresskey)
+
+	if state.render then state.render() end
+end
+
+
 function S.setkeytext(label, value)
 	if (label:GetAttribute("BlushKeyTextValue") or label.Text) == value then return end
 	label:SetAttribute("BlushKeyTextValue", value)
@@ -7853,6 +7701,146 @@ function S.setkeytext(label, value)
 	else reveal() end
 end
 
+function S.attachinlinekeypicker(
+	row,
+	binding,
+	textobject,
+	defaultkey,
+	keycallback,
+	configbutton,
+	keybutton,
+	keytext,
+	state,
+	renderkey
+)
+	S.setbindingkey(binding, defaultkey or binding.key or Enum.KeyCode.F, false)
+	binding.inlinekey = true
+
+	configbutton = binding.configbutton
+
+	keybutton = S.new("TextButton", {
+		Parent = row,
+		AnchorPoint = Vector2.new(1, 0.5),
+		Position = UDim2.new(1, configbutton and -27 or 0, 0.5, 0),
+		Size = UDim2.fromOffset(48, 20),
+		BackgroundColor3 = S.theme.input,
+		BackgroundTransparency = 0.08,
+		BorderSizePixel = 0,
+		Text = "",
+		AutoButtonColor = false,
+		Active = true,
+		ZIndex = 19,
+	}, { BackgroundColor3 = "input" })
+	S.corner(keybutton, 6)
+	S.keyeditbuttons[keybutton] = true
+	S.keypickerstroke(keybutton)
+
+	keytext = S.label(keybutton, "", UDim2.fromScale(1, 1), S.medium, S.theme.text2)
+	keytext.TextSize = 14
+	keytext.TextXAlignment = Enum.TextXAlignment.Center
+	keytext.ZIndex = 20
+
+	state = {
+		button = keybutton,
+		binding = binding,
+		listening = false,
+		callback = keycallback,
+	}
+
+	renderkey = function(value, bounds, width)
+		value = state.listening and "..." or S.togglekeyname(binding.key)
+		S.setkeytext(keytext, value)
+
+		bounds = S.measuretext(value, 14, S.medium, Vector2.new(120, 20))
+
+		width = math.clamp(math.ceil(bounds.X) + 18, 36, 72)
+		S.tween(keybutton, { Size = UDim2.fromOffset(width, 20) }, S.fastti)
+
+		if textobject and textobject.Parent then
+			textobject.Size = UDim2.new(1, -(width + 41 + (configbutton and 27 or 0)), 1, 0)
+		end
+		if binding.layoutaddons then binding.layoutaddons() end
+	end
+
+	state.render = renderkey
+	binding.refreshkey = renderkey
+
+	keybutton.InputBegan:Connect(function(input)
+		if
+			input.UserInputType == Enum.UserInputType.MouseButton1
+			or input.UserInputType == Enum.UserInputType.Touch
+		then
+			binding.suppressclick = true
+		end
+	end)
+
+	keybutton.Activated:Connect(function()
+		if S.inlinekeycapture == state then
+			S.stopinlinekeycapture(nil)
+			binding.suppressclick = false
+			return
+		end
+
+		if S.inlinekeycapture then S.stopinlinekeycapture(nil) end
+
+		S.inlinekeycapture = state
+		state.listening = true
+
+		if
+			not S.beginkeycapture(state, function()
+				if S.inlinekeycapture == state then S.inlinekeycapture = nil end
+				state.listening = false
+				renderkey()
+			end, function(selectedkey)
+				S.inlinekeycapture = nil
+				state.listening = false
+				S.setbindingkey(binding, selectedkey)
+				renderkey()
+
+				if state.callback then state.callback(binding.key) end
+			end, nil)
+		then
+			S.inlinekeycapture = nil
+			state.listening = false
+		end
+
+		renderkey()
+		binding.suppressclick = false
+	end)
+
+	keybutton.MouseEnter:Connect(
+		function()
+			S.tween(keytext, { TextColor3 = S.theme.text }, S.hoverti, nil, { TextColor3 = "text" })
+		end
+	)
+
+	keybutton.MouseLeave:Connect(
+		function()
+			S.tween(
+				keytext,
+				{ TextColor3 = S.theme.text2 },
+				S.hoverti,
+				nil,
+				{ TextColor3 = "text2" }
+			)
+		end
+	)
+
+	renderkey()
+	S.refreshkeybindlist()
+
+	S.own(keybutton, function()
+		if S.inlinekeycapture == state then
+			S.stopinlinekeycapture(nil)
+		elseif S.keycaptureowner and S.keycaptureowner.owner == state then
+			S.endkeycapture(state)
+		end
+	end)
+
+	return keybutton, configbutton
+end
+
+
 function S.bindscrollactivity(owner, target, property, visiblealpha, positiontarget)
 	local available = false
 	local timer
@@ -7863,12 +7851,17 @@ function S.bindscrollactivity(owner, target, property, visiblealpha, positiontar
 		if not available or S.constructing or not S.alive then return end
 		S.cancelthread(timer)
 		fade(visiblealpha)
-		timer = task.delay(0.45, function()
+		timer = task.delay(0.7, function()
 			timer = nil
 			if S.alive and owner.Parent then fade(1) end
 		end)
 	end
 	target[property] = 1
+	S.connect(owner.MouseEnter, pulse, owner)
+	S.connect(owner.InputBegan, pulse, owner)
+	S.connect(owner.InputChanged, function(input)
+		if input.UserInputType == Enum.UserInputType.MouseWheel or input.UserInputType == Enum.UserInputType.Touch then pulse() end
+	end, owner)
 	if positiontarget then S.connect(positiontarget:GetPropertyChangedSignal("Position"), pulse, owner)
 	elseif owner:IsA("ScrollingFrame") then S.connect(owner:GetPropertyChangedSignal("CanvasPosition"), pulse, owner) end
 	S.own(owner, function() S.cancelthread(timer); timer = nil end)
@@ -7878,7 +7871,7 @@ function S.bindscrollactivity(owner, target, property, visiblealpha, positiontar
 			local changed = available ~= (value == true)
 			available = value == true
 			if not available then S.cancelthread(timer); timer = nil; fade(1)
-			elseif changed then fade(1) end
+			elseif changed then pulse() end
 		end,
 	}
 end
@@ -7927,7 +7920,6 @@ function S.createscrollbar(page, scroll, side, track, thumb, update)
 
 		height = math.clamp(viewport / total * trackheight, 22, trackheight)
 		if height >= trackheight - 6 then
-			activity.SetAvailable(false)
 			track.Visible = false
 			thumb.Visible = false
 			return
@@ -8430,7 +8422,6 @@ function S.makecheckbox(
 		currentcheck
 	)
 		nextchecked = value == true
-		if nextchecked == checked and S.animationsenabled then return end
 		changed = nextchecked ~= checked
 		checked = nextchecked
 		checkboxstate.checked = checked
@@ -9478,8 +9469,6 @@ function S.createsection(
 	sectiontransition,
 	updatelayout,
 	register,
-	dropdownpopup,
-	binddropdownscrollbar
 )
 	page.order += 1
 
@@ -9714,8 +9703,8 @@ function S.createsection(
 		end
 
 		if clipanimation then
-			clipanimation.Completed:Connect(function()
-				if not section.collapsed and clip.Parent then clip.ClipsDescendants = false end
+			clipanimation.Completed:Once(function(playback)
+				if playback == Enum.PlaybackState.Completed and not section.collapsed and clip.Parent then clip.ClipsDescendants = false end
 			end)
 		end
 
@@ -9774,7 +9763,7 @@ function S.createsection(
 		-- shadows/glows do not change appearance during the animation.
 		frame.ClipsDescendants = false
 
-		sectiontransition("collapse", collapse, { Rotation = self.collapsed and 90 or 0 }, animate)
+		sectiontransition("collapse", collapse, { Rotation = self.collapsed and -90 or 0 }, animate)
 
 
 		sectiontransition("bodyalpha", body, { GroupTransparency = self.collapsed and 1 or 0 }, animate)
@@ -10198,16 +10187,46 @@ function S.createsection(
 
 		register(row, name)
 
-		return {
+		local control = {
 			Get = function() return enabled end,
-
 			Set = function(_, value, fire) setenabled(value, fire) end,
-
-			Object = row,
-			Binding = binding,
-			TextObject = textobject,
-			KeyObject = keyobject,
+			Object = row, Binding = binding, TextObject = textobject, KeyObject = keyobject,
 		}
+		function control:Keybind(spec)
+			spec = type(spec) == "table" and spec or { Key = spec }
+			if self.KeyObject and self.KeyObject.Parent then self.KeyObject:Destroy() end
+			local keybutton = S.attachinlinekeypicker(row, binding, textobject, spec.Default or spec.Key or binding.key or Enum.KeyCode.F, spec.Callback or spec.KeyCallback, nil)
+			self.KeyObject = keybutton
+			self.KeyPicker = { Object = keybutton, Get = function() return binding.key end, Set = function(_, key, fire) S.setbindingkey(binding, key, fire) end }
+			return self.KeyPicker
+		end
+		return control
+	end
+
+	-- checkbox + inline key picker
+
+	function section:AddToggleKey(
+		name,
+		default,
+		defaultkey,
+		callback,
+		keycallback,
+		target,
+		control,
+		keybutton
+	)
+		control = self:AddToggle(name, default, callback, target, false)
+
+		keybutton = S.attachinlinekeypicker(
+			control.Object,
+			control.Binding,
+			control.TextObject,
+			defaultkey or Enum.KeyCode.F,
+			keycallback
+		)
+
+		control.KeyObject = keybutton
+		return control
 	end
 
 	-- toggle color
@@ -10412,6 +10431,162 @@ function S.createsection(
 			PickerObject = pickerbutton,
 			TextObject = textobject,
 		}
+	end
+
+	-- checkbox + color picker + key picker
+
+	function section:AddToggleColorKey(
+		name,
+		default,
+		color,
+		defaultkey,
+		togglecallback,
+		colorcallback,
+		keycallback,
+		target,
+		control,
+		row,
+		togglebutton,
+		pickerbutton,
+		binding,
+		keybutton,
+		keytext,
+		configbutton,
+		listening,
+		renderkey
+	)
+		control =
+			self:AddToggleColor(name, default, color, togglecallback, colorcallback, target, false)
+
+		row = control.Object
+		togglebutton = control.ToggleObject
+		pickerbutton = control.PickerObject
+		binding = control.Binding
+
+		S.setbindingkey(binding, defaultkey or Enum.KeyCode.F, false)
+		binding.inlinekey = true
+
+		togglebutton.Size = UDim2.new(1, -106, 1, 0)
+		control.TextObject.Size = UDim2.new(1, -38, 1, 0)
+
+		keybutton = S.new("TextButton", {
+			Parent = row,
+			AnchorPoint = Vector2.new(1, 0.5),
+			Position = UDim2.new(1, -29, 0.5, 0),
+			Size = UDim2.fromOffset(54, 22),
+			BackgroundColor3 = S.theme.input,
+			BackgroundTransparency = 0.08,
+			BorderSizePixel = 0,
+			Text = "",
+			AutoButtonColor = false,
+			ZIndex = 18,
+		}, { BackgroundColor3 = "input" })
+		S.corner(keybutton, 6)
+		S.keyeditbuttons[keybutton] = true
+		S.keypickerstroke(keybutton)
+
+		keytext = S.label(keybutton, "", UDim2.fromScale(1, 1), S.medium, S.theme.text2)
+		keytext.TextSize = 14
+		keytext.TextXAlignment = Enum.TextXAlignment.Center
+		keytext.ZIndex = 19
+
+		configbutton = S.addtoggleconfigicon(row, binding, row, 0)
+		pickerbutton.Position = UDim2.new(1, -26, 0.5, 0)
+
+		listening = false
+
+		renderkey = function(value, bounds, width)
+			value = listening and "..." or S.togglekeyname(binding.key)
+			S.setkeytext(keytext, value)
+
+			bounds = S.measuretext(value, 14, S.medium, Vector2.new(120, 22))
+
+			width = math.clamp(math.ceil(bounds.X) + 18, 38, 76)
+			keybutton.Size = UDim2.fromOffset(width, 22)
+			keybutton.Position = UDim2.new(1, -54, 0.5, 0)
+			configbutton.Position = UDim2.new(1, 0, 0.5, 0)
+			pickerbutton.Position = UDim2.new(1, -26, 0.5, 0)
+			togglebutton.Size = UDim2.new(1, -(width + 78), 1, 0)
+			control.TextObject.Size = UDim2.new(1, -40, 1, 0)
+		end
+
+		binding.refreshkey = renderkey
+
+		keybutton.InputBegan:Connect(function(input)
+			if
+				input.UserInputType == Enum.UserInputType.MouseButton1
+				or input.UserInputType == Enum.UserInputType.Touch
+			then
+				binding.suppressclick = true
+			end
+		end)
+
+		keybutton.Activated:Connect(function()
+			if listening then
+				listening = false
+				S.endkeycapture(row, nil)
+				binding.suppressclick = false
+				renderkey()
+				return
+			end
+
+			listening = true
+
+			if
+				not S.beginkeycapture(row, function()
+					listening = false
+					renderkey()
+				end, function(selectedkey)
+					listening = false
+					S.setbindingkey(binding, selectedkey)
+					renderkey()
+
+					if keycallback then keycallback(binding.key) end
+				end, nil)
+			then
+				listening = false
+			end
+
+			binding.suppressclick = false
+			renderkey()
+		end)
+
+		row.Destroying:Connect(function()
+			if listening then
+				listening = false
+				S.endkeycapture(row, nil)
+			end
+		end)
+
+		keybutton.MouseEnter:Connect(
+			function()
+				S.tween(
+					keytext,
+					{ TextColor3 = S.theme.text },
+					S.hoverti,
+					nil,
+					{ TextColor3 = "text" }
+				)
+			end
+		)
+
+		keybutton.MouseLeave:Connect(
+			function()
+				S.tween(
+					keytext,
+					{ TextColor3 = S.theme.text2 },
+					S.hoverti,
+					nil,
+					{ TextColor3 = "text2" }
+				)
+			end
+		)
+
+		renderkey()
+		S.refreshkeybindlist()
+
+		control.KeyObject = keybutton
+		return control
 	end
 
 	-- slider
@@ -10967,649 +11142,619 @@ function S.createsection(
 		}
 	end
 
-	dropdownpopup = function(button)
-		if S.activepopup and S.activepopup.anchor == button then
-			S.closepopup()
-			return nil, nil
+
+	-- dropdowns
+
+function S.normalizeoptions(entries, config)
+	config = type(config) == "table" and config or {}
+	local values = {}
+	local dividers = table.clone(config.dividers or {})
+	local colors = table.clone(config.colors or {})
+	local icons = table.clone(config.icons or {})
+	local pending
+
+	for _, entry in ipairs(type(entries) == "table" and entries or {}) do
+		if type(entry) == "table" and (entry.Divider == true or entry.divider == true) then
+			pending = entry.Text or entry.text or true
+		else
+			local value
+			if type(entry) == "table" then
+				value = entry.Value or entry.value or entry.Name or entry.name or entry.Text or entry.text
+			else
+				value = entry
+			end
+			if value ~= nil and value ~= "" then
+				values[#values + 1] = value
+				if type(entry) == "table" then
+					local icon = entry.Icon or entry.icon
+					local color = entry.Color or entry.color
+					if icon then icons[value] = icon end
+					if color then colors[value] = color end
+				end
+				if pending ~= nil then
+					dividers[value] = pending
+					pending = nil
+				end
+			end
 		end
-		local position = S.overlayposition(button)
-		return S.createpopup(position, button.AbsoluteSize.X, 0, 510, button)
 	end
 
-	binddropdownscrollbar = function(scroll, thickness, update)
-		thickness = thickness or 2
-		local activity = S.bindscrollactivity(scroll, scroll, "ScrollBarImageTransparency", 0.56)
+	return values, dividers, colors, icons
+end
 
-		update = function(overflow, needs)
-			if not scroll or not scroll.Parent then return end
+function S.dropdownvalueindex(options, value)
+	return table.find(options, value)
+end
 
-			overflow = scroll.AbsoluteCanvasSize.Y - scroll.AbsoluteWindowSize.Y
-			needs = overflow > 0
-			scroll.ScrollBarThickness = needs and thickness or 0
-			activity.SetAvailable(needs)
+function S.createdropdown(section, spec)
+	spec = spec or {}
+	local name = tostring(spec.name or "Dropdown")
+	local config = type(spec.config) == "table" and spec.config or {}
+	local multi = spec.multi == true
+	local parentobject = spec.target or body
+	local options, dividers, colors, icons = S.normalizeoptions(spec.options, config)
+	local searchable = config.searchable == true
+	local selected = multi and {} or nil
+	local popup
+	local popuprows = {}
+	local hovered = nil
+	local destroyed = false
 
-			if not needs and scroll.CanvasPosition.Y ~= 0 then
-				scroll.CanvasPosition = Vector2.new(0, 0)
+	local holder = S.new("Frame", {
+		Parent = parentobject,
+		Size = UDim2.new(1, 0, 0, 57),
+		BackgroundTransparency = 1,
+		ZIndex = 15,
+	})
+
+	local title = S.label(holder, name, UDim2.new(1, 0, 0, 18), S.font)
+	title.TextSize = 18
+
+	local header = S.new("TextButton", {
+		Parent = holder,
+		Position = UDim2.fromOffset(0, 25),
+		Size = UDim2.new(1, 0, 0, 32),
+		BackgroundColor3 = S.theme.input,
+		BorderSizePixel = 0,
+		Text = "",
+		AutoButtonColor = false,
+		ZIndex = 16,
+	}, { BackgroundColor3 = "input" })
+	S.corner(header, 7)
+	S.mergedropdown(holder, header)
+
+	local valueText = S.label(header, "", UDim2.new(1, -38, 1, 0), S.font, S.theme.text2)
+	valueText.Position = UDim2.fromOffset(10, 0)
+	valueText.TextSize = 18
+	valueText.TextTruncate = Enum.TextTruncate.AtEnd
+	valueText.ZIndex = 17
+
+	local arrow = S.image(header, S.icons.down, 14, S.theme.text3, 17)
+	arrow.AnchorPoint = Vector2.new(1, 0.5)
+	arrow.Position = UDim2.new(1, -10, 0.5, 0)
+
+	local previewIcon
+	local previewColor = S.rawnew("Frame", {
+		Parent = header,
+		AnchorPoint = Vector2.new(0, 0.5),
+		Position = UDim2.fromOffset(10, 16),
+		Size = UDim2.fromOffset(10, 10),
+		BackgroundColor3 = S.theme.text3,
+		BorderSizePixel = 0,
+		Visible = false,
+		ZIndex = 18,
+	})
+	S.corner(previewColor, 3)
+	S.stroke(previewColor, 0.62, S.theme.border, 0.5)
+
+	local isselected = function(value)
+		return multi and selected[value] == true or selected == value
+	end
+
+	local function displayvalue(value)
+		if typeof(value) == "Instance" and value:IsA("Player") then
+			return value.DisplayName ~= "" and value.DisplayName or value.Name
+		end
+		return tostring(value)
+	end
+
+	local function currentplayerlist()
+		local result = {}
+		for _, player in ipairs(S.players:GetPlayers()) do
+			if player ~= S.player then result[#result + 1] = player end
+		end
+		return result
+	end
+
+	local function playeroptionvalid(value)
+		if value == "Everyone" then return spec.everyone == true or table.find(options, value) ~= nil end
+		if typeof(value) == "Instance" and value:IsA("Player") then return value ~= S.player and value.Parent == S.players end
+		return table.find(options, value) ~= nil
+	end
+
+	local function selectionlist()
+		if not multi then return selected end
+		local result = {}
+		if spec.player and selected.Everyone then result[#result + 1] = "Everyone" end
+		for _, option in ipairs(options) do
+			if selected[option] then result[#result + 1] = option end
+		end
+		if spec.player then
+			for _, player in ipairs(currentplayerlist()) do
+				if selected[player] then result[#result + 1] = player end
+			end
+		end
+		return result
+	end
+
+	local function renderpreview()
+		if multi then
+			local values = selectionlist()
+			local labels = {}
+			for index, value in ipairs(values) do labels[index] = displayvalue(value) end
+			valueText.Text = #labels > 0 and table.concat(labels, ", ") or "None"
+			valueText.TextColor3 = #labels > 0 and S.theme.text or S.theme.text2
+			S.bindtheme(valueText, "TextColor3", #labels > 0 and S.theme.text or S.theme.text2, #labels > 0 and "text" or "text2")
+			previewColor.Visible = false
+			if previewIcon then previewIcon:Destroy(); previewIcon = nil end
+			return
+		end
+
+		local current = selected
+		valueText.Text = current ~= nil and displayvalue(current) or "None"
+		valueText.TextColor3 = current ~= nil and S.theme.text2 or S.theme.text2
+		S.bindtheme(valueText, "TextColor3", S.theme.text2, "text2")
+		local icon = icons[current]
+		local color = colors[current]
+		local offset = 10
+
+		if icon then
+			if not previewIcon or not previewIcon.Parent then
+				previewIcon = S.image(header, icon, 18, S.theme.text2, 18)
+				previewIcon.AnchorPoint = Vector2.new(0, 0.5)
+				previewIcon.ScaleType = Enum.ScaleType.Fit
+			else
+				previewIcon.Image = S.librarynormalizeicon(icon) or ""
+			end
+			previewIcon.Position = UDim2.fromOffset(offset, 16)
+			offset += 22
+		elseif previewIcon then
+			previewIcon:Destroy()
+			previewIcon = nil
+		end
+
+		previewColor.Visible = color ~= nil
+		if color then
+			previewColor.BackgroundColor3 = color
+			previewColor.Position = UDim2.fromOffset(offset, 16)
+			offset += 18
+		end
+
+		valueText.Position = UDim2.fromOffset(offset, 0)
+		valueText.Size = UDim2.new(1, -(offset + 28), 1, 0)
+	end
+
+	local function refreshvisual(data, animate)
+		if not data or not data.button or not data.button.Parent then return end
+		local active = isselected(data.value)
+		local over = hovered == data
+		local textRole = (active or over) and "text" or "text2"
+		local background = active and 0.88 or over and 0.84 or 1
+		local info = animate and S.hoverti or TweenInfo.new(0)
+		S.tween(data.button, { BackgroundTransparency = background }, info, nil, { BackgroundColor3 = "hover" })
+		S.tween(data.label, { TextColor3 = S.theme[textRole] }, info, nil, { TextColor3 = textRole })
+		S.tween(data.check, { ImageTransparency = active and 0 or 1 }, animate and S.fastti or TweenInfo.new(0), nil, { ImageColor3 = "text2" })
+	end
+
+
+	local function cleanupPopupState()
+		hovered = nil
+		for _, data in pairs(popuprows) do
+			if data and data.button and data.button.Parent then refreshvisual(data, false) end
+		end
+		table.clear(popuprows)
+	end
+
+	local function select(value, fire)
+		if spec.player then
+			if not playeroptionvalid(value) then return false end
+				if multi then
+					local nextstate = not selected[value]
+					if value == "Everyone" then
+						if nextstate then
+							for key in pairs(selected) do if typeof(key) == "Instance" and key:IsA("Player") then selected[key] = nil end end
+							selected.Everyone = true
+						else selected.Everyone = nil end
+					elseif typeof(value) == "Instance" and value:IsA("Player") then
+						selected.Everyone = nil
+						if nextstate then selected[value] = true else selected[value] = nil end
+					else
+						if nextstate then selected[value] = true else selected[value] = nil end
+					end
+				else
+					selected = value
+				end
+		else
+			if table.find(options, value) == nil then return false end
+			if multi then selected[value] = not selected[value] else selected = value end
+		end
+		renderpreview()
+		for _, data in pairs(popuprows) do refreshvisual(data, true) end
+		if fire ~= false and spec.callback then spec.callback(selectionlist()) end
+		if fire ~= false then S.aftercontrolchange() end
+		for _, binding in pairs(spec.optionbindings or {}) do S.requestkeybindrefresh(binding) end
+		return true
+	end
+
+	local controller = {}
+
+	local function optionbinding(value)
+		if not spec.optionbindings then return nil end
+		local existing = spec.optionbindings[value]
+		if existing then return existing end
+		local binding = {
+			kind = "DropdownOption",
+			owner = holder,
+			name = name .. " / " .. tostring(value),
+			category = section.page.primary or "Misc",
+			categoryicon = section.page.icon,
+			page = section.page,
+			subpage = section.page.secondary,
+			sectionname = section.name,
+			key = nil,
+			mode = "Toggle",
+			held = false,
+			suppressclick = false,
+			previous = nil,
+			get = function() return isselected(value) end,
+		}
+		binding.set = function(state, fire)
+			if state == true then
+				if not isselected(value) and not multi then binding.previous = selected end
+				select(value, fire)
+			elseif multi then
+				if isselected(value) then select(value, fire) end
+			elseif isselected(value) and binding.previous ~= nil and S.dropdownvalueindex(options, binding.previous) then
+				select(binding.previous, fire)
+			end
+		end
+		spec.optionbindings[value] = binding
+		S.registertogglebinding(binding)
+		return binding
+	end
+
+	local function renderdivider(parent, value)
+		local row = S.new("Frame", {
+			Parent = parent,
+			Size = UDim2.new(1, 0, 0, (value == true or value == "") and 14 or 22),
+			BackgroundTransparency = 1,
+			BorderSizePixel = 0,
+			ZIndex = 514,
+		})
+		if value == true or value == "" then
+			local line = S.new("Frame", {
+				Parent = row, AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5),
+				Size = UDim2.new(1, -14, 0, 1), BackgroundColor3 = S.theme.border,
+				BackgroundTransparency = 0.38, BorderSizePixel = 0, ZIndex = 515,
+			}, { BackgroundColor3 = "border" })
+			S.corner(line, 999)
+		else
+			local label = S.label(row, S.plaintext(tostring(value)), UDim2.fromOffset(90, 22), S.medium, S.theme.text3)
+			label.AnchorPoint = Vector2.new(0.5, 0.5)
+			label.Position = UDim2.fromScale(0.5, 0.5)
+			label.TextSize = 15
+			label.TextXAlignment = Enum.TextXAlignment.Center
+			local left = S.new("Frame", { Parent = row, AnchorPoint = Vector2.new(0, 0.5), Position = UDim2.new(0, 7, 0.5, 0), Size = UDim2.new(0.5, -59, 0, 1), BackgroundColor3 = S.theme.border, BackgroundTransparency = 0.38, BorderSizePixel = 0, ZIndex = 515 }, { BackgroundColor3 = "border" })
+			local right = S.new("Frame", { Parent = row, AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -7, 0.5, 0), Size = UDim2.new(0.5, -59, 0, 1), BackgroundColor3 = S.theme.border, BackgroundTransparency = 0.38, BorderSizePixel = 0, ZIndex = 515 }, { BackgroundColor3 = "border" })
+			S.corner(left, 999); S.corner(right, 999)
+		end
+		return row
+	end
+
+	local function renderoption(parent, value, player)
+		local data = { value = value, player = player }
+		local row = S.dropdownrow(parent, player and 44 or 32, 514, S.theme.hover, "hover")
+		data.button = row
+		local x = 9
+
+		if player then
+			local avatar = S.image(row, S.getplayerthumbnail(player), 34, S.theme.text2, 515)
+			avatar.AnchorPoint = Vector2.new(0, 0.5)
+			avatar.Position = UDim2.fromOffset(6, 22)
+			S.corner(avatar, 999)
+			x = 47
+		end
+
+		if icons[value] then
+			local icon = S.image(row, icons[value], 18, S.theme.text2, 515)
+			icon.AnchorPoint = Vector2.new(0, 0.5)
+			icon.Position = UDim2.fromOffset(x, player and 16 or 16)
+			x += 22
+		end
+		if colors[value] then
+			local swatch = S.rawnew("Frame", { Parent = row, AnchorPoint = Vector2.new(0, 0.5), Position = UDim2.fromOffset(x, 16), Size = UDim2.fromOffset(10, 10), BackgroundColor3 = colors[value], BorderSizePixel = 0, ZIndex = 515 })
+			S.corner(swatch, 3); S.stroke(swatch, 0.62, S.theme.border, 0.5); x += 18
+		end
+
+		data.label = S.label(row, player and player.DisplayName or tostring(value), UDim2.new(1, -(x + 36), player and 1 or 1, 0), S.font, S.theme.text2)
+		data.label.Position = UDim2.fromOffset(x, player and 0 or 0)
+		data.label.TextSize = player and 16 or 17
+		data.label.TextYAlignment = player and Enum.TextYAlignment.Top or Enum.TextYAlignment.Center
+		if player then
+			data.label.Size = UDim2.new(1, -(x + 52), 0, 20)
+			data.label.Position = UDim2.fromOffset(x, 3)
+			data.username = S.label(row, "@" .. player.Name, UDim2.new(1, -(x + 52), 0, 17), S.font, S.theme.text3)
+			data.username.Position = UDim2.fromOffset(x, 22)
+			data.username.TextSize = 12
+			data.username.TextTruncate = Enum.TextTruncate.AtEnd
+		end
+
+		data.check = S.image(row, S.icons.check, 13, S.theme.text2, 516)
+		data.check.AnchorPoint = Vector2.new(1, 0.5)
+		data.check.Position = UDim2.new(1, -9, 0.5, 0)
+		data.check.ImageTransparency = isselected(value) and 0 or 1
+			S.bindtheme(data.check, "ImageColor3", S.theme.text2, "text2")
+
+		popuprows[#popuprows + 1] = data
+
+		if spec.optionbindings and not player then
+			local binding = optionbinding(value)
+			data.binding = binding
+			if binding then S.attachtoggleconfig(row, binding) end
+		end
+
+		S.connect(row.MouseEnter, function() hovered = data; for _, item in pairs(popuprows) do refreshvisual(item, true) end end, row)
+		S.connect(row.MouseLeave, function() if hovered == data then hovered = nil end; refreshvisual(data, true) end, row)
+		S.connect(row.Activated, function()
+			if popup and popup.closing then return end
+			if data.binding and data.binding.suppressclick then data.binding.suppressclick = false; return end
+			if select(value, true) and not multi then S.closepopup(popup) end
+		end, row)
+		return data
+	end
+
+
+	local function openpopup()
+		if destroyed then return end
+		if S.activepopup and S.activepopup.anchor == header then S.closepopup(); return end
+
+		local playercount = spec.player and #currentplayerlist() or 0
+		local itemcount = spec.player and (#options + playercount + (spec.everyone and 1 or 0)) or #options
+		local useSearch = searchable and itemcount >= 6
+		local contentheight
+		if spec.player then
+			contentheight = #options * 32 + playercount * 44 + (spec.everyone and 32 or 0)
+			if playercount > 0 and (#options > 0 or spec.everyone) then contentheight += 14 end
+			contentheight = math.max(58, contentheight + 4)
+		else
+			contentheight = itemcount * 34 + 4
+		end
+		local height = math.clamp(contentheight + (useSearch and 38 or 0), 34, spec.player and 330 or 280)
+		local position = S.overlayposition(header)
+		local panel, newpopup = S.createpopup(Vector2.new(position.X, position.Y + header.AbsoluteSize.Y + 6), header.AbsoluteSize.X, height, 510, header)
+		if not panel or not newpopup then return end
+		popup = newpopup
+		S.tween(arrow, { Rotation = 180 }, S.dropti)
+		local oldclose = popup.onclose
+		popup.onclose = function()
+			cleanupPopupState()
+			if oldclose then oldclose() end
+			S.tween(arrow, { Rotation = 0 }, S.dropti)
+			popup = nil
+		end
+
+		local contentTop = 6
+		local searchbox
+		if useSearch then
+			local searchframe = S.new("Frame", { Parent = panel, Position = UDim2.fromOffset(6, 6), Size = UDim2.new(1, -12, 0, 30), BackgroundColor3 = S.theme.input, BackgroundTransparency = 0.08, BorderSizePixel = 0, ZIndex = 514 }, { BackgroundColor3 = "input" })
+			S.corner(searchframe, 6)
+			S.image(searchframe, S.icons.search, 17, S.theme.text3, 515).Position = UDim2.fromOffset(9, 7)
+			searchbox = S.new("TextBox", { Parent = searchframe, Position = UDim2.fromOffset(33, 0), Size = UDim2.new(1, -41, 1, 0), BackgroundTransparency = 1, BorderSizePixel = 0, Text = "", PlaceholderText = "Search...", PlaceholderColor3 = S.theme.text3, TextColor3 = S.theme.text, Font = S.font, TextSize = 16, ClearTextOnFocus = false, ZIndex = 515 }, { PlaceholderColor3 = "text3", TextColor3 = "text" })
+			contentTop = 42
+		end
+
+		local scroll = S.new("ScrollingFrame", { Parent = panel, Position = UDim2.fromOffset(6, contentTop), Size = UDim2.new(1, -12, 1, -contentTop - 6), BackgroundTransparency = 1, BorderSizePixel = 0, CanvasSize = UDim2.new(), AutomaticCanvasSize = Enum.AutomaticSize.Y, ScrollBarThickness = 0, ScrollBarImageTransparency = 0.56, ScrollBarImageColor3 = S.theme.scroll, ZIndex = 512 }, { ScrollBarImageColor3 = "scroll" })
+		S.list(scroll, 2)
+		if S.bindscrollactivity then S.bindscrollactivity(scroll, scroll, "ScrollBarImageTransparency", 0.56) end
+
+		if spec.player then
+			if spec.everyone then renderoption(scroll, "Everyone", nil) end
+			for _, value in ipairs(options) do
+				if dividers[value] ~= nil then renderdivider(scroll, dividers[value]) end
+				renderoption(scroll, value, nil)
+			end
+			local players = currentplayerlist()
+			if #players > 0 and (#options > 0 or spec.everyone) then
+				renderdivider(scroll, spec.playersdivider or true)
+			end
+			for _, player in ipairs(players) do renderoption(scroll, player, player) end
+			if #players == 0 and #options == 0 and not spec.everyone then
+				local empty = S.new("Frame", { Parent = scroll, Size = UDim2.new(1, 0, 0, 58), BackgroundTransparency = 1, BorderSizePixel = 0, ZIndex = 514 })
+				local icon = S.image(empty, S.icons.coffee or S.icons.usersround, 19, S.theme.text3, 515)
+				icon.AnchorPoint = Vector2.new(0.5, 0.5)
+				icon.Position = UDim2.fromScale(0.5, 0.31)
+				local label = S.label(empty, "No other players", UDim2.new(1, -20, 0, 20), S.medium, S.theme.text2)
+				label.AnchorPoint = Vector2.new(0.5, 0)
+				label.Position = UDim2.new(0.5, 0, 0, 31)
+				label.TextSize = 16
+				label.TextXAlignment = Enum.TextXAlignment.Center
+			end
+		else
+			for _, value in ipairs(options) do
+				if dividers[value] ~= nil then renderdivider(scroll, dividers[value]) end
+				renderoption(scroll, value, nil)
 			end
 		end
 
-		S.connect(scroll:GetPropertyChangedSignal("AbsoluteCanvasSize"), update, scroll)
-		S.connect(scroll:GetPropertyChangedSignal("AbsoluteWindowSize"), update, scroll)
-		update()
+		local function applyquery(query)
+			query = string.lower(S.plaintext(query or ""))
+			for _, data in ipairs(popuprows) do
+				local candidate
+				if data.player then candidate = string.lower(data.player.DisplayName .. " " .. data.player.Name) else candidate = string.lower(S.plaintext(tostring(data.value))) end
+				data.button.Visible = query == "" or string.find(candidate, query, 1, true) ~= nil
+			end
+		end
+
+		if searchbox then
+			S.connect(searchbox:GetPropertyChangedSignal("Text"), function() applyquery(searchbox.Text) end, searchbox)
+			searchbox:CaptureFocus()
+		end
+		for _, data in ipairs(popuprows) do refreshvisual(data, false) end
 	end
 
-	-- dropdown
+	local function clearoptionbindings()
+		if not spec.optionbindings then return end
+		for value, binding in pairs(spec.optionbindings) do
+			S.unregistertogglebinding(binding)
+			spec.optionbindings[value] = nil
+		end
+	end
 
-	function section:AddDropdown(
-		name,
-		options,
-		default,
-		callback,
-		target,
-		config,
-		parentobject,
-		dividerbefore,
-		optioncolors,
-		optionicons,
-		searchable,
-		holder,
-		title,
-		button6,
-		selected,
-		optionbindings,
-		previewicon,
-		previewcolor,
-		valuetext,
-		updatepreview,
-		setselected,
-		optionbinding,
-		arrow,
-		keycontrol
-	)
-		parentobject = target or body
-		config = config or {}
+	local function rebuildoptionbindings()
+		if not spec.optionbindings then return end
+		for _, value in ipairs(options) do optionbinding(value) end
+	end
 
-		options, dividerbefore, optioncolors, optionicons = S.normalizedropdownoptions(options, config)
-		searchable = config.searchable == true or config.Searchable == true
+	local function applymultiselect(values)
+		table.clear(selected)
+		for _, item in ipairs(type(values) == "table" and values or {}) do
+			if playeroptionvalid(item) then selected[item] = true end
+		end
+		if selected.Everyone then
+			for key in pairs(selected) do
+				if typeof(key) == "Instance" and key:IsA("Player") then selected[key] = nil end
+			end
+		end
+	end
 
-		holder = S.new("Frame", {
-			Parent = parentobject,
-			Size = UDim2.new(1, 0, 0, 57),
-			BackgroundTransparency = 1,
-			ZIndex = 15,
-		})
+	local function setoptions(newoptions, preferred)
+		clearoptionbindings()
+		local previous = multi and table.clone(selected) or selected
+		local normalized, newdividers, newcolors, newicons = S.normalizeoptions(newoptions, config)
+		options, dividers, colors, icons = normalized, newdividers, newcolors, newicons
+		if multi then
+			table.clear(selected)
+			if spec.player and previous.Everyone and spec.everyone then selected.Everyone = true end
+			for _, value in ipairs(options) do if previous[value] then selected[value] = true end end
+			if spec.player then
+				for _, player in ipairs(currentplayerlist()) do if previous[player] then selected[player] = true end end
+			end
+			if selected.Everyone then
+				for key in pairs(selected) do if typeof(key) == "Instance" and key:IsA("Player") then selected[key] = nil end end
+			end
+		elseif spec.player then
+			if preferred ~= nil and playeroptionvalid(preferred) then selected = preferred
+			elseif selected ~= nil and playeroptionvalid(selected) then
+			else selected = options[1] or (spec.everyone and "Everyone" or nil) end
+		else
+			if preferred ~= nil and table.find(options, preferred) then selected = preferred
+			elseif selected == nil or table.find(options, selected) == nil then selected = options[1] end
+		end
+		rebuildoptionbindings()
+		renderpreview()
+		if S.activepopup and S.activepopup.anchor == header then S.closepopup() end
+		for _, binding in pairs(spec.optionbindings or {}) do S.requestkeybindrefresh(binding) end
+	end
 
-		title = S.label(holder, name, UDim2.new(1, 0, 0, 18), S.font)
-		title.TextSize = 18
-		title.Position = UDim2.fromOffset(S.dropdownlayout.Inset, 0)
-		title.Size = UDim2.new(1, -S.dropdownlayout.Inset, 0, 18)
+	local function setvalue(value, fire)
+		if multi then
+			applymultiselect(value)
+		elseif spec.player then
+			if value == nil or playeroptionvalid(value) then selected = value end
+		elseif value == nil or table.find(options, value) then
+			selected = value
+		end
+		renderpreview()
+		for _, data in pairs(popuprows) do refreshvisual(data, true) end
+		if fire ~= false and spec.callback then spec.callback(selectionlist()) end
+		if fire ~= false then S.aftercontrolchange() end
+		for _, binding in pairs(spec.optionbindings or {}) do S.requestkeybindrefresh(binding) end
+	end
 
+	controller.Get = function() return selectionlist() end
+	controller.Set = function(_, value, fire) setvalue(value, fire) end
+	controller.SetOptions = function(_, newoptions, preferred) setoptions(newoptions, preferred) end
+	controller.Refresh = function(_, newoptions, preferred)
+		if newoptions ~= nil then
+			setoptions(newoptions, preferred)
+		else
+			setoptions(spec.options or options, preferred)
+		end
+	end
+	controller.Open = function() openpopup() end
+	controller.Close = function() if popup then S.closepopup(popup) end end
+	controller.Object = holder
+	controller.TextObject = title
+	controller.Multi = multi
+
+	if multi then
+		applymultiselect(spec.default)
+	else
+		if spec.player then
+			selected = playeroptionvalid(spec.default) and spec.default or options[1] or (spec.everyone and "Everyone" or nil)
+		else
+			selected = table.find(options, spec.default) and spec.default or options[1]
+		end
+	end
+	rebuildoptionbindings()
+
+	S.connect(header.MouseEnter, function() S.tween(valueText, { TextColor3 = S.theme.text }, S.hoverti, nil, { TextColor3 = "text" }); S.tween(arrow, { ImageColor3 = S.theme.text2 }, S.hoverti, nil, { ImageColor3 = "text2" }) end, header)
+	S.connect(header.MouseLeave, function() renderpreview(); S.tween(arrow, { ImageColor3 = S.theme.text3 }, S.hoverti, nil, { ImageColor3 = "text3" }) end, header)
+	S.connect(header.Activated, openpopup, header)
+	S.own(holder, function()
+		destroyed = true
+		if popup then S.closepopup(popup) end
+		if spec.optionbindings then
+			for value, binding in pairs(spec.optionbindings) do S.unregistertogglebinding(binding); spec.optionbindings[value] = nil end
+		end
+		cleanupPopupState()
+	end)
+
+	renderpreview()
+	return controller
+end
+
+	function section:AddDropdown(name, options, default, callback, target, config)
+		config = type(config) == "table" and config or {}
+		local optionbindings = {}
+		local togglespec = config.toggle or config.Toggle
 		local keyspec = config.keypicker or config.KeyPicker
-		if keyspec then
+		local controller = S.createdropdown(section, {
+			name = name, options = options, default = default, callback = callback, target = target, config = config,
+			optionbindings = optionbindings, multi = false,
+		})
+		if togglespec then
+			local toggleoptions = type(togglespec) == "table" and table.clone(togglespec) or {}
+			toggleoptions.Name = name
+			toggleoptions.Target = controller.Object
+			toggleoptions.KeyPicker = keyspec
+			toggleoptions.Keybindable = config.Keybindable == true or toggleoptions.Keybindable == true
+			toggleoptions.Flag = toggleoptions.Flag or (config.flag and tostring(config.flag) .. "/enabled")
+			controller.Toggle = section:AddToggle(toggleoptions)
+			if controller.TextObject and controller.TextObject.Parent then controller.TextObject:Destroy() end
+			controller.TextObject = controller.Toggle.TextObject
+		elseif keyspec then
 			local keyoptions = type(keyspec) == "table" and table.clone(keyspec) or {}
 			keyoptions.Name = name .. " Key"
-			keyoptions.Target = holder
-			keyoptions.Flag = keyoptions.Flag or (config.flag and tostring(config.flag) .. "/key")
+			keyoptions.Target = controller.Object
 			keyoptions.CaptureOptions = table.clone(keyoptions.CaptureOptions or {})
 			keyoptions.CaptureOptions.HideLabel = true
 			keyoptions.CaptureOptions.Compact = true
-			keycontrol = self:AddKeyPicker(keyoptions)
-			keycontrol.Object.AnchorPoint = Vector2.new(1, 0)
-			keycontrol.Object.Position = UDim2.new(1, 0, 0, -4)
-			keycontrol.Object.Size = UDim2.fromOffset(48, 24)
-			title.Size = UDim2.new(1, -60, 0, 18)
+			controller.KeyPicker = section:AddKeyPicker(keyoptions)
+			controller.KeyPicker.Object.AnchorPoint = Vector2.new(1, 0)
+			controller.KeyPicker.Object.Position = UDim2.new(1, 0, 0, -4)
+			controller.KeyPicker.Object.Size = UDim2.fromOffset(48, 24)
 		end
-		button6 = S.new("TextButton", {
-			Parent = holder,
-			Position = UDim2.fromOffset(0, 25),
-			Size = UDim2.new(1, 0, 0, 32),
-			BackgroundColor3 = S.theme.input,
-			BorderSizePixel = 0,
-			Text = "",
-			AutoButtonColor = false,
-			ZIndex = 16,
-		}, { BackgroundColor3 = "input" })
-
-		S.corner(button6, 7)
-		S.mergedropdown(holder, button6)
-
-		selected = default or options[1]
-		optionbindings = {}
-
-		previewicon = nil
-
-		previewcolor = S.rawnew("Frame", {
-			Parent = button6,
-			AnchorPoint = Vector2.new(0, 0.5),
-			Position = UDim2.fromOffset(10, 16),
-			Size = UDim2.fromOffset(10, 10),
-			BackgroundColor3 = optioncolors[selected] or S.theme.text3,
-			BorderSizePixel = 0,
-			Visible = optioncolors[selected] ~= nil,
-			ZIndex = 18,
-		})
-		S.corner(previewcolor, 3)
-		S.stroke(previewcolor, 0.62, S.theme.border, 0.5)
-
-		valuetext = S.label(button6, tostring(selected or "None"), UDim2.new(1, -38, 1, 0), S.font)
-		valuetext.TextSize = 18
-		valuetext.ZIndex = 17
-
-		updatepreview = function(asset2, color3, offset)
-			asset2 = optionicons[selected]
-			color3 = optioncolors[selected]
-
-			if asset2 then
-				if not previewicon or not previewicon.Parent then
-					previewicon = S.image(button6, asset2, 18, S.theme.text2, 18)
-
-					previewicon.AnchorPoint = Vector2.new(0, 0.5)
-
-					previewicon.ScaleType = Enum.ScaleType.Fit
-				else
-					previewicon.Image = S.librarynormalizeicon(asset2) or ""
-				end
-			elseif previewicon then
-				previewicon:Destroy()
-				previewicon = nil
-			end
-
-			previewcolor.Visible = color3 ~= nil
-
-			if color3 then previewcolor.BackgroundColor3 = color3 end
-
-			offset = S.layoutdropdowndecorations(previewicon, previewcolor, title.Position.X.Offset)
-			valuetext.Position = UDim2.fromOffset(offset, 0)
-			valuetext.Size = UDim2.new(1, -(offset + 28), 1, 0)
-			valuetext.Text = tostring(selected or "None")
-		end
-
-		updatepreview()
-
-		setselected = function(option, fire)
-			if not table.find(options, option) then return false end
-
-			selected = option
-			updatepreview()
-
-			if fire ~= false and callback then callback(option) end
-
-			for _, binding in pairs(optionbindings) do
-				S.requestkeybindrefresh(binding)
-			end
-
-			return true
-		end
-
-		optionbinding = function(option, existing, binding)
-			existing = optionbindings[option]
-
-			if existing then return existing end
-
-			binding = nil
-
-			binding = {
-				kind = "DropdownOption",
-				owner = holder,
-				name = name .. " / " .. tostring(option),
-				category = section.page.primary or "Misc",
-				categoryicon = section.page.icon,
-				page = section.page,
-				subpage = section.page.secondary,
-				sectionname = section.name,
-				key = nil,
-				mode = "Toggle",
-				held = false,
-				suppressclick = false,
-				previous = nil,
-
-				get = function() return selected == option end,
-
-				set = function(value, fire)
-					if value == true then
-						if selected ~= option then binding.previous = selected end
-
-						setselected(option, fire)
-					elseif
-						selected == option
-						and binding.previous
-						and table.find(options, binding.previous)
-					then
-						setselected(binding.previous, fire)
-					end
-				end,
-			}
-
-			optionbindings[option] = binding
-
-			S.registertogglebinding(binding)
-			return binding
-		end
-
-		local function clearoptionbindings()
-			for option, binding in pairs(optionbindings) do
-				S.unregistertogglebinding(binding)
-				optionbindings[option] = nil
-			end
-		end
-
-		S.own(holder, clearoptionbindings)
-
-		for _, option in ipairs(options) do
-			optionbinding(option)
-		end
-
-		arrow = S.image(button6, S.icons.down, 14, S.theme.text3, 17)
-		arrow.AnchorPoint = Vector2.new(1, 0.5)
-		arrow.Position = UDim2.new(1, -S.dropdownlayout.RightInset, 0.5, 0)
-
-		button6.MouseEnter:Connect(function()
-			S.tween(
-				valuetext,
-				{ TextColor3 = S.theme.text },
-				S.hoverti,
-				nil,
-				{ TextColor3 = "text" }
-			)
-			S.tween(
-				arrow,
-				{ ImageColor3 = S.theme.text2 },
-				S.hoverti,
-				nil,
-				{ ImageColor3 = "text2" }
-			)
-		end)
-		button6.MouseLeave:Connect(function()
-			S.tween(
-				valuetext,
-				{ TextColor3 = S.theme.text2 },
-				S.hoverti,
-				nil,
-				{ TextColor3 = "text2" }
-			)
-			S.tween(
-				arrow,
-				{ ImageColor3 = S.theme.text3 },
-				S.hoverti,
-				nil,
-				{ ImageColor3 = "text3" }
-			)
-		end)
-
-		button6.Activated:Connect(
-			function(
-				usesearch,
-				panel,
-				popup,
-				searchbox,
-				searchheight,
-				searchframe,
-				searchicon,
-				scroll,
-				optionrows,
-				dividerrows
-			)
-				usesearch = searchable
-				panel, popup = dropdownpopup(button6)
-
-				if not panel or not popup then return end
-
-				S.rotatedropdownarrow(arrow, true)
-				popup.onclose = function() S.rotatedropdownarrow(arrow, false) end
-
-				searchbox = nil
-				searchheight = usesearch and 36 or 0
-
-				if usesearch then
-					searchframe = S.new("Frame", {
-						Parent = panel,
-						Position = UDim2.fromOffset(6, 6),
-						Size = UDim2.new(1, -12, 0, 30),
-						BackgroundColor3 = S.theme.input,
-						BackgroundTransparency = 0.08,
-						BorderSizePixel = 0,
-						ClipsDescendants = true,
-						ZIndex = 514,
-					}, { BackgroundColor3 = "input" })
-					S.corner(searchframe, 6)
-
-					searchicon = S.image(searchframe, S.icons.search, 17, S.theme.text3, 515)
-					searchicon.AnchorPoint = Vector2.new(0, 0.5)
-					searchicon.Position = UDim2.fromOffset(9, 15)
-
-					searchbox = S.new("TextBox", {
-						Parent = searchframe,
-						Position = UDim2.fromOffset(33, 0),
-						Size = UDim2.new(1, -41, 1, 0),
-						BackgroundTransparency = 1,
-						BorderSizePixel = 0,
-						Text = "",
-						PlaceholderText = "Search...",
-						PlaceholderColor3 = S.theme.text3,
-						TextColor3 = S.theme.text,
-						Font = S.font,
-						TextSize = 16,
-						TextXAlignment = Enum.TextXAlignment.Left,
-						ClearTextOnFocus = false,
-						ZIndex = 515,
-					}, { PlaceholderColor3 = "text3", TextColor3 = "text" })
-				end
-
-				scroll = S.new("ScrollingFrame", {
-					Parent = panel,
-					Position = UDim2.fromOffset(S.dropdownlayout.ListInset, searchheight),
-					Size = UDim2.new(1, -S.dropdownlayout.ListInset * 2, 1, -searchheight),
-					BackgroundTransparency = 1,
-					BorderSizePixel = 0,
-					CanvasSize = UDim2.new(),
-					AutomaticCanvasSize = Enum.AutomaticSize.Y,
-					ScrollBarThickness = 0,
-					ScrollBarImageTransparency = 0.56,
-					ScrollBarImageColor3 = S.theme.scroll,
-					ZIndex = 512,
-				}, { ScrollBarImageColor3 = "scroll" })
-				S.binddropdownlayout(panel, popup, scroll)
-				binddropdownscrollbar(scroll, 2)
-
-				optionrows = {}
-				dividerrows = {}
-
-				for _, option, iteration5 in S.scopediterator(2, ipairs(options)) do
-					iteration5.divider = dividerbefore[option]
-
-					if iteration5.divider ~= nil then
-						iteration5.dividerrow = S.new("Frame", {
-							Parent = scroll,
-							Size = UDim2.new(
-								1,
-								0,
-								0,
-								(iteration5.divider == true or iteration5.divider == "") and 14
-									or 22
-							),
-							BackgroundTransparency = 1,
-							BorderSizePixel = 0,
-							ZIndex = 514,
-						})
-
-						if iteration5.divider == true or iteration5.divider == "" then
-							iteration5.line = S.new("Frame", {
-								Parent = iteration5.dividerrow,
-								AnchorPoint = Vector2.new(0.5, 0.5),
-								Position = UDim2.fromScale(0.5, 0.5),
-								Size = UDim2.new(1, -14, 0, 1),
-								BackgroundColor3 = S.theme.border,
-								BackgroundTransparency = 0.38,
-								BorderSizePixel = 0,
-								ZIndex = 515,
-							}, { BackgroundColor3 = "border" })
-							S.corner(iteration5.line, 999)
-						else
-							iteration5.dividerlabel = S.label(
-								iteration5.dividerrow,
-								S.plaintext(tostring(iteration5.divider)),
-								UDim2.fromOffset(90, 22),
-								S.medium,
-								S.theme.text3
-							)
-							iteration5.dividerlabel.AnchorPoint = Vector2.new(0.5, 0.5)
-							iteration5.dividerlabel.Position = UDim2.fromScale(0.5, 0.5)
-							iteration5.dividerlabel.TextSize = 15
-							iteration5.dividerlabel.TextXAlignment = Enum.TextXAlignment.Center
-							iteration5.dividerlabel.ZIndex = 515
-
-							iteration5.leftline = S.new("Frame", {
-								Parent = iteration5.dividerrow,
-								AnchorPoint = Vector2.new(0, 0.5),
-								Position = UDim2.new(0, 7, 0.5, 0),
-								Size = UDim2.new(0.5, -59, 0, 1),
-								BackgroundColor3 = S.theme.border,
-								BackgroundTransparency = 0.38,
-								BorderSizePixel = 0,
-								ZIndex = 515,
-							}, { BackgroundColor3 = "border" })
-							iteration5.rightline = S.new("Frame", {
-								Parent = iteration5.dividerrow,
-								AnchorPoint = Vector2.new(1, 0.5),
-								Position = UDim2.new(1, -7, 0.5, 0),
-								Size = UDim2.new(0.5, -59, 0, 1),
-								BackgroundColor3 = S.theme.border,
-								BackgroundTransparency = 0.38,
-								BorderSizePixel = 0,
-								ZIndex = 515,
-							}, { BackgroundColor3 = "border" })
-							S.corner(iteration5.leftline, 999)
-							S.corner(iteration5.rightline, 999)
-						end
-
-						dividerrows[#dividerrows + 1] = iteration5.dividerrow
-					end
-
-					iteration5.optionbutton = S.dropdownrow(scroll, S.dropdownlayout.RowHeight, 514, S.theme.input, "hover")
-
-					iteration5.x = title.Position.X.Offset - S.dropdownlayout.ListInset
-					iteration5.asset = optionicons[option]
-					iteration5.color = optioncolors[option]
-
-					if iteration5.asset then
-						iteration5.optionicon = S.new("ImageLabel", {
-							Parent = iteration5.optionbutton,
-							AnchorPoint = Vector2.new(0, 0.5),
-							Position = UDim2.fromOffset(iteration5.x, 16),
-							Size = UDim2.fromOffset(18, 18),
-							BackgroundTransparency = 1,
-							BorderSizePixel = 0,
-							Image = iteration5.asset,
-							ImageColor3 = S.theme.text2,
-							ScaleType = Enum.ScaleType.Fit,
-							ZIndex = 515,
-						}, { ImageColor3 = "text2" })
-						
-					end
-
-					if iteration5.color then
-						iteration5.swatch = S.rawnew("Frame", {
-							Parent = iteration5.optionbutton,
-							AnchorPoint = Vector2.new(0, 0.5),
-							Position = UDim2.fromOffset(iteration5.x, 16),
-							Size = UDim2.fromOffset(10, 10),
-							BackgroundColor3 = iteration5.color,
-							BorderSizePixel = 0,
-							ZIndex = 515,
-						})
-						S.corner(iteration5.swatch, 3)
-						S.stroke(iteration5.swatch, 0.62, S.theme.border, 0.5)
-						
-					end
-
-					iteration5.binding = optionbinding(option)
-
-					S.attachtoggleconfig(iteration5.optionbutton, iteration5.binding)
-
-					iteration5.optionkey = S.label(
-						iteration5.optionbutton,
-						"",
-						UDim2.fromOffset(0, 25),
-						S.medium,
-						S.theme.text3
-					)
-					iteration5.optionkey.AnchorPoint = Vector2.new(1, 0.5)
-					iteration5.optionkey.Position = UDim2.new(1, -(S.dropdownlayout.RightInset - S.dropdownlayout.ListInset), 0.5, 0)
-					iteration5.optionkey.TextSize = 14
-					iteration5.optionkey.TextXAlignment = Enum.TextXAlignment.Center
-					iteration5.optionkey.Visible = false
-					iteration5.optionkey.ZIndex = 516
-
-					iteration5.optionlabel = S.label(
-						iteration5.optionbutton,
-						tostring(option),
-						UDim2.new(1, -(iteration5.x + 8), 1, 0),
-						S.font,
-						option == selected and S.theme.text or S.theme.text2
-					)
-					iteration5.optionlabel.Position = UDim2.fromOffset(iteration5.x, 0)
-					iteration5.optionlabel.TextSize = 17
-					iteration5.optionlabel.Visible = true
-					S.tween(iteration5.optionlabel, { TextTransparency = 0 }, TweenInfo.new(0))
-					iteration5.optionlabel.ZIndex = 515
-
-					iteration5.renderoptionkey = function(keyname, bounds, width)
-						if not iteration5.optionkey.Parent or not iteration5.optionlabel.Parent then
-							return
-						end
-
-						if not iteration5.binding.key then
-							iteration5.optionkey.Visible = false
-							local left = S.layoutdropdowndecorations(iteration5.optionicon, iteration5.swatch, iteration5.x)
-							iteration5.optionlabel.Position = UDim2.fromOffset(left, 0)
-							iteration5.optionlabel.Size = UDim2.new(1, -(left + 8), 1, 0)
-							return
-						end
-
-						keyname = S.togglekeyname(iteration5.binding.key)
-
-						bounds = S.measuretext(keyname, 14, S.medium, Vector2.new(120, 25))
-
-						width = math.clamp(math.ceil(bounds.X) + 14, 28, 72)
-
-						iteration5.optionkey.Text = keyname
-						iteration5.optionkey.Size = UDim2.fromOffset(width, 25)
-						iteration5.optionkey.Visible = true
-
-						local left = S.layoutdropdowndecorations(iteration5.optionicon, iteration5.swatch, iteration5.x)
-						iteration5.optionlabel.Position = UDim2.fromOffset(left, 0)
-						iteration5.optionlabel.Size = UDim2.new(1, -(left + width + 13), 1, 0)
-					end
-
-					iteration5.binding.refreshkey = iteration5.renderoptionkey
-
-					iteration5.renderoptionkey()
-
-					optionrows[#optionrows + 1] = {
-						value = option,
-						button = iteration5.optionbutton,
-					}
-
-					iteration5.optionbutton.MouseEnter:Connect(
-						function()
-							S.tween(
-								iteration5.optionlabel,
-								{ TextColor3 = S.theme.text },
-								S.hoverti,
-								nil,
-								{ TextColor3 = "text" }
-							)
-						end
-					)
-
-					iteration5.optionbutton.MouseLeave:Connect(
-						function()
-							S.tween(iteration5.optionlabel, {
-								TextColor3 = option == selected and S.theme.text or S.theme.text2,
-							}, S.hoverti)
-						end
-					)
-
-					iteration5.optionbutton.Activated:Connect(function()
-						if popup.closing then return end
-						if iteration5.binding.suppressclick then
-							iteration5.binding.suppressclick = false
-							return
-						end
-
-						setselected(option, true)
-
-						S.closepopup(popup)
-					end)
-				end
-
-				if searchbox then
-					searchbox:GetPropertyChangedSignal("Text"):Connect(function(query, value2)
-						query = string.lower(S.plaintext(searchbox.Text))
-
-						for _, data in ipairs(optionrows) do
-							value2 = string.lower(S.plaintext(tostring(data.value)))
-							data.button.Visible = query == ""
-								or string.find(value2, query, 1, true) ~= nil
-						end
-
-						for _, dividerrow in ipairs(dividerrows) do
-							dividerrow.Visible = query == ""
-						end
-					end)
-
-				end
-				S.revealdropdown(popup)
-			end
-		)
-
-		register(holder, name)
-
-		return {
-			Get = function() return selected end,
-			KeyPicker = keycontrol,
-			KeyObject = keycontrol and keycontrol.Object,
-
-			Set = function(_, option, fire) setselected(option, fire) end,
-
-			SetOptions = function(_, newoptions, preferred)
-				if S.activepopup and S.activepopup.anchor == button6 then S.closepopup(S.activepopup) end
-				clearoptionbindings()
-				options, dividerbefore, optioncolors, optionicons = S.normalizedropdownoptions(newoptions, config)
-
-				if preferred and table.find(options, preferred) then
-					selected = preferred
-				elseif not table.find(options, selected) then
-					selected = options[1] or "None"
-				end
-
-				for _, option in ipairs(options) do
-					optionbinding(option)
-				end
-
-				updatepreview()
-
-				for _, binding in pairs(optionbindings) do
-					S.requestkeybindrefresh(binding)
-				end
-			end,
-			Object = holder,
-			TextObject = title,
-		}
+		controller.Toggle = controller.Toggle
+		controller.KeyObject = controller.Toggle and controller.Toggle.KeyObject or controller.KeyPicker and controller.KeyPicker.Object
+		controller.SetEnabled = function(self, value, fire) if self.Toggle then self.Toggle:Set(value, fire); return true end return false end
+		controller.GetEnabled = function(self) return self.Toggle and self.Toggle:Get() or false end
+		return controller
 	end
 
 	-- player dropdown
 
-	function section:AddPlayerDropdown(
-		name,
-		options,
-		default,
-		callback,
-		target,
-		config,
-		parentobject,
-		searchable,
-		playersdivider,
-		multiselect,
-		includeeveryone,
-		everyonevalue,
-		optionicons,
-		optioncolors,
-		optiondividers,
-		selected,
-		holder,
-		title,
-		button7,
-		display,
-		arrow,
-		selectedvalues,
-		refreshdisplay,
-		layoutpreview,
-		fireselection,
-		issel,
-		selectvalue,
-		previewcache
-	)
+	function section:AddPlayerDropdown(name, options, default, callback, target, config)
 		if type(options) ~= "table" then
 			config = target or {}
 			target = callback
@@ -11617,785 +11762,32 @@ function S.createsection(
 			default = options
 			options = {}
 		end
-
-		config = config or {}
-		options = options or {}
-
-		parentobject = target or body
-		searchable = config.searchable ~= false and config.Searchable ~= false
-		playersdivider = config.playersDivider
-		multiselect = config.multiselect == true or config.multi == true
-		includeeveryone = config.everyone ~= false
-		everyonevalue = "Everyone"
-		options, optiondividers, optioncolors, optionicons = S.normalizedropdownoptions(options, config)
-
-		local refreshplayerpopup
-		local function availableplayers(excluding)
-			local result = {}
-			for _, targetplayer in ipairs(S.players:GetPlayers()) do
-				if targetplayer ~= S.player and targetplayer ~= excluding then result[#result + 1] = targetplayer end
-			end
-			return result
-		end
-		local othercount = #availableplayers()
-		selected = multiselect and {} or default
-		if multiselect then
-			for _, value in ipairs(type(default) == "table" and default or {}) do
-				if value ~= S.player and (value ~= everyonevalue or othercount > 0) then selected[value] = true end
-			end
-		elseif selected == S.player or selected == everyonevalue and othercount == 0 then
-			selected = nil
-		end
-
-		holder = S.new("Frame", {
-			Parent = parentobject,
-			Size = UDim2.new(1, 0, 0, 57),
-			BackgroundTransparency = 1,
-			BorderSizePixel = 0,
-			ZIndex = 15,
+		config = type(config) == "table" and config or {}
+		local optionbindings = {}
+		local multi = config.multiselect == true or config.multi == true
+		local controller = S.createdropdown(section, {
+			name = name, options = options, default = default, callback = callback, target = target, config = config,
+			optionbindings = optionbindings, multi = multi, player = true, everyone = config.everyone == true,
+			playersdivider = config.playersDivider,
 		})
-
-		title = S.label(holder, name, UDim2.new(1, 0, 0, 18), S.font)
-		title.TextSize = 18
-		title.Position = UDim2.fromOffset(S.dropdownlayout.Inset, 0)
-		title.Size = UDim2.new(1, -S.dropdownlayout.Inset, 0, 18)
-
-		button7 = S.new("TextButton", {
-			Parent = holder,
-			Position = UDim2.fromOffset(0, 25),
-			Size = UDim2.new(1, 0, 0, 32),
-			BackgroundColor3 = S.theme.input,
-			BorderSizePixel = 0,
-			Text = "",
-			AutoButtonColor = false,
-			ZIndex = 16,
-		}, { BackgroundColor3 = "input" })
-		S.corner(button7, 7)
-		S.mergedropdown(holder, button7)
-
-		display = S.label(button7, "Select player", UDim2.new(1, -38, 1, 0), S.font, S.theme.text2)
-		display.Position = UDim2.fromOffset(S.dropdownlayout.Inset, 0)
-		display.TextSize = 17
-		display.TextTruncate = Enum.TextTruncate.None
-		display.TextWrapped = multiselect
-		display.ZIndex = 17
-
-		arrow = S.image(button7, S.icons.down, 14, S.theme.text3, 17)
-		arrow.AnchorPoint = Vector2.new(1, 0.5)
-		arrow.Position = UDim2.new(1, -S.dropdownlayout.RightInset, 0.5, 0)
-
-		selectedvalues = function(result)
-			if not multiselect then return selected end
-
-			result = {}
-			if includeeveryone and selected[everyonevalue] then
-				result[#result + 1] = everyonevalue
-			end
-			for _, option in ipairs(options) do
-				if selected[option] then result[#result + 1] = option end
-			end
-			for _, targetplayer in ipairs(S.players:GetPlayers()) do
-				if targetplayer ~= S.player and selected[targetplayer] then
-					result[#result + 1] = targetplayer
+		local function handleplayerremoved(leaving)
+			if multi then
+				if controller:Get() then
+					local values = controller:Get()
+					local filtered = {}
+					for _, value in ipairs(values) do if value ~= leaving then filtered[#filtered + 1] = value end end
+					if #filtered ~= #values then controller:Set(filtered, true) end
 				end
-			end
-			return result
+			elseif controller:Get() == leaving then controller:Set(nil, true) end
+			local header = controller.Object:FindFirstChild("DropdownRoot") and controller.Object.DropdownRoot:FindFirstChild("Header")
+			if S.activepopup and header and S.activepopup.anchor == header then S.closepopup() end
 		end
-
-		layoutpreview = function(width, measured, height)
-			width = math.max(1, display.AbsoluteSize.X)
-			if
-				previewcache
-				and previewcache.width == width
-				and previewcache.text == display.Text
-				and previewcache.font == display.Font
-				and previewcache.size == display.TextSize
-			then
-				return
-			end
-			previewcache =
-				{ width = width, text = display.Text, font = display.Font, size = display.TextSize }
-			measured = S.measuretext(
-				display.Text,
-				display.TextSize,
-				display.Font,
-				Vector2.new(width, 10000)
-			)
-			height = math.max(32, math.ceil(measured.Y) + 12)
-			button7.Size = UDim2.new(1, 0, 0, height)
-			local baseheight = 25 + height
-			holder:SetAttribute("BlushDropdownBaseHeight", baseheight)
-			local popup = S.activepopup
-			if popup and popup.anchor == button7 then
-				popup.baseheight = baseheight
-				popup.panel.Position = UDim2.fromOffset(0, height)
-				S.tween(holder, { Size = UDim2.new(1, 0, 0, baseheight + popup.height) }, S.dropti)
-			else
-				S.tween(holder, { Size = UDim2.new(1, 0, 0, baseheight) }, S.tabti)
-			end
-		end
-		display:GetPropertyChangedSignal("Text"):Connect(layoutpreview)
-		display:GetPropertyChangedSignal("AbsoluteSize"):Connect(layoutpreview)
-		display:GetPropertyChangedSignal("TextSize"):Connect(layoutpreview)
-		display:GetPropertyChangedSignal("Font"):Connect(layoutpreview)
-
-		local previewicon
-		local previewcolor
-		local function updatepreviewdecorations()
-			local asset = not multiselect and optionicons[selected]
-			local color = not multiselect and optioncolors[selected]
-			if asset then
-				if not previewicon then previewicon = S.image(button7, asset, S.dropdownlayout.IconSize, S.theme.text2, 18)
-				else previewicon.Image = asset end
-			elseif previewicon then previewicon:Destroy(); previewicon = nil end
-			if color then
-				if not previewcolor then
-					previewcolor = S.rawnew("Frame", { Parent = button7, Size = UDim2.fromOffset(S.dropdownlayout.ColorSize, S.dropdownlayout.ColorSize), BackgroundColor3 = color, BorderSizePixel = 0, ZIndex = 18 })
-					S.corner(previewcolor, 3)
-				else previewcolor.BackgroundColor3 = color end
-			elseif previewcolor then previewcolor:Destroy(); previewcolor = nil end
-			local left = S.layoutdropdowndecorations(previewicon, previewcolor, S.dropdownlayout.Inset)
-			display.Position = UDim2.fromOffset(left, 0)
-			display.Size = UDim2.new(1, -left - 28, 1, 0)
-		end
-		refreshdisplay = function(values, names)
-			updatepreviewdecorations()
-			if multiselect then
-				values = selectedvalues()
-				if #values == 0 then
-					display.Text = "Select players"
-					S.bindtheme(display, "TextColor3", S.theme.text2, "text2")
-					display.TextColor3 = S.theme.text2
-					return
-				end
-
-				names = {}
-				for _, value in ipairs(values) do
-					names[#names + 1] = typeof(value) == "Instance"
-							and value:IsA("Player")
-							and value.DisplayName
-						or tostring(value)
-				end
-				display.Text = table.concat(names, ", ")
-				S.bindtheme(display, "TextColor3", S.theme.text, "text")
-				display.TextColor3 = S.theme.text
-				return
-			end
-
-			if typeof(selected) == "Instance" and selected:IsA("Player") then
-				display.Text = selected.DisplayName
-				S.bindtheme(display, "TextColor3", S.theme.text, "text")
-				display.TextColor3 = S.theme.text
-			elseif selected ~= nil then
-				display.Text = tostring(selected)
-				S.bindtheme(display, "TextColor3", S.theme.text, "text")
-				display.TextColor3 = S.theme.text
-			else
-				display.Text = "Select player"
-				S.bindtheme(display, "TextColor3", S.theme.text2, "text2")
-				display.TextColor3 = S.theme.text2
-			end
-		end
-
-		fireselection = function()
-			if callback then callback(selectedvalues()) end
-		end
-
-		issel = function(value) return multiselect and selected[value] == true or selected == value end
-
-		selectvalue = function(value, fire, nextstate)
-			if value == S.player then return end
-
-			if multiselect then
-				nextstate = not selected[value]
-
-				if value == everyonevalue and includeeveryone then
-					if nextstate then
-						for key in pairs(selected) do
-							if typeof(key) == "Instance" and key:IsA("Player") then
-								selected[key] = nil
-							end
-						end
-						selected[value] = true
-					else
-						selected[value] = nil
-					end
-				elseif typeof(value) == "Instance" and value:IsA("Player") then
-					selected[everyonevalue] = nil
-					selected[value] = nextstate and true or nil
-				else
-					selected[value] = nextstate and true or nil
-				end
-			else
-				selected = value
-			end
-
-			refreshdisplay()
-			if fire ~= false then fireselection() end
-		end
-
-		refreshdisplay()
-
-		button7.MouseEnter:Connect(function()
-			S.tween(display, { TextColor3 = S.theme.text }, S.hoverti, nil, { TextColor3 = "text" })
-			S.tween(
-				arrow,
-				{ ImageColor3 = S.theme.text2 },
-				S.hoverti,
-				nil,
-				{ ImageColor3 = "text2" }
-			)
-		end)
-		button7.MouseLeave:Connect(function()
-			refreshdisplay()
-			S.tween(
-				arrow,
-				{ ImageColor3 = S.theme.text3 },
-				S.hoverti,
-				nil,
-				{ ImageColor3 = "text3" }
-			)
-		end)
-
-		button7.Activated:Connect(
-			function(
-				currentplayers,
-				usesearch,
-				panel,
-				popup,
-				searchheight,
-				playersearch,
-				searchframe,
-				searchicon,
-				scroll,
-				rows,
-				makerow,
-				divider2,
-				dividerrow,
-				line,
-				divlabel,
-				dividerrow2,
-				dividertext,
-				bounds,
-				labelwidth,
-				halfgap,
-				leftline,
-				rightline,
-				divlabel2,
-				line2,
-				empty,
-				emptyicon,
-				emptytitle,
-				emptytext
-			)
-				if S.activepopup and S.activepopup.anchor == button7 then
-					S.closepopup()
-					return
-				end
-
-				currentplayers = availableplayers()
-				othercount = #currentplayers
-
-				usesearch = searchable
-				panel, popup = dropdownpopup(button7)
-				if not panel or not popup then return end
-				S.rotatedropdownarrow(arrow, true)
-				popup.onclose = function()
-					refreshplayerpopup = nil
-					S.rotatedropdownarrow(arrow, false)
-				end
-
-				searchheight = usesearch and 38 or 0
-				playersearch = nil
-
-				if usesearch then
-					searchframe = S.new("Frame", {
-						Parent = panel,
-						Position = UDim2.fromOffset(6, 6),
-						Size = UDim2.new(1, -12, 0, 32),
-						BackgroundColor3 = S.theme.input,
-						BackgroundTransparency = 0.06,
-						BorderSizePixel = 0,
-						ClipsDescendants = true,
-						ZIndex = 514,
-					}, { BackgroundColor3 = "input" })
-					S.corner(searchframe, 7)
-
-					searchicon = S.image(searchframe, S.icons.search, 17, S.theme.text3, 515)
-					searchicon.AnchorPoint = Vector2.new(0, 0.5)
-					searchicon.Position = UDim2.fromOffset(9, 16)
-
-					playersearch = S.new("TextBox", {
-						Parent = searchframe,
-						Position = UDim2.fromOffset(33, 0),
-						Size = UDim2.new(1, -41, 1, 0),
-						BackgroundTransparency = 1,
-						BorderSizePixel = 0,
-						Text = "",
-						PlaceholderText = "Search...",
-						PlaceholderColor3 = S.theme.text3,
-						TextColor3 = S.theme.text,
-						Font = S.font,
-						TextSize = 16,
-						TextXAlignment = Enum.TextXAlignment.Left,
-						ClearTextOnFocus = false,
-						ZIndex = 515,
-					}, { PlaceholderColor3 = "text3", TextColor3 = "text" })
-				end
-
-				scroll = S.new("ScrollingFrame", {
-					Parent = panel,
-					Position = UDim2.fromOffset(S.dropdownlayout.ListInset, searchheight),
-					Size = UDim2.new(1, -S.dropdownlayout.ListInset * 2, 1, -searchheight),
-					BackgroundTransparency = 1,
-					BorderSizePixel = 0,
-					CanvasSize = UDim2.new(),
-					AutomaticCanvasSize = Enum.AutomaticSize.Y,
-					ScrollBarThickness = 0,
-					ScrollBarImageTransparency = 0.56,
-					ScrollBarImageColor3 = S.theme.scroll,
-					ZIndex = 512,
-				}, { ScrollBarImageColor3 = "scroll" })
-				S.binddropdownlayout(panel, popup, scroll)
-				binddropdownscrollbar(scroll, 2)
-
-				local dividerrows
-				local applysearch
-				local function rebuild(excluding)
-					currentplayers = availableplayers(excluding)
-					othercount = #currentplayers
-					for _, child in ipairs(scroll:GetChildren()) do
-						if child:IsA("GuiObject") then child:Destroy() end
-					end
-					rows = {}
-					dividerrows = {}
-
-					makerow = function(
-						value,
-						textvalue,
-						searchvalue,
-						usernamevalue,
-						playerrow,
-						rowicon,
-						iseveryone,
-						rowheight,
-						row,
-						left,
-						playericon,
-						rowlabel,
-						usernamelabel,
-						selectedstroke,
-						selectedicon,
-						data,
-						renderselected
-					)
-						iseveryone = value == everyonevalue
-						rowheight = playerrow and 46 or (iseveryone and 36 or 32)
-						row = S.new("TextButton", {
-							Parent = scroll,
-							Size = UDim2.new(1, 0, 0, rowheight),
-							BackgroundTransparency = 1,
-							BorderSizePixel = 0,
-							Text = "",
-							AutoButtonColor = false,
-							ZIndex = 514,
-						})
-
-						left = S.dropdownlayout.Inset - S.dropdownlayout.ListInset
-						playericon = nil
-						if playerrow and typeof(value) == "Instance" and value:IsA("Player") then
-							playericon = S.rawnew("ImageLabel", {
-								Parent = row,
-								AnchorPoint = Vector2.new(0, 0.5),
-								Position = UDim2.fromOffset(7, rowheight * 0.5),
-								Size = UDim2.fromOffset(34, 34),
-								BackgroundTransparency = 1,
-								BorderSizePixel = 0,
-								Image = S.getplayerthumbnail(value),
-								ScaleType = Enum.ScaleType.Crop,
-								ZIndex = 515,
-							})
-							S.corner(playericon, 7)
-							left = 47
-						elseif rowicon then
-							playericon = S.image(row, rowicon, 15, S.theme.text3, 515)
-							playericon.AnchorPoint = Vector2.new(0, 0.5)
-							playericon.Position = UDim2.fromOffset(8, rowheight * 0.5)
-							playericon.ImageTransparency = 0.08
-							left = 31
-						elseif optionicons[value] then
-							playericon = S.image(row, optionicons[value], S.dropdownlayout.IconSize, S.theme.text3, 515)
-						end
-
-						local swatch
-						if optioncolors[value] then
-							swatch = S.rawnew("Frame", { Parent = row, Size = UDim2.fromOffset(S.dropdownlayout.ColorSize, S.dropdownlayout.ColorSize), BackgroundColor3 = optioncolors[value], BorderSizePixel = 0, ZIndex = 515 })
-							S.corner(swatch, 3)
-						end
-						left = S.layoutdropdowndecorations(not playerrow and not rowicon and playericon or nil, swatch, left)
-						local right = 36
-						rowlabel = S.label(
-							row,
-							textvalue,
-							UDim2.new(1, -(left + right), 0, playerrow and 20 or rowheight),
-							playerrow and S.medium or S.font,
-							issel(value) and S.theme.text or S.theme.text2
-						)
-						rowlabel.Position = UDim2.fromOffset(left, playerrow and 4 or 0)
-						rowlabel.TextSize = playerrow and 15 or (iseveryone and 17 or 17)
-						rowlabel.TextTruncate = Enum.TextTruncate.AtEnd
-						rowlabel.ZIndex = 515
-
-						usernamelabel = nil
-						if playerrow then
-							usernamelabel = S.label(
-								row,
-								"@" .. tostring(usernamevalue or ""),
-								UDim2.new(1, -(left + 38), 0, 17),
-								S.font,
-								S.theme.text3
-							)
-							usernamelabel.Position = UDim2.fromOffset(left, 21)
-							usernamelabel.TextSize = 12
-							usernamelabel.TextTruncate = Enum.TextTruncate.AtEnd
-							usernamelabel.ZIndex = 515
-						end
-						selectedstroke = nil
-						selectedicon = S.new("ImageLabel", {
-							Parent = row,
-							Size = UDim2.fromOffset(14, 15),
-							BackgroundTransparency = 1,
-							BorderSizePixel = 0,
-							Image = S.icons.check,
-							ImageColor3 = S.theme.text2,
-							ScaleType = Enum.ScaleType.Fit,
-							ZIndex = 516,
-						}, { ImageColor3 = "text2" })
-						selectedicon.AnchorPoint = Vector2.new(1, 0.5)
-						selectedicon.Position = UDim2.new(1, -(S.dropdownlayout.RightInset - S.dropdownlayout.ListInset), 0.5, 0)
-						S.tween(selectedicon, { ImageTransparency = issel(value) and 0 or 1 }, TweenInfo.new(0))
-						S.bindtheme(selectedicon, "ImageColor3", S.theme.text2, "text2")
-
-						data = {
-							value = value,
-							button = row,
-							label = rowlabel,
-							username = usernamelabel,
-							icon = playericon,
-							selectedstroke = selectedstroke,
-							selectedicon = selectedicon,
-							search = string.lower(searchvalue),
-						}
-						rows[#rows + 1] = data
-
-						renderselected = function(animate, selectednow, labelcolor)
-							selectednow = issel(value)
-							labelcolor = selectednow and S.theme.text or S.theme.text2
-
-							if animate then
-								S.tween(rowlabel, { TextColor3 = labelcolor }, S.hoverti)
-								S.tween(
-									selectedicon,
-									{ ImageTransparency = selectednow and 0 or 1 },
-									S.hoverti
-								)
-							else
-								rowlabel.TextColor3 = labelcolor
-								S.tween(selectedicon, { ImageTransparency = selectednow and 0 or 1 }, TweenInfo.new(0))
-							end
-						end
-
-						row.MouseEnter:Connect(function()
-							S.tween(
-								rowlabel,
-								{ TextColor3 = S.theme.text },
-								S.hoverti,
-								nil,
-								{ TextColor3 = "text" }
-							)
-							if usernamelabel then
-								S.tween(
-									usernamelabel,
-									{ TextColor3 = S.theme.text2 },
-									S.hoverti,
-									nil,
-									{ TextColor3 = "text2" }
-								)
-							end
-						end)
-
-						row.MouseLeave:Connect(function()
-							renderselected(true)
-							if usernamelabel then
-								S.tween(
-									usernamelabel,
-									{ TextColor3 = S.theme.text3 },
-									S.hoverti,
-									nil,
-									{ TextColor3 = "text3" }
-								)
-							end
-						end)
-
-						row.Activated:Connect(function(selectednow)
-							if popup.closing then return end
-							selectvalue(value, true)
-							for _, rowdata in ipairs(rows) do
-								selectednow = issel(rowdata.value)
-								S.tween(rowdata.label, {
-									TextColor3 = selectednow and S.theme.text or S.theme.text2,
-								}, S.hoverti)
-								if rowdata.selectedicon then
-									S.tween(
-										rowdata.selectedicon,
-										{ ImageTransparency = selectednow and 0 or 1 },
-										S.hoverti
-									)
-								end
-							end
-							if not multiselect then S.closepopup(popup) end
-						end)
-					end
-
-					if includeeveryone and #currentplayers > 0 then
-						makerow(
-							everyonevalue,
-							"Everyone",
-							"everyone all players",
-							nil,
-							false,
-							S.icons.usersround
-						)
-					end
-
-					for _, option in ipairs(options) do
-						divider2 = optiondividers[option]
-						if divider2 ~= nil then
-							dividerrow = S.new("Frame", {
-								Parent = scroll,
-								Size = UDim2.new(
-									1,
-									0,
-									0,
-									(divider2 == true or divider2 == "") and 14 or 20
-								),
-								BackgroundTransparency = 1,
-								BorderSizePixel = 0,
-								ZIndex = 514,
-							})
-							dividerrows[#dividerrows + 1] = dividerrow
-							if divider2 == true or divider2 == "" then
-								line = S.new("Frame", {
-									Parent = dividerrow,
-									AnchorPoint = Vector2.new(0.5, 0.5),
-									Position = UDim2.fromScale(0.5, 0.5),
-									Size = UDim2.new(1, -14, 0, 1),
-									BackgroundColor3 = S.theme.border,
-									BackgroundTransparency = 0.38,
-									BorderSizePixel = 0,
-									ZIndex = 515,
-								}, { BackgroundColor3 = "border" })
-								S.corner(line, 999)
-							else
-								divlabel = S.label(
-									dividerrow,
-									S.plaintext(tostring(divider2)),
-									UDim2.new(1, -14, 1, 0),
-									S.medium,
-									S.theme.text3
-								)
-								divlabel.Position = UDim2.fromOffset(7, 0)
-								divlabel.TextSize = 14
-								divlabel.ZIndex = 515
-							end
-						end
-						makerow(option, tostring(option), tostring(option))
-					end
-
-					dividerrow2 = nil
-					if (#options > 0 or includeeveryone) and #currentplayers > 0 then
-						dividerrow2 = S.new("Frame", {
-							Parent = scroll,
-							Size = UDim2.new(
-								1,
-								0,
-								0,
-								(playersdivider and playersdivider ~= "") and 14 or 6
-							),
-							BackgroundTransparency = 1,
-							BorderSizePixel = 0,
-							ZIndex = 514,
-						})
-
-						if playersdivider and playersdivider ~= "" then
-							dividertext = S.plaintext(tostring(playersdivider))
-							bounds = S.measuretext(dividertext, 16, S.medium, Vector2.new(240, 24))
-							labelwidth = math.max(48, math.ceil(bounds.X) + 14)
-							halfgap = labelwidth * 0.5 + 8
-
-							leftline = S.new("Frame", {
-								Parent = dividerrow2,
-								AnchorPoint = Vector2.new(0, 0.5),
-								Position = UDim2.new(0, 7, 0.5, 0),
-								Size = UDim2.new(0.5, -(halfgap + 7), 0, 1),
-								BackgroundColor3 = S.theme.border,
-								BackgroundTransparency = 0.42,
-								BorderSizePixel = 0,
-								ZIndex = 515,
-							}, { BackgroundColor3 = "border" })
-							S.corner(leftline, 999)
-
-							rightline = S.new("Frame", {
-								Parent = dividerrow2,
-								AnchorPoint = Vector2.new(1, 0.5),
-								Position = UDim2.new(1, -7, 0.5, 0),
-								Size = UDim2.new(0.5, -(halfgap + 7), 0, 1),
-								BackgroundColor3 = S.theme.border,
-								BackgroundTransparency = 0.42,
-								BorderSizePixel = 0,
-								ZIndex = 515,
-							}, { BackgroundColor3 = "border" })
-							S.corner(rightline, 999)
-
-							divlabel2 = S.label(
-								dividerrow2,
-								dividertext,
-								UDim2.fromOffset(labelwidth, 24),
-								S.medium,
-								S.theme.text3
-							)
-							divlabel2.AnchorPoint = Vector2.new(0.5, 0.5)
-							divlabel2.Position = UDim2.fromScale(0.5, 0.5)
-							divlabel2.TextSize = 16
-							divlabel2.TextXAlignment = Enum.TextXAlignment.Center
-							divlabel2.ZIndex = 516
-						else
-							line2 = S.new("Frame", {
-								Parent = dividerrow2,
-								AnchorPoint = Vector2.new(0.5, 0.5),
-								Position = UDim2.fromScale(0.5, 0.5),
-								Size = UDim2.new(1, -14, 0, 1),
-								BackgroundColor3 = S.theme.border,
-								BackgroundTransparency = 0.42,
-								BorderSizePixel = 0,
-								ZIndex = 515,
-							}, { BackgroundColor3 = "border" })
-							S.corner(line2, 999)
-						end
-					end
-
-					for _, targetplayer in ipairs(currentplayers) do
-						makerow(
-							targetplayer,
-							targetplayer.DisplayName,
-							targetplayer.DisplayName .. " " .. targetplayer.Name,
-							targetplayer.Name,
-							true
-						)
-					end
-
-					if #currentplayers == 0 then
-						empty = S.new("Frame", {
-							Parent = scroll,
-							Size = UDim2.new(1, 0, 0, 56),
-							BackgroundTransparency = 1,
-							BorderSizePixel = 0,
-							ZIndex = 514,
-						})
-
-						emptyicon = S.image(empty, S.icons.coffee, 17, S.theme.text3, 515)
-						emptyicon.AnchorPoint = Vector2.new(0.5, 0.5)
-						emptyicon.Position = UDim2.fromOffset(19, 28)
-						emptyicon.ImageTransparency = 0.08
-
-						emptytitle =
-							S.label(empty, "No other players", UDim2.new(1, -52, 0, 22), S.medium, S.theme.text2)
-						emptytitle.Position = UDim2.fromOffset(38, 8)
-						emptytitle.TextSize = 15
-						emptytitle.ZIndex = 515
-
-						emptytext =
-							S.label(empty, "You're the only player here", UDim2.new(1, -52, 0, 18), S.font, S.theme.text3)
-						emptytext.Position = UDim2.fromOffset(38, 28)
-						emptytext.TextSize = 13
-						emptytext.ZIndex = 515
-					end
-
-					if applysearch then applysearch() end
-				end
-				rebuild()
-				refreshplayerpopup = rebuild
-
-				applysearch = function()
-					local query = playersearch and string.lower(S.plaintext(playersearch.Text)) or ""
-					for _, data in ipairs(rows) do
-						data.button.Visible = query == "" or string.find(data.search, query, 1, true) ~= nil
-					end
-					if dividerrow2 then dividerrow2.Visible = query == "" end
-					for _, divider in ipairs(dividerrows) do divider.Visible = query == "" end
-				end
-				if playersearch then S.connect(playersearch:GetPropertyChangedSignal("Text"), applysearch, popup.panel) end
-				S.revealdropdown(popup)
-
-			end
-		)
-
-		register(holder, name)
-
+		S.connect(S.players.PlayerRemoving, handleplayerremoved, controller.Object)
 		S.connect(S.players.PlayerAdded, function()
-			if S.activepopup and S.activepopup.anchor == button7 then
-				if refreshplayerpopup then refreshplayerpopup() end
-			end
-		end, holder)
-
-		S.connect(S.players.PlayerRemoving, function(leaving)
-			local changed = false
-			if multiselect then
-				if selected[leaving] then
-					selected[leaving] = nil
-					changed = true
-				end
-			elseif selected == leaving then
-				selected = nil
-				changed = true
-			end
-
-			othercount = #availableplayers(leaving)
-			if othercount == 0 then
-				if multiselect and selected[everyonevalue] then selected[everyonevalue] = nil; changed = true
-				elseif not multiselect and selected == everyonevalue then selected = nil; changed = true end
-			end
-			refreshdisplay()
-			if changed then fireselection() end
-			if S.activepopup and S.activepopup.anchor == button7 then
-				if refreshplayerpopup then refreshplayerpopup(leaving) end
-			end
-		end, holder)
-
-		return {
-			Get = function() return selectedvalues() end,
-			Set = function(_, value, fire)
-				if multiselect then
-					table.clear(selected)
-					for _, entry in ipairs(type(value) == "table" and value or {}) do
-						if entry ~= S.player and (entry ~= everyonevalue or #availableplayers() > 0) then selected[entry] = true end
-					end
-				else
-					selected = value
-					if value == S.player or value == everyonevalue and #availableplayers() == 0 then selected = nil end
-				end
-				refreshdisplay()
-				if fire ~= false then fireselection() end
-			end,
-			SetOptions = function(_, newoptions)
-				if S.activepopup and S.activepopup.anchor == button7 then S.closepopup(S.activepopup) end
-				options, optiondividers, optioncolors, optionicons = S.normalizedropdownoptions(newoptions, config)
-				refreshdisplay()
-			end,
-			Multi = multiselect,
-			Object = holder,
-			TextObject = title,
-		}
+			local header = controller.Object:FindFirstChild("DropdownRoot") and controller.Object.DropdownRoot:FindFirstChild("Header")
+			if S.activepopup and header and S.activepopup.anchor == header then S.closepopup() end
+		end, controller.Object)
+		return controller
 	end
 
 	function section:AddMultiPlayerDropdown(name, default, callback, target, config)
@@ -12406,461 +11798,27 @@ function S.createsection(
 
 	-- multiselect
 
-	function section:AddMultiDropdown(
-		name,
-		options,
-		default,
-		callback,
-		target,
-		config,
-		parentobject,
-		keypickerenabled,
-		keypickerlabel,
-		keyformatter,
-		selected,
-		holder,
-		title,
-		button8,
-		valuetext,
-		arrow,
-		getselected,
-		refresh,
-		optionchecks,
-		optionmaker
-	)
-		parentobject = target or body
-
-		config = config or {}
-		local optiondividers
-		local optioncolors
-		local optionicons
-		options, optiondividers, optioncolors, optionicons = S.normalizedropdownoptions(options, config)
-		keypickerenabled = config.keypicker == true or config.KeyPicker == true
-		keypickerlabel = tostring(config.keypickerlabel or config.KeyPickerLabel or "Add key")
-		keyformatter = config.keyformatter or config.KeyFormatter
-
-		selected = {}
-		optionchecks = {}
-
-		for _, option in ipairs(default or {}) do
-			selected[option] = true
-		end
-
-		holder = S.new("Frame", {
-			Parent = parentobject,
-
-			Size = UDim2.new(1, 0, 0, 57),
-
-			BackgroundTransparency = 1,
-
-			ZIndex = 15,
+	function section:AddMultiDropdown(name, options, default, callback, target, config)
+		config = type(config) == "table" and config or {}
+		local controller = S.createdropdown(section, {
+			name = name, options = options, default = default, callback = callback, target = target, config = config,
+			optionbindings = {}, multi = true,
 		})
-
-		title = S.label(holder, name, UDim2.new(1, 0, 0, 18), S.font)
-
-		title.TextSize = 18
-		title.Position = UDim2.fromOffset(S.dropdownlayout.Inset, 0)
-		title.Size = UDim2.new(1, -S.dropdownlayout.Inset, 0, 18)
-
-		button8 = S.new("TextButton", {
-			Parent = holder,
-
-			Position = UDim2.fromOffset(0, 25),
-
-			Size = UDim2.new(1, 0, 0, 32),
-
-			BackgroundColor3 = S.theme.input,
-
-			BorderSizePixel = 0,
-
-			Text = "",
-			AutoButtonColor = false,
-
-			ZIndex = 16,
-		}, { BackgroundColor3 = "input" })
-
-		S.corner(button8, 7)
-		S.mergedropdown(holder, button8)
-
-		valuetext = S.label(button8, "", UDim2.new(1, -38, 1, 0), S.font)
-
-		valuetext.Position = UDim2.fromOffset(S.dropdownlayout.Inset, 0)
-
-		valuetext.TextSize = 18
-
-		valuetext.TextTruncate = Enum.TextTruncate.AtEnd
-
-		valuetext.ZIndex = 17
-
-		arrow = S.image(button8, S.icons.down, 14, S.theme.text3, 17)
-
-		arrow.AnchorPoint = Vector2.new(1, 0.5)
-
-		arrow.Position = UDim2.new(1, -S.dropdownlayout.RightInset, 0.5, 0)
-
-		button8.MouseEnter:Connect(function()
-			S.tween(
-				valuetext,
-				{ TextColor3 = S.theme.text },
-				S.hoverti,
-				nil,
-				{ TextColor3 = "text" }
-			)
-			S.tween(
-				arrow,
-				{ ImageColor3 = S.theme.text2 },
-				S.hoverti,
-				nil,
-				{ ImageColor3 = "text2" }
-			)
-		end)
-		button8.MouseLeave:Connect(function()
-			S.tween(
-				valuetext,
-				{ TextColor3 = S.theme.text2 },
-				S.hoverti,
-				nil,
-				{ TextColor3 = "text2" }
-			)
-			S.tween(
-				arrow,
-				{ ImageColor3 = S.theme.text3 },
-				S.hoverti,
-				nil,
-				{ ImageColor3 = "text3" }
-			)
-		end)
-
-		getselected = function(result)
-			result = {}
-
-			for _, option in ipairs(options) do
-				if selected[option] then table.insert(result, option) end
+		local keyenabled = config.keypicker == true or config.KeyPicker == true
+		if keyenabled then
+			local label = tostring(config.keypickerlabel or config.KeyPickerLabel or "Add key")
+			local formatter = config.keyformatter or config.KeyFormatter
+			controller:AddKey = function(self, key)
+				local value = formatter and formatter(key) or S.togglekeyname(key)
+				value = tostring(value or "")
+				if value == "" or table.find(options, value) then return false end
+				options[#options + 1] = value
+				controller:Refresh(options)
+				return true
 			end
-
-			return result
+			controller.KeyPickerLabel = label
 		end
-
-		refresh = function(fire, values)
-			values = getselected()
-
-			valuetext.Text = #values > 0 and table.concat(values, ", ") or "None"
-
-			if fire and callback then callback(values) end
-			for option, data in pairs(optionchecks) do
-				if data.check.Parent then
-					data.check.ImageTransparency = selected[option] and 0 or 1
-				end
-			end
-		end
-
-		button8.Activated:Connect(
-			function(
-				panel,
-				popup,
-				keypickerowner,
-				keypickerlistening,
-				scroll,
-				pickerrow,
-				pickerlabel,
-				pickerkey
-			)
-				panel, popup = dropdownpopup(button8)
-
-				if not panel or not popup then return end
-
-				S.rotatedropdownarrow(arrow, true)
-
-				keypickerowner = nil
-				keypickerlistening = false
-
-				popup.onclose = function()
-					optionmaker = nil
-					table.clear(optionchecks)
-					if keypickerlistening and keypickerowner then
-						keypickerlistening = false
-						S.endkeycapture(keypickerowner, nil)
-					end
-
-					S.rotatedropdownarrow(arrow, false)
-				end
-
-				scroll = S.new("ScrollingFrame", {
-					Parent = panel,
-
-					Position = UDim2.fromOffset(S.dropdownlayout.ListInset, 0),
-
-					Size = UDim2.new(1, -S.dropdownlayout.ListInset * 2, 1, 0),
-
-					BackgroundTransparency = 1,
-
-					BorderSizePixel = 0,
-
-					CanvasSize = UDim2.new(),
-
-					AutomaticCanvasSize = Enum.AutomaticSize.Y,
-
-					ScrollBarThickness = 0,
-
-					ScrollBarImageTransparency = 0.56,
-
-					ScrollBarImageColor3 = S.theme.scroll,
-
-					ZIndex = 512,
-				}, { ScrollBarImageColor3 = "scroll" })
-
-				S.binddropdownlayout(panel, popup, scroll)
-				binddropdownscrollbar(scroll, 2)
-
-				if keypickerenabled then
-					pickerrow = S.dropdownrow(scroll, S.dropdownlayout.RowHeight, 514, S.theme.hover, "input")
-					S.keyeditbuttons[pickerrow] = true
-
-					pickerlabel = S.label(
-						pickerrow,
-						keypickerlabel,
-						UDim2.new(1, -70, 1, 0),
-						S.font,
-						S.theme.text2
-					)
-					pickerlabel.Position = UDim2.fromOffset(S.dropdownlayout.Inset - S.dropdownlayout.ListInset, 0)
-					pickerlabel.TextSize = 16
-					pickerlabel.ZIndex = 515
-
-					pickerkey = S.label(
-						pickerrow,
-						"Press",
-						UDim2.fromOffset(50, 24),
-						S.medium,
-						S.theme.text3
-					)
-					pickerkey.AnchorPoint = Vector2.new(1, 0.5)
-					pickerkey.Position = UDim2.new(1, -7, 0.5, 0)
-					pickerkey.BackgroundColor3 = S.theme.window
-					pickerkey.BackgroundTransparency = 0
-					S.bindtheme(pickerkey, "BackgroundColor3", S.theme.window, "window")
-					S.corner(pickerkey, 5)
-					pickerkey.TextSize = 14
-					pickerkey.TextXAlignment = Enum.TextXAlignment.Center
-					pickerkey.ZIndex = 515
-
-					keypickerowner = pickerrow
-
-					pickerrow.MouseEnter:Connect(
-						function()
-							S.tween(
-								pickerlabel,
-								{ TextColor3 = S.theme.text },
-								S.hoverti,
-								nil,
-								{ TextColor3 = "text" }
-							)
-						end
-					)
-
-					pickerrow.MouseLeave:Connect(
-						function()
-							S.tween(
-								pickerlabel,
-								{ TextColor3 = S.theme.text2 },
-								S.hoverti,
-								nil,
-								{ TextColor3 = "text2" }
-							)
-						end
-					)
-
-					pickerrow.Activated:Connect(function()
-						if keypickerlistening then
-							keypickerlistening = false
-							S.endkeycapture(pickerrow, nil)
-							pickerkey.Text = "Press"
-							return
-						end
-
-						keypickerlistening = true
-						pickerkey.Text = "..."
-
-						if
-							not S.beginkeycapture(
-								pickerrow,
-								function()
-									keypickerlistening = false
-									pickerkey.Text = "Press"
-								end,
-								function(key, option2)
-									keypickerlistening = false
-									option2 = keyformatter and keyformatter(key)
-										or S.togglekeyname(key)
-
-									option2 = tostring(option2 or "")
-									if option2 == "" then
-										pickerkey.Text = "Press"
-										return
-									end
-
-									if not table.find(options, option2) then
-										table.insert(options, option2)
-									end
-
-									selected[option2] = true
-									if optionmaker then optionmaker(option2) end
-									pickerkey.Text = "Press"
-									refresh(true)
-								end,
-								nil,
-								{
-									AllowBlacklisted = true,
-									AllowEscape = true,
-									KeepDelete = true,
-								}
-							)
-						then
-							keypickerlistening = false
-							pickerkey.Text = "Press"
-						end
-					end)
-
-					local separator = S.new("Frame", {
-						Parent = scroll,
-						Size = UDim2.new(1, 0, 0, 8),
-						BackgroundTransparency = 1,
-						BorderSizePixel = 0,
-						ZIndex = 514,
-					})
-					local separatorline = S.new("Frame", {
-						Parent = separator,
-						AnchorPoint = Vector2.new(0.5, 0.5),
-						Position = UDim2.fromScale(0.5, 0.5),
-						Size = UDim2.new(1, -14, 0, 1),
-						BackgroundColor3 = S.theme.border,
-						BackgroundTransparency = 0.38,
-						BorderSizePixel = 0,
-						ZIndex = 515,
-					}, { BackgroundColor3 = "border" })
-					S.corner(separatorline, 999)
-				end
-
-				optionmaker = function(option, iteration6)
-					if optionchecks[option] then return end
-					iteration6 = {}
-					local divider = optiondividers[option]
-					if divider ~= nil then
-						local row = S.new("Frame", { Parent = scroll, Size = UDim2.new(1, 0, 0, divider == true and 14 or 22), BackgroundTransparency = 1, ZIndex = 514 })
-						if divider == true then
-							S.new("Frame", { Parent = row, Position = UDim2.new(0, 4, 0.5, 0), Size = UDim2.new(1, -8, 0, 1), BackgroundColor3 = S.theme.border, BackgroundTransparency = 0.38, BorderSizePixel = 0, ZIndex = 515 }, { BackgroundColor3 = "border" })
-						else
-							local label = S.label(row, tostring(divider), UDim2.new(1, -8, 1, 0), S.medium, S.theme.text3)
-							label.Position = UDim2.fromOffset(S.dropdownlayout.Inset - S.dropdownlayout.ListInset, 0)
-							label.TextSize = 14
-							label.ZIndex = 515
-						end
-					end
-					iteration6.row = S.dropdownrow(scroll, S.dropdownlayout.RowHeight, 514, S.theme.hover, "hover")
-					if optionicons[option] then iteration6.icon = S.image(iteration6.row, optionicons[option], S.dropdownlayout.IconSize, S.theme.text2, 515) end
-					if optioncolors[option] then
-						iteration6.swatch = S.rawnew("Frame", { Parent = iteration6.row, Size = UDim2.fromOffset(S.dropdownlayout.ColorSize, S.dropdownlayout.ColorSize), BackgroundColor3 = optioncolors[option], BorderSizePixel = 0, ZIndex = 515 })
-						S.corner(iteration6.swatch, 3)
-					end
-					iteration6.left = S.layoutdropdowndecorations(iteration6.icon, iteration6.swatch, S.dropdownlayout.Inset - S.dropdownlayout.ListInset)
-
-					iteration6.textobject = S.label(
-						iteration6.row,
-						option,
-						UDim2.new(1, -iteration6.left - 29, 1, 0),
-						S.font,
-						S.theme.text2
-					)
-
-					iteration6.textobject.Position = UDim2.fromOffset(iteration6.left, 0)
-
-					iteration6.textobject.TextSize = 16
-					iteration6.textobject.Visible = true
-					S.tween(iteration6.textobject, { TextTransparency = 0 }, TweenInfo.new(0))
-					iteration6.textobject.ZIndex = 515
-
-					iteration6.check =
-						S.image(iteration6.row, S.icons.check, 13, S.theme.text2, 516)
-
-					iteration6.check.AnchorPoint = Vector2.new(1, 0.5)
-
-					iteration6.check.Position = UDim2.new(1, -(S.dropdownlayout.RightInset - S.dropdownlayout.ListInset), 0.5, 0)
-
-					S.tween(iteration6.check, { ImageTransparency = selected[option] and 0 or 1 }, TweenInfo.new(0))
-					optionchecks[option] = iteration6
-
-					iteration6.row.MouseEnter:Connect(
-						function()
-							S.tween(
-								iteration6.textobject,
-								{ TextColor3 = S.theme.text },
-								S.hoverti,
-								nil,
-								{ TextColor3 = "text" }
-							)
-						end
-					)
-
-					iteration6.row.MouseLeave:Connect(
-						function()
-							S.tween(iteration6.textobject, {
-								TextColor3 = selected[option] and S.theme.text or S.theme.text2,
-							}, S.hoverti)
-						end
-					)
-
-					iteration6.row.Activated:Connect(function()
-						if popup.closing then return end
-						if selected[option] then
-							selected[option] = nil
-						else
-							selected[option] = true
-						end
-
-						S.tween(
-							iteration6.textobject,
-							{ TextColor3 = selected[option] and S.theme.text or S.theme.text2 },
-							S.fastti
-						)
-
-						S.tween(iteration6.check, {
-							ImageTransparency = selected[option] and 0 or 1,
-						}, S.fastti)
-
-						refresh(true)
-					end)
-				end
-				for _, option in ipairs(options) do
-					optionmaker(option)
-				end
-				S.revealdropdown(popup)
-			end
-		)
-
-		refresh(false)
-
-		register(holder, name)
-
-		return {
-			Get = function() return getselected() end,
-			Set = function(_, values, fire)
-				table.clear(selected)
-				for _, option in ipairs(values or {}) do
-					if table.find(options, option) then selected[option] = true end
-				end
-				refresh(fire ~= false)
-			end,
-			SetOptions = function(_, values)
-				if S.activepopup and S.activepopup.anchor == button8 then S.closepopup(S.activepopup) end
-				options, optiondividers, optioncolors, optionicons = S.normalizedropdownoptions(values, config)
-				for option in pairs(selected) do
-					if not table.find(options, option) then selected[option] = nil end
-				end
-				refresh(false)
-			end,
-			Object = holder,
-			TextObject = title,
-		}
+		return controller
 	end
 
 	-- input
@@ -13050,6 +12008,11 @@ function S.createsection(
 
 	-- key picker
 
+function S.keypickerstroke(object)
+	if not object or not object:IsA("GuiObject") then return nil end
+	return S.stroke(object, 0.72, S.theme.border, 0.6)
+end
+
 	function section:AddKeyPicker(
 		name,
 		defaultkey,
@@ -13112,7 +12075,7 @@ function S.createsection(
 		}, { BackgroundColor3 = "input" })
 
 		S.corner(button9, 6)
-		keystroke = S.stroke(button9, 0.7, S.theme.border, 0.6)
+		keystroke = S.keypickerstroke(button9)
 
 		keytext = S.label(button9, "", UDim2.fromScale(1, 1), S.medium, S.theme.text2)
 
@@ -13689,7 +12652,7 @@ function S.createsection(
 		}, { BackgroundColor3 = "scroll" })
 
 		S.corner(scrollbarthumb, 999)
-		local scrollactivity = S.bindscrollactivity(tabviewport, scrollbarthumb, "BackgroundTransparency", 0.32, tabcontent)
+		local scrollactivity = S.bindscrollactivity(tabviewport, scrollbarthumb, "BackgroundTransparency", 0.32, scrollbarthumb)
 
 		containers = {}
 		buttons = {}
@@ -14030,7 +12993,7 @@ function S.createsection(
 					S.tween(
 						iteration8.textobject,
 						{ TextColor3 = selected == tabname and S.theme.text or S.theme.text3 },
-						S.hoverti, nil, { TextColor3 = selected == tabname and "text" or "text3" }
+						S.hoverti
 					)
 				end
 			)
@@ -14158,6 +13121,59 @@ S.settingsready = false
 S.loadingsettings = false
 S.pendingcontrolvalues = {}
 S.configcontrols = {}
+
+S.autosave = false
+S.autoload = false
+S.autoloadpreset = ""
+S.autosaveserial = 0
+S.autosavepending = false
+
+function S.writeuisettings()
+	S.ensurestorage()
+	local source = S.savedsettingsloaded and S.savedsettings or S.readuisettingsfile()
+	local data = type(source) == "table" and table.clone(source) or {}
+	data.selectedPreset = S.selectedpreset or ""
+	data.autoSave = S.autosave == true
+	data.autoLoad = S.autoload == true
+	data.autoLoadPreset = S.autoloadpreset or ""
+	local ok = S.writejsonfile(S.settingspath, data)
+	if ok then S.savedsettings = data; S.savedsettingsloaded = true end
+	return ok
+end
+
+function S.markautosave()
+	if not S.autosave or not S.selectedpreset or S.selectedpreset == "" or S.loadingsettings then return false end
+	S.autosaveserial += 1
+	if S.autosavepending then return true end
+	S.autosavepending = true
+	local serial = S.autosaveserial
+	task.delay(0.2, function()
+		if serial ~= S.autosaveserial then
+			S.autosavepending = false
+			S.markautosave()
+			return
+		end
+		S.autosavepending = false
+		if not S.alive or not S.autosave or not S.selectedpreset or S.loadingsettings then return end
+		S.savepreset(S.selectedpreset, true)
+	end)
+	return true
+end
+
+function S.setautosave(value, persist)
+	S.autosave = value == true
+	if persist ~= false and not S.loadingsettings then S.writeuisettings() end
+	if S.autosave then S.markautosave() end
+end
+
+function S.setautoload(value, persist)
+	if value == true then
+		local selected = S.presetselector and S.presetselector:Get()
+		if selected and selected ~= "None" and selected ~= "" then S.autoloadpreset = S.sanitizefilename(selected) end
+	end
+	S.autoload = value == true and S.autoloadpreset ~= ""
+	if persist ~= false and not S.loadingsettings then S.writeuisettings() end
+end
 
 function S.configurestoragefolders(options)
 	options = type(options) == "table" and options or {}
@@ -14307,6 +13323,10 @@ function S.decodepersistentvalue(value)
 	return result
 end
 
+function S.aftercontrolchange()
+	S.markautosave()
+end
+
 function S.registerpersistentcontrol(section, kind, name, control, config, inputcallback)
 	if not control then return control end
 	local id = type(config) == "table" and (config.Flag or config.SaveKey or config.Id or config.ID)
@@ -14364,10 +13384,24 @@ function S.registerpersistentcontrol(section, kind, name, control, config, input
 
 	S.configcontrols[id] = entry
 	if anchor and anchor.Destroying then
-		anchor.Destroying:Connect(function()
+		S.connect(anchor.Destroying, function()
 			if S.configcontrols[id] == entry then S.configcontrols[id] = nil end
-		end)
+		end, anchor)
 	end
+
+	if kind == "Input" and typeof(control) == "Instance" and control:IsA("TextBox") then
+		S.connect(control:GetPropertyChangedSignal("Text"), function()
+			if not S.loadingsettings then S.aftercontrolchange() end
+		end, control)
+	elseif type(control) == "table" and type(control.Set) == "function" then
+		local setter = control.Set
+		control.Set = function(self, value, ...)
+			local result = setter(self, value, ...)
+			if not S.loadingsettings then S.aftercontrolchange() end
+			return result
+		end
+	end
+
 	local pending = S.pendingcontrolvalues[id]
 	if pending ~= nil then
 		local previous = S.loadingsettings
@@ -14588,7 +13622,7 @@ function S.readpreset(name)
 	return S.readjsonfile(S.presetfolder .. "/" .. name .. ".json")
 end
 
-function S.savepreset(name)
+function S.savepreset(name, silent)
 	name = S.sanitizefilename(name)
 	if name == "" then return false end
 	S.ensurestorage()
@@ -14597,8 +13631,10 @@ function S.savepreset(name)
 	local ok = S.writejsonfile(S.presetfolder .. "/" .. name .. ".json", payload)
 	if ok then
 		S.selectedpreset = name
+		if S.autoload then S.autoloadpreset = name end
 		if S.presetnameinput then S.presetnameinput.Text = name end
 		if S.presetselector then S.presetselector:SetOptions(S.listpresetnames(), name) end
+		S.writeuisettings()
 	end
 	return ok
 end
@@ -14671,11 +13707,17 @@ function S.applysaveduisettings(data, silent)
 end
 
 function S.loadpreset(name, silent)
-	local payload = S.readpreset(name)
+	local sanitized = S.sanitizefilename(name)
+	local payload = S.readpreset(sanitized)
 	if not payload then return false end
-	S.selectedpreset = S.sanitizefilename(name)
+	S.selectedpreset = sanitized
+	if S.autoload then S.autoloadpreset = sanitized end
 	local loaded = S.applysaveduisettings(payload, silent)
-	if loaded and S.presetnameinput then S.presetnameinput.Text = S.selectedpreset end
+	if loaded then
+		if S.presetnameinput then S.presetnameinput.Text = S.selectedpreset end
+		if S.presetselector then S.presetselector:SetOptions(S.listpresetnames(), S.selectedpreset) end
+		S.writeuisettings()
+	end
 	return loaded
 end
 
@@ -14688,7 +13730,9 @@ function S.deletepreset(name)
 	end)
 	if ok then
 		if S.selectedpreset == name then S.selectedpreset = "" end
+		if S.autoloadpreset == name then S.autoloadpreset = ""; S.autoload = false end
 		if S.presetselector then S.presetselector:SetOptions(S.listpresetnames(), S.selectedpreset) end
+		S.writeuisettings()
 	end
 	return ok
 end
@@ -14706,7 +13750,7 @@ S.themeoptions = { "Default", "Violet", "Rose", "Mint", "Snow", "Pearl", "Ivory"
 S.selectedtheme = "Default"
 S.themecolors = {}
 for name, preset in pairs(S.themepresets) do S.themecolors[name] = preset.accent end
-S.themecolors.Default = Color3.fromRGB(48, 48, 52)
+S.themecolors.Default = S.themepresets.Default.background
 
 function S.settheme(name, animate)
 	local preset = S.themepresets[name]
@@ -14839,6 +13883,8 @@ end
 function S.ensureSettings()
 	if S.settingsready then return S.settings end
 	if not S.settings then S.settings = S.createpage("settings", "Settings", nil) end
+	local previousconstructing = S.constructing
+	S.constructing = true
 	S.ensurewatermark()
 	S.ensurekeybindlist()
 	S.loadingsettings = true
@@ -14846,7 +13892,7 @@ function S.ensureSettings()
 	S.themessection = S.createsection(S.settings, "right", "Themes", S.icons.palette)
 	S.watermarksettingssection = S.createsection(S.settings, "right", "Watermark", S.icons.tag)
 	S.keybindssection = S.createsection(S.settings, "left", "Keybinds", S.icons.keyboard)
-	S.presetsection = S.createsection(S.settings, "left", "Presets", S.icons.save)
+	S.presetsection = S.createsection(S.settings, "right", "Presets", S.icons.save)
 
 	S.watermarktoggle = S.watermarksettingssection:AddToggle("Watermark", S.watermarkshown, function(value)
 		S.setwatermarkvisible(value, true)
@@ -14910,7 +13956,6 @@ function S.ensureSettings()
 		end,
 	})
 
-	S.settingssection:AddSeparator()
 	S.windowglowtoggle = S.settingssection:AddToggleColor("Window Glow", S.windowglowenabled, S.windowglowcolor, function(value)
 		S.windowglowenabled = value == true
 		S.applywindowglow()
@@ -14967,8 +14012,22 @@ function S.ensureSettings()
 		S.presetnameinput.Text = S.sanitizefilename(value)
 	end)
 	S.presetselector = S.presetsection:AddDropdown("Saved presets", { "None" }, S.selectedpreset or "None", function(name)
-		if name ~= "None" then S.selectedpreset = name; S.presetnameinput.Text = name end
+		if name ~= "None" then
+			S.selectedpreset = name
+			S.presetnameinput.Text = name
+			if S.autoload then S.autoloadpreset = name end
+			S.writeuisettings()
+		else
+			S.selectedpreset = ""
+			if S.autoload then S.autoloadpreset = ""; S.autoload = false end
+			S.writeuisettings()
+		end
 	end, nil, { searchable = true })
+	S.autosavetoggle = S.presetsection:AddToggle("Auto Save", S.autosave, function(value) S.setautosave(value) end)
+	S.autoloadtoggle = S.presetsection:AddToggle("Auto Load", S.autoload, function(value)
+		if value and S.autoloadpreset == "" and S.presetselector:Get() ~= "None" then S.autoloadpreset = S.presetselector:Get() end
+		S.setautoload(value)
+	end)
 	local presetrow = S.presetsection:AddRow(8, 32)
 	presetrow:AddButton("Load", function()
 		local ok = S.loadpreset(S.presetselector:Get(), false)
@@ -14989,9 +14048,10 @@ function S.ensureSettings()
 	S.restorepanels(S.savedpanels)
 	S.settingsready = true
 	S.loadingsettings = false
-	S.settings:reflowall(false)
-	S.syncsettingscontrols()
+	S.settings:reflowall(false, true)
+	S.syncsettingscontrols(false)
 	S.refreshpresetlist()
+	S.constructing = previousconstructing
 	return S.settings
 end
 
@@ -15001,6 +14061,8 @@ function S.refreshpresetlist()
 		if #names == 0 then names = { "None" } end
 		S.presetselector:SetOptions(names, S.selectedpreset ~= "" and S.selectedpreset or "None")
 	end
+	if S.autosavetoggle then S.autosavetoggle:Set(S.autosave, false) end
+	if S.autoloadtoggle then S.autoloadtoggle:Set(S.autoload, false) end
 end
 
 function S.initializeStorageState()
@@ -15008,6 +14070,9 @@ function S.initializeStorageState()
 	S.rawsavedsettings = data
 	S.pendingcontrolvalues = type(data.controls) == "table" and data.controls or {}
 	S.selectedpreset = S.sanitizefilename(data.selectedPreset or data.selectedConfig or "")
+	S.autosave = data.autoSave == true
+	S.autoload = data.autoLoad == true
+	S.autoloadpreset = S.sanitizefilename(data.autoLoadPreset or "")
 	S.animationsenabled = data.animations ~= false
 	S.searchenabled = data.search ~= false and data.searchCurrentPage ~= false
 	S.notificationsenabled = data.notifications ~= false
@@ -15123,12 +14188,12 @@ S.topsubentries = {}
 S.tabgroups = {}
 S.navorder = 0
 S.currenttabgroup = nil
-S.subholder = S.new("CanvasGroup", { GroupTransparency = 1, Parent = S.nav, Size = UDim2.new(1, 0, 0, 0), BackgroundTransparency = 1, BorderSizePixel = 0, ClipsDescendants = true, Visible = false, ZIndex = 13 })
+S.subholder = S.new("Frame", { Parent = S.nav, Size = UDim2.new(1, 0, 0, 0), BackgroundTransparency = 1, BorderSizePixel = 0, ClipsDescendants = true, Visible = false, ZIndex = 13 })
 S.sublist = S.new("Frame", { Parent = S.subholder, Position = UDim2.fromOffset(18, 3), Size = UDim2.new(1, -22, 1, -6), BackgroundTransparency = 1, BorderSizePixel = 0, ZIndex = 14 })
 S.sublistlayout = S.list(S.sublist, 3)
 S.topnavigation = S.new("CanvasGroup", { Parent = S.header, Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, BorderSizePixel = 0, Visible = false, ZIndex = 18 })
 S.topprimarybutton = S.new("TextButton", { Parent = S.topnavigation, AnchorPoint = Vector2.new(0, 0.5), Position = UDim2.fromOffset(14, 31), Size = UDim2.fromOffset(120, 38), BackgroundTransparency = 1, BorderSizePixel = 0, Text = "", Font = S.bold, TextSize = 20, TextColor3 = S.theme.text, TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd, AutoButtonColor = false, ZIndex = 19 })
-S.topsubholder = S.new("ScrollingFrame", { Parent = S.window, AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.new(0.5, 0, 0, 31), Size = UDim2.fromOffset(0, 48), CanvasSize = UDim2.fromOffset(0, 0), AutomaticCanvasSize = Enum.AutomaticSize.None, ScrollingDirection = Enum.ScrollingDirection.X, ScrollBarThickness = 0, BackgroundColor3 = S.theme.popup, BackgroundTransparency = 0.04, BorderSizePixel = 0, ClipsDescendants = true, ZIndex = 19 }, { BackgroundColor3 = "popup" })
+S.topsubholder = S.new("ScrollingFrame", { Parent = S.topnavigation, AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromOffset(200, 31), Size = UDim2.fromOffset(120, 40), CanvasSize = UDim2.fromOffset(0, 0), AutomaticCanvasSize = Enum.AutomaticSize.None, ScrollingDirection = Enum.ScrollingDirection.X, ScrollBarThickness = 0, BackgroundColor3 = S.theme.popup, BackgroundTransparency = 0.04, BorderSizePixel = 0, ClipsDescendants = true, ZIndex = 19 }, { BackgroundColor3 = "popup" })
 S.corner(S.topsubholder, 999)
 
 function S.layoutnavcontent(button, label, icon, sub)
@@ -15189,52 +14254,24 @@ end
 function S.rendernaventry(button, sub, hovered)
 	local entry = S.naventries[button]
 	if not entry then return end
-	entry.hovered = hovered == true
-	local active = sub and (entry.tab and S.currentpage == entry.tab.Page) or (not sub and S.currentnav == button)
+	local active = sub and entry.tab and S.currentpage == entry.tab.Page or S.currentnav == button
 	local top = button.Parent == S.topsubholder
 	local mark = S.navmarks[button]
 	if mark then
 		mark.bar.Visible = not top
 		S.tween(mark.bar, { BackgroundTransparency = active and not top and 0 or 1 }, S.tabti)
 	end
-	local background = top and (hovered and not active and 0.55 or 1) or (hovered and 0.82 or 1)
+	local background = top and (active and 0.04 or hovered and 0.55 or 1) or (hovered and 0.82 or 1)
 	local role = (active or hovered) and "text" or "text2"
-	S.tween(button, { BackgroundTransparency = background }, top and S.topnavti or S.hoverti)
-	S.tween(entry.text, { TextColor3 = S.theme[role] }, top and S.topnavti or S.hoverti, nil, { TextColor3 = role })
-	if entry.icon then
-		local iconrole = top and active and "highlight" or role
-		S.tween(entry.icon, { ImageColor3 = S.theme[iconrole] }, top and S.topnavti or S.hoverti, nil, { ImageColor3 = iconrole })
-	end
-	if entry.glow then S.tween(entry.glow, { Transparency = top and active and 0.86 or 1 }, S.topnavti, true) end
+	S.tween(button, { BackgroundTransparency = background }, top and S.tabti or S.hoverti)
+	S.tween(entry.text, { TextColor3 = S.theme[role] }, S.hoverti, nil, { TextColor3 = role })
+	if entry.icon then S.tween(entry.icon, { ImageColor3 = S.theme[role] }, S.hoverti, nil, { ImageColor3 = role }) end
 end
 
 function S.bindnavhover(button, sub)
-	S.connect(button.MouseEnter, function() S.rendernaventry(button, sub, true) end, button)
-	S.connect(button.MouseLeave, function() S.rendernaventry(button, sub, false) end, button)
-	S.connect(button:GetPropertyChangedSignal("Visible"), function() S.rendernaventry(button, sub, false) end, button)
-	S.connect(button:GetPropertyChangedSignal("Parent"), function() S.rendernaventry(button, sub, false) end, button)
+	button.MouseEnter:Connect(function() S.rendernaventry(button, sub, true) end)
+	button.MouseLeave:Connect(function() S.rendernaventry(button, sub, false) end)
 end
-
-S.connect(S.uis.InputChanged, function(input)
-	if input.UserInputType ~= Enum.UserInputType.MouseMovement then return end
-	local point = S.point(input)
-	for button, entry in pairs(S.naventries) do
-		if entry.hovered then
-			local ancestor = button
-			local inside = true
-			while ancestor and ancestor:IsA("GuiObject") do
-				if not ancestor.Visible then inside = false; break end
-				if ancestor == button or ancestor.ClipsDescendants then
-					local position = ancestor.AbsolutePosition
-					local size = ancestor.AbsoluteSize
-					if point.X < position.X or point.Y < position.Y or point.X > position.X + size.X or point.Y > position.Y + size.Y then inside = false; break end
-				end
-				ancestor = ancestor.Parent
-			end
-			if not inside then S.rendernaventry(button, entry.sub, false) end
-		end
-	end
-end, S.gui)
 
 function S.setnaventryicon(entry, asset)
 	if entry.icon then entry.icon:Destroy() end
@@ -15261,7 +14298,7 @@ function S.createlibrarytabgroup(name)
 	function data:SetCollapsed(value)
 		self.Collapsed = value == true
 		content.Visible = not self.Collapsed
-		arrow.Rotation = self.Collapsed and 90 or 0
+		arrow.Rotation = self.Collapsed and -90 or 0
 	end
 	header.Activated:Connect(function() data:SetCollapsed(not data.Collapsed) end)
 	S.tabgroups[#S.tabgroups + 1] = data
@@ -15281,224 +14318,122 @@ function S.refreshsidegroups(animate)
 end
 
 function S.createtopsub(name, asset, order)
-	local button = S.new("TextButton", { Parent = S.topsubholder, LayoutOrder = order, Size = UDim2.fromOffset(40, 40), BackgroundColor3 = S.theme.hover, BackgroundTransparency = 1, BorderSizePixel = 0, Text = "", AutoButtonColor = false, ZIndex = 20 }, { BackgroundColor3 = "hover" })
+	local button = S.new("TextButton", { Parent = S.topsubholder, LayoutOrder = order, Size = UDim2.fromOffset(32, 36), BackgroundColor3 = S.theme.hover, BackgroundTransparency = 1, BorderSizePixel = 0, Text = "", AutoButtonColor = false, ZIndex = 20 }, { BackgroundColor3 = "hover" })
 	S.corner(button, 999)
-	local icon = S.image(button, asset or S.icons["layout-grid"], 20, S.theme.text3, 21)
+	local icon = S.image(button, asset or S.icons["layout-grid"], 17, S.theme.text3, 21)
 	icon.AnchorPoint = Vector2.new(0, 0.5)
-	icon.Position = UDim2.new(0, 10, 0.5, 0)
-	local label = S.label(button, name, UDim2.new(1, -54, 1, 0), S.medium, S.theme.text)
-	label.Position = UDim2.fromOffset(40, 0)
+	icon.Position = UDim2.new(0, 8, 0.5, 0)
+	local label = S.label(button, name, UDim2.new(1, -35, 1, 0), S.medium, S.theme.text)
+	label.Position = UDim2.fromOffset(32, 0)
 	label.TextSize = 16
 	label.ZIndex = 21
 	label.TextTransparency = 1
 	label.ClipsDescendants = true
-	local glow = S.addshadow(icon, "NavigationIconGlow", 1, 6, 0, -1, S.theme.highlight, UDim2.fromOffset(0, 0), false)
-	if glow then S.bindtheme(glow, "Color", S.theme.highlight, "highlight") end
-	S.topsubentries[button] = { button = button, icon = icon, text = label, name = name, glow = glow }
-	for _, property in ipairs({ "Text", "TextSize", "Font" }) do
-		S.connect(label:GetPropertyChangedSignal(property), function()
-			if S.topnavigationenabled and not S.updatingtopnavigation then S.syncsubtabnavigation(true) end
-		end, button)
-	end
-	S.own(button, function()
-		local entry = S.topsubentries[button]
-		if S.topnavtargets and entry then S.topnavtargets[entry] = nil end
-		S.topsubentries[button] = nil
-		S.naventries[button] = nil
-	end)
+	S.topsubentries[button] = { button = button, icon = icon, text = label, name = name }
+	S.connect(button:GetPropertyChangedSignal("Size"), function()
+		if S.topnavigationenabled then S.updatetopnavigationlayout() end
+	end, button)
+	S.own(button, function() S.topsubentries[button] = nil; S.naventries[button] = nil end)
 	return button, icon, label
 end
 
--- One progress value owns the complete transition, so rapid selections restart from the current geometry.
-S.topnavprogress = S.new("NumberValue", { Parent = S.topsubholder, Value = 1 })
-S.topnavtargets = {}
-S.topnavpill = S.new("Frame", { Parent = S.topsubholder, Name = "SelectedTab", Position = UDim2.fromOffset(6, 4), Size = UDim2.fromOffset(0, 40), BackgroundColor3 = S.theme.hover, BackgroundTransparency = 0.04, BorderSizePixel = 0, ZIndex = 19 }, { BackgroundColor3 = "hover" })
-S.corner(S.topnavpill, 999)
-function S.rendertopnavigation()
-	local progress = S.topnavprogress.Value
-	for entry, target in pairs(S.topnavtargets) do
-		if entry.button.Parent == S.topsubholder and entry.button.Visible then
-			local width = target.width + (target.targetwidth - target.width) * progress
-			entry.button.Size = UDim2.fromOffset(width, 40)
-			entry.icon.Position = UDim2.new(0, target.iconx + (target.targeticonx - target.iconx) * progress, 0.5, 0)
-			entry.text.Position = UDim2.fromOffset(target.textx + (40 - target.textx) * progress, 0)
-			local alpha = target.alpha + (target.targetalpha - target.alpha) * progress
-			S.setfontalphabase(entry.text, "TextTransparency", alpha)
-			entry.text.TextTransparency = S.effectivefontalpha(alpha, entry.text, "TextTransparency")
-		end
-	end
-	S.updatetopnavigationlayout()
-	local selected
-	for entry in pairs(S.topnavtargets) do
-		if entry.tab and entry.tab.Page == S.currentpage and entry.button.Visible then selected = entry.button; break end
-	end
-	S.topnavpill.Visible = selected ~= nil
-	if selected then
-		local origin = S.topnavpillorigin or { x = selected.Position.X.Offset, width = selected.Size.X.Offset }
-		S.topnavpill.Position = UDim2.fromOffset(origin.x + (selected.Position.X.Offset - origin.x) * progress, 4)
-		S.topnavpill.Size = UDim2.fromOffset(origin.width + (selected.Size.X.Offset - origin.width) * progress, 40)
-	end
-end
-S.connect(S.topnavprogress:GetPropertyChangedSignal("Value"), S.rendertopnavigation, S.topsubholder)
-
+-- Animated widths are the input to one layout function. There is no competing UIListLayout.
 function S.updatetopnavigationlayout()
 	if not S.topnavigation.Visible then return end
 	local width = S.header.AbsoluteSize.X
-	local compact = width < 560
-	local searchwidth = S.searchenabled and (compact and 116 or 150) or 0
-	local left = compact and 12 or 14
-	local center = S.window.AbsoluteSize.X * 0.5
-	local headerleft = S.header.AbsolutePosition.X - S.window.AbsolutePosition.X
-	local primarywidth = math.clamp(S.measuretext(S.topprimarybutton.Text, S.titleprimary.TextSize, S.titleprimary.Font, Vector2.new(600, 38)).X + 14, 64, math.max(64, width * 0.32))
-	S.topprimarybutton.Position = UDim2.fromOffset(left, 31)
-	S.topprimarybutton.Size = UDim2.fromOffset(primarywidth, 38)
-	S.topprimarybutton.Font = S.titleprimary.Font
-	S.topprimarybutton.TextSize = S.titleprimary.TextSize
-	S.searchholder.Size = UDim2.fromOffset(searchwidth, 38)
-	S.searchholder.Position = UDim2.new(1, -14, 0.5, 0)
-	local leftbound = headerleft + left + primarywidth + 10
-	local rightbound = headerleft + width - 14 - (searchwidth > 0 and searchwidth + 10 or 0)
-	local available = math.max(0, 2 * math.min(center - leftbound, rightbound - center))
+	local padding = 20
+	local gap = 8
+	local primarywidth = math.clamp(S.measuretext(S.topprimarybutton.Text, S.titleprimary.TextSize, S.titleprimary.Font, Vector2.new(600, 38)).X + 14, 92, math.max(92, width * 0.3))
 	local root = S.currentpage and S.currentpage.tab
 	root = root and (root.ParentTab or root)
-	local edge = 6
-	local gap = 4
-	local total = edge
-	local selectedleft
-	local selectedright
-	local count = 0
+	local total = 0
+	local selectedcenter
 	for _, tab in ipairs(root and root.SubTabs or {}) do
 		local button = tab.Button
 		if button.Visible and not tab.Hidden then
-			if count > 0 then total += gap end
-			button.Position = UDim2.fromOffset(total, 4)
-			if tab.Page == S.currentpage then selectedleft = total; selectedright = total + button.Size.X.Offset end
-			total += button.Size.X.Offset
-			count += 1
+			button.Position = UDim2.fromOffset(total + 5, 2)
+			if tab.Page == S.currentpage then selectedcenter = total + button.Size.X.Offset * 0.5 end
+			total += button.Size.X.Offset + 6
 		end
 	end
-	total = count > 0 and total + edge or 0
-	local viewport = math.min(total, available)
-	S.topsubholder.Position = UDim2.new(0.5, 0, 0, 31)
-	if S.topsubholder.Size.X.Offset ~= viewport then S.topsubholder.Size = UDim2.fromOffset(viewport, 48) end
+	total = math.max(0, total - 6) + (total > 0 and 10 or 0)
+	local maxgroup = math.max(0, width - padding * 2)
+	local subwidth = total > 0 and math.clamp(total, 112, math.max(112, maxgroup - primarywidth - gap)) or 0
+	local groupwidth = primarywidth + (subwidth > 0 and gap + subwidth or 0)
+	local left = math.max(padding, (width - groupwidth) * 0.5)
+	S.topprimarybutton.Size = UDim2.fromOffset(primarywidth, 38)
+	S.topprimarybutton.Position = UDim2.fromOffset(left, 31)
+	S.topsubholder.Visible = subwidth > 0
+	S.topsubholder.Size = UDim2.fromOffset(subwidth, 40)
+	S.topsubholder.Position = UDim2.fromOffset(left + primarywidth + (subwidth > 0 and gap or 0) + subwidth * 0.5, 31)
 	S.topsubholder.CanvasSize = UDim2.fromOffset(total, 0)
-	local offset = S.topsubholder.CanvasPosition.X
-	if selectedleft and viewport > 0 then
-		if selectedright > offset + viewport - edge then offset = selectedright - viewport + edge end
-		if selectedleft < offset + edge then offset = selectedleft - edge end
-	end
-	offset = math.clamp(offset, 0, math.max(0, total - viewport))
-	if S.topsubholder.CanvasPosition.X ~= offset then S.topsubholder.CanvasPosition = Vector2.new(offset, 0) end
+	S.topsubholder.CanvasPosition = Vector2.new(math.clamp((selectedcenter or total * 0.5) - subwidth * 0.5, 0, math.max(0, total - subwidth)), 0)
+	S.searchholder.Size = UDim2.fromOffset(S.searchenabled and (width < 560 and 116 or 150) or 0, 38)
+	S.searchholder.Position = UDim2.new(1, -14, 0.5, 0)
 end
-
-function S.refreshsubnavigationlayout(animate)
-	if S.subnavigationtransition or not S.subholder.Visible or not S.subnavigationsidebar then return end
-	local height = S.sublistlayout.AbsoluteContentSize.Y
-	height = height > 0 and height + 6 or 0
-	S.tween(S.subholder, { Size = UDim2.new(1, 0, 0, height), GroupTransparency = height > 0 and 0 or 1 }, animate and S.sectionti or TweenInfo.new(0))
-end
-
-S.connect(S.sublistlayout:GetPropertyChangedSignal("AbsoluteContentSize"), function()
-	S.refreshsubnavigationlayout(S.animationsenabled)
-end, S.subholder)
 
 function S.syncsubtabnavigation(animate)
 	local root = S.currentpage and S.currentpage.tab
 	root = root and (root.ParentTab or root)
 	local sidebar = not S.topnavigationenabled
-	animate = animate ~= false and S.animationsenabled and not S.constructing
-	S.subnavigationtoken = (S.subnavigationtoken or 0) + 1
-	local token = S.subnavigationtoken
-	local function apply()
-		if token ~= S.subnavigationtoken or not S.alive then return end
-		S.updatingtopnavigation = true
-		S.tween(S.topnavprogress, { Value = S.topnavprogress.Value }, TweenInfo.new(0), true)
-		S.topnavpillorigin = { x = S.topnavpill.Position.X.Offset, width = S.topnavpill.Size.X.Offset }
-		table.clear(S.topnavtargets)
-		S.subnavigationtransition = nil
-		S.subnavigationroot = root
-		S.subnavigationsidebar = sidebar
-		local count = 0
-		if root then
-			S.subholder.Parent = root.Button.Parent
-			S.subholder.LayoutOrder = root.Button.LayoutOrder + 1
-		end
-		for button, entry in pairs(S.topsubentries) do
-			local tab = entry.tab
-			local visible = tab and tab.ParentTab == root and not tab.Hidden
-			local changedmode = entry.sidebarmode ~= sidebar
-			if changedmode or animate == false or not S.animationsenabled then
-				for _, object in ipairs({ button, entry.text, entry.icon }) do
-					for _, animation in pairs(S.activetweens[object] or {}) do animation:Cancel() end
-					S.activetweens[object] = nil
-				end
-			end
-			entry.sidebarmode = sidebar
-			button.Parent = sidebar and S.sublist or S.topsubholder
-			button.Visible = visible == true
-			entry.text.Visible = true
-			entry.text.AnchorPoint = Vector2.zero
-			entry.icon.ImageTransparency = 0
-			S.naventries[button] = entry
-			entry.sub = true
-			if visible then count += 1 end
-			if sidebar then
-				entry.icon.Size = UDim2.fromOffset(15, 15)
-				button.Size = UDim2.new(1, 0, 0, 30)
-				if changedmode then S.layoutnavcontent(button, entry.text, entry.icon, true) end
-				S.setsidebarentrycompact(entry, S.sidebarcompact, true, animate and not changedmode)
-				S.rendernaventry(button, true, false)
-			else
-				entry.icon.Size = UDim2.fromOffset(20, 20)
-				entry.icon.AnchorPoint = Vector2.new(0, 0.5)
-				if changedmode then
-					button.Size = UDim2.fromOffset(40, 40)
-					entry.icon.Position = UDim2.new(0, 10, 0.5, 0)
-					S.tween(entry.text, { TextTransparency = 1 }, TweenInfo.new(0))
-				end
-				entry.text.Size = UDim2.new(1, -54, 1, 0)
-				local active = tab and tab.Page == S.currentpage
-				local targetwidth = active and math.ceil(S.measuretext(S.plaintext(entry.text.Text), entry.text.TextSize, entry.text.Font, Vector2.new(2000, 40)).X) + 54 or 40
-				S.topnavtargets[entry] = {
-					width = button.Size.X.Offset, targetwidth = targetwidth,
-					iconx = entry.icon.Position.X.Offset, targeticonx = active and 12 or 10,
-					textx = entry.text.Position.X.Offset, alpha = S.__blush_font_alpha[entry.text] and S.__blush_font_alpha[entry.text].TextTransparency or entry.text.TextTransparency, targetalpha = active and 0 or 1,
-				}
-				S.rendernaventry(button, true, false)
+	local count = 0
+	if root then
+		S.subholder.Parent = root.Button.Parent
+		S.subholder.LayoutOrder = root.Button.LayoutOrder + 1
+	end
+	for button, entry in pairs(S.topsubentries) do
+		local tab = entry.tab
+		local visible = tab and tab.ParentTab == root and not tab.Hidden
+		local changedmode = entry.sidebarmode ~= sidebar
+		if changedmode or animate == false or not S.animationsenabled then
+			for _, object in ipairs({ button, entry.text, entry.icon }) do
+				for _, animation in pairs(S.activetweens[object] or {}) do animation:Cancel() end
+				S.activetweens[object] = nil
 			end
 		end
-
-		S.subholder.Visible = sidebar and count > 0
-		if S.subholder.Visible then
-			S.refreshsubnavigationlayout(animate)
+		entry.sidebarmode = sidebar
+		button.Parent = sidebar and S.sublist or S.topsubholder
+		button.Visible = visible == true
+		entry.text.Visible = true
+		entry.text.AnchorPoint = Vector2.zero
+		entry.icon.ImageTransparency = 0
+		S.naventries[button] = entry
+		entry.sub = true
+		if visible then count += 1 end
+		if sidebar then
+			if not S.navmarks[button] then S.createnavmark(button) end
+			button.Size = UDim2.new(1, 0, 0, 30)
+			if changedmode then S.layoutnavcontent(button, entry.text, entry.icon, true) end
+			S.setsidebarentrycompact(entry, S.sidebarcompact, true, animate and not changedmode)
+			S.rendernaventry(button, true, false)
 		else
-			S.tween(S.subholder, { Size = UDim2.new(1, 0, 0, 0), GroupTransparency = 1 }, animate and S.topnavti or TweenInfo.new(0))
-		end
-		S.updatingtopnavigation = false
-		if not sidebar then
-			S.topnavprogress.Value = 0
-			S.tween(S.topnavprogress, { Value = 1 }, animate and S.topnavti or TweenInfo.new(0), true)
-			S.rendertopnavigation()
-		else
-			S.updatetopnavigationlayout()
+			local mark = S.navmarks[button]
+			if mark then mark.bar:Destroy(); S.navmarks[button] = nil end
+			entry.icon.AnchorPoint = Vector2.new(0, 0.5)
+			if changedmode then
+				button.Size = UDim2.fromOffset(32, 36)
+				entry.icon.Position = UDim2.new(0, 7.5, 0.5, 0)
+				S.tween(entry.text, { TextTransparency = 1 }, TweenInfo.new(0))
+			end
+			entry.text.Position = UDim2.fromOffset(32, 0)
+			entry.text.Size = UDim2.new(1, -36, 1, 0)
+			local active = tab and tab.Page == S.currentpage
+			local target = active and math.ceil(S.measuretext(entry.text.Text, 16, S.medium, Vector2.new(2000, 40)).X) + 42 or 32
+			local info = animate and S.animationsenabled and S.tabti or TweenInfo.new(0)
+			S.tween(button, { Size = UDim2.fromOffset(target, 36) }, info)
+			S.tween(entry.text, { TextTransparency = active and 0 or 1 }, info)
+			S.tween(entry.icon, { Position = UDim2.new(0, active and 9 or 7.5, 0.5, 0) }, info)
+			S.rendernaventry(button, true, false)
 		end
 	end
-	if animate and sidebar and S.subholder.Visible and root ~= S.subnavigationroot then
-		S.subnavigationtransition = token
-		local animation = S.tween(S.subholder, { Size = UDim2.new(1, 0, 0, 0), GroupTransparency = 1 }, S.sectionti)
-		if animation then animation.Completed:Once(function(state)
-			if state == Enum.PlaybackState.Completed then apply() end
-		end) else apply() end
-	else
-		apply()
-	end
+	S.subholder.Visible = sidebar and count > 0
+	S.subholder.Size = UDim2.new(1, 0, 0, math.max(0, count * 33 + 3))
 end
 
 function S.updatetopnavigationstate(animate)
 	local root = S.currentpage and S.currentpage.tab
 	root = root and (root.ParentTab or root)
 	S.topnavigation.Visible = S.topnavigationenabled == true
-	S.topsubholder.Visible = S.topnavigationenabled == true
 	S.breadcrumb.Visible = not S.topnavigationenabled
 	S.topprimarybutton.Text = root and root.Name or (S.currentpage and S.currentpage.primary or "")
 	S.syncsubtabnavigation(animate ~= false)
@@ -15530,11 +14465,6 @@ end
 
 
 S.connect(S.header:GetPropertyChangedSignal("AbsoluteSize"), S.updatetopnavigationlayout, S.header)
-S.connect(S.header:GetPropertyChangedSignal("AbsolutePosition"), S.updatetopnavigationlayout, S.header)
-S.connect(S.shell:GetPropertyChangedSignal("AbsoluteSize"), S.updatetopnavigationlayout, S.shell)
-S.connect(S.window:GetPropertyChangedSignal("AbsoluteSize"), S.updatetopnavigationlayout, S.window)
-S.connect(S.topprimarybutton:GetPropertyChangedSignal("Text"), S.updatetopnavigationlayout, S.topprimarybutton)
-S.connect(S.topsubholder:GetPropertyChangedSignal("AbsoluteSize"), S.updatetopnavigationlayout, S.topsubholder)
 
 -- footer
 
@@ -16076,7 +15006,8 @@ function S.libraryenhancerow(
 		sourceconfig,
 		name11,
 		control,
-		copied
+		copied,
+		oldroot
 	)
 		sourceconfig = type(config) == "table" and config or nil
 
@@ -16101,12 +15032,28 @@ function S.libraryenhancerow(
 		end
 
 		if section and sourceconfig then
+			oldroot = control.Object
 			control = S.layouttoggleaddons(section, control, sourceconfig)
+			if oldroot ~= control.Object then
+				for index, item in ipairs(self.Items) do
+					if item == oldroot then self.Items[index] = control.Object end
+				end
+				control.Object:SetAttribute("BlushRowHeight", control.Object.Size.Y.Offset)
+				control.Object:GetPropertyChangedSignal("Size"):Connect(function()
+					if
+						control.Object:GetAttribute("BlushRowHeight")
+						~= control.Object.Size.Y.Offset
+					then
+						control.Object:SetAttribute("BlushRowHeight", control.Object.Size.Y.Offset)
+						self:Refresh()
+					end
+				end)
+				self:Refresh()
+			end
 		end
 		if section then
 			S.registerpersistentcontrol(section, "Toggle", name11, control, sourceconfig)
 		end
-
 
 		return control
 	end
@@ -16114,73 +15061,157 @@ function S.libraryenhancerow(
 	return row
 end
 
-function S.layouttoggleaddons(section, control, config)
-	local specifications = {}
-	if config.ColorPicker then
-		specifications[#specifications + 1] = type(config.ColorPicker) == "table" and table.clone(config.ColorPicker) or {}
-	end
-	for name, addon in pairs(config.Addons or {}) do
-		local spec = type(addon) == "table" and table.clone(addon) or {}
-		local kind = spec.Type or spec.Kind or (type(name) == "string" and name) or addon
-		if kind == "ColorPicker" then
-			specifications[#specifications + 1] = spec
-		elseif kind == "Keybindable" and not control.Binding.configbutton then
-			S.attachtoggleconfig(control.Object, control.Binding)
-			S.addtoggleconfigicon(control.Object, control.Binding, control.Object, 0)
+function S.layouttoggleaddons(
+	section,
+	control,
+	config,
+	specifications,
+	header,
+	outer,
+	stack,
+	layout,
+	inline,
+	childconfig,
+	child,
+	kind,
+	keyconfig,
+	refresh,
+	offset
+)
+	specifications = {}
+	for _, name in ipairs({ "ColorPicker", "KeyPicker", "Slider", "Dropdown" }) do
+		if config[name] ~= nil and config[name] ~= false then
+			childconfig = type(config[name]) == "table" and table.clone(config[name]) or {}
+			childconfig.Type = name
+			table.insert(specifications, childconfig)
 		end
 	end
-	local header = control.Object
+	if config.InlineKeyPicker and not config.KeyPicker then
+		table.insert(specifications, { Type = "KeyPicker" })
+	end
+	for name, addon in pairs(config.Addons or {}) do
+		childconfig = type(addon) == "table" and table.clone(addon) or {}
+		childconfig.Type = childconfig.Type
+			or childconfig.Kind
+			or (type(name) == "string" and name)
+			or addon
+		if childconfig.Type == "Keybindable" then
+			if not control.Binding.configbutton then
+				S.attachtoggleconfig(control.Object, control.Binding)
+				S.addtoggleconfigicon(control.Object, control.Binding, control.Object, 0)
+			end
+		else
+			table.insert(specifications, childconfig)
+		end
+	end
+	header = control.Object
 	control.ToggleObject = header
+	inline = {}
 	control.Addons = {}
-	local inline = {}
-	local function refresh()
-		local right = control.Binding.configbutton and 27 or 0
+	refresh = function(right, height)
+		right = 0
+		if control.Binding.configbutton then
+			control.Binding.configbutton.Position = UDim2.new(1, 0, 0.5, 0)
+			right = 27
+		end
 		for index = #inline, 1, -1 do
 			inline[index].Position = UDim2.new(1, -right, 0.5, 0)
 			right += inline[index].Size.X.Offset + 7
 		end
 		control.TextObject.Size = UDim2.new(1, -29 - right, 1, 0)
+		if outer then
+			height = 24
+				+ (layout.AbsoluteContentSize.Y > 0 and 5 + layout.AbsoluteContentSize.Y or 0)
+			outer.Size = UDim2.new(1, 0, 0, height)
+		end
 	end
+	table.sort(
+		specifications,
+		function(a, b)
+			return (a.Type == "ColorPicker" and 1 or a.Type == "KeyPicker" and 2 or 3)
+				< (b.Type == "ColorPicker" and 1 or b.Type == "KeyPicker" and 2 or 3)
+		end
+	)
 	for _, spec in ipairs(specifications) do
-		spec.Target = header
-		spec.Name = (config.Name or config.Text or "Toggle") .. " Color"
-		spec.Color = spec.Color or config.Color or Color3.new(1, 1, 1)
-		spec.Callback = spec.Callback or config.ColorCallback
-		local child = section:AddColorPicker(spec)
-		child.TextObject.Visible = false
-		child.Object.Size = UDim2.fromOffset(22, 24)
-		child.Object.AnchorPoint = Vector2.new(1, 0.5)
-		inline[#inline + 1] = child.Object
-		control.Color = child
-		control.PickerObject = child.swatch and child.swatch.Parent
-		control.Addons.ColorPicker = child
+		kind = spec.Type
+		if kind == "KeyPicker" then
+			child = S.attachinlinekeypicker(
+				header,
+				control.Binding,
+				control.TextObject,
+				spec.Key or spec.Default or config.Key or config.DefaultKey,
+				spec.Callback or config.KeyCallback
+			)
+			control.KeyObject = child
+			table.insert(inline, child)
+			child:GetPropertyChangedSignal("Size"):Connect(refresh)
+		elseif type(section["Add" .. tostring(kind)]) == "function" then
+			childconfig = table.clone(spec)
+			if kind == "ColorPicker" then
+				childconfig.Target = header
+				childconfig.Name = (config.Name or config.Text or "Toggle") .. " Color"
+				childconfig.Color = childconfig.Color or config.Color or Color3.new(1, 1, 1)
+				childconfig.Callback = childconfig.Callback or config.ColorCallback
+				child = section:AddColorPicker(childconfig)
+				child.TextObject.Visible = false
+				child.Object.Size = UDim2.fromOffset(22, 24)
+				child.Object.AnchorPoint = Vector2.new(1, 0.5)
+				table.insert(inline, child.Object)
+				control.Color = child
+				control.PickerObject = child.swatch and child.swatch.Parent
+			else
+				if not outer then
+					outer = S.new("Frame", {
+						Parent = header.Parent,
+						Size = header.Size,
+						LayoutOrder = header.LayoutOrder,
+						BackgroundTransparency = 1,
+					})
+					header.Parent = outer
+					header.Size = UDim2.new(1, 0, 0, 24)
+					stack = S.new("Frame", {
+						Parent = outer,
+						Position = UDim2.fromOffset(0, 29),
+						Size = UDim2.new(1, 0, 0, 0),
+						AutomaticSize = Enum.AutomaticSize.Y,
+						BackgroundTransparency = 1,
+					})
+					layout = S.list(stack, 5)
+					layout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(refresh)
+					for _, entry in ipairs(section.controls) do
+						if entry.row == header then entry.row = outer end
+					end
+					control.Object = outer
+				end
+				childconfig.Target = stack
+				childconfig.Name = childconfig.Name
+					or ((config.Name or config.Text or "Toggle") .. " " .. kind)
+				child = section["Add" .. kind](section, childconfig)
+			end
+			control.Addons[kind] = child
+		end
 	end
-	control.Binding.configroot = header
+	control.Binding.configroot = control.Object
 	control.Binding.layoutaddons = refresh
-	if config.Key ~= nil or config.DefaultKey ~= nil then
-		local key = config.Key or config.DefaultKey
-		S.setbindingkey(control.Binding, type(key) == "string" and S.keyfromname(key) or key, false)
-	end
 	refresh()
 	return control
 end
 
+
 function S.attachbuttonbinding(button, config, section)
-	local active = false
 	local binding = {
 		kind = "Button", name = tostring(config.Name or config.Text or "Button"),
 		category = section.page.primary, categoryicon = section.page.icon,
 		page = section.page, subpage = section.page.secondary, sectionname = section.name,
-		key = typeof(config.Key) == "string" and S.keyfromname(config.Key) or config.Key, mode = "Toggle", held = false,
-		get = function() return active end,
+		key = typeof(config.Key) == "string" and S.keyfromname(config.Key) or config.Key, mode = "Button", held = false,
+		get = function() return false end,
 	}
 	binding.set = function(value, fire)
-		active = value == true
-		if fire ~= false and config.Callback then config.Callback(active) end
+		if value == true and fire ~= false and config.Callback then config.Callback() end
 		S.requestkeybindrefresh(binding)
 	end
 	S.attachtoggleconfig(button, binding)
-	S.addtoggleconfigicon(button, binding, button, -24)
+	S.addtoggleconfigicon(button, binding, button, 3)
 	S.padding(button, 0, 30)
 end
 
@@ -16190,7 +15221,9 @@ function S.libraryenhancesection(
 	addbutton,
 	addrow,
 	addtoggle,
+	addtogglekey,
 	addtogglecolor,
+	addtogglecolorkey,
 	addslider,
 	addrangeslider,
 	adddropdown,
@@ -16225,7 +15258,9 @@ function S.libraryenhancesection(
 	addbutton = section.AddButton
 	addrow = section.AddRow
 	addtoggle = section.AddToggle
+	addtogglekey = section.AddToggleKey
 	addtogglecolor = section.AddToggleColor
+	addtogglecolorkey = section.AddToggleColorKey
 	addslider = section.AddSlider
 	addrangeslider = section.AddRangeSlider
 	adddropdown = section.AddDropdown
@@ -16265,18 +15300,37 @@ function S.libraryenhancesection(
 	end
 
 	section.AddButton = function(self, config, callback, target, control)
-		if type(config) == "table" then
-			control = addbutton(
-				self,
-				tostring(config.Name or config.Text or "Button"),
-				config.Callback,
-				config.Target
-			)
-			if config.Keybindable then S.attachbuttonbinding(control, config, self) end
-			return control
+		if type(config) ~= "table" then return addbutton(self, config, callback, target) end
+		local object = addbutton(self, tostring(config.Name or config.Text or "Button"), config.Callback, config.Target)
+		local binding
+		local result = { Object = object, TextObject = object }
+		function result:Keybind(spec)
+			spec = type(spec) == "table" and spec or { Key = spec }
+			if self.KeyObject and self.KeyObject.Parent then self.KeyObject:Destroy() end
+			if not binding then
+				binding = {
+					kind = "Button", name = tostring(config.Name or config.Text or "Button"),
+					category = self._section and self._section.page.primary or nil,
+					page = self._section and self._section.page or nil, subpage = self._section and self._section.page.secondary or nil,
+					sectionname = self._section and self._section.name or nil, key = nil, mode = "Button", held = false, suppressclick = false,
+					get = function() return false end,
+					set = function(active, fire) if active and fire ~= false and config.Callback then config.Callback() end end,
+				}
+				self.Binding = binding
+				S.registertogglebinding(binding)
+				S.attachtoggleconfig(object, binding)
+			end
+			local keybutton = S.attachinlinekeypicker(object, binding, object, spec.Default or spec.Key or Enum.KeyCode.F, spec.Callback or spec.KeyCallback)
+			self.KeyObject = keybutton
+			self.KeyPicker = { Object = keybutton, Get = function() return binding.key end, Set = function(_, key, fire) S.setbindingkey(binding, key, fire) end }
+			object.TextXAlignment = Enum.TextXAlignment.Left
+			object.Text = tostring(config.Name or config.Text or "Button")
+			S.padding(object, 12, 56)
+			return self.KeyPicker
 		end
-
-		return addbutton(self, config, callback, target)
+		result._section = self
+		if config.Keybindable or config.Keybind then result:Keybind(config.Keybind or {}) end
+		return result
 	end
 
 	section.AddRow = function(self, config, height, target, row)
@@ -16312,6 +15366,35 @@ function S.libraryenhancesection(
 			return S.layouttoggleaddons(self, control, config)
 		end
 		return addtoggle(self, config, default, callback, target, keybindable)
+	end
+
+	section.AddToggleKey = function(
+		self,
+		config,
+		default,
+		defaultkey,
+		callback,
+		keycallback,
+		target
+	)
+		if type(config) == "table" then
+			config = table.clone(config)
+			config.KeyPicker = config.KeyPicker or true
+			return S.layouttoggleaddons(
+				self,
+				addtoggle(
+					self,
+					tostring(config.Name or config.Text or "Toggle"),
+					configdefault(config),
+					config.Callback,
+					config.Target,
+					config.Keybindable == true
+				),
+				config
+			)
+		end
+
+		return addtogglekey(self, config, default, defaultkey, callback, keycallback, target)
 	end
 
 	section.AddToggleColor = function(
@@ -16352,6 +15435,50 @@ function S.libraryenhancesection(
 			colorcallback,
 			target,
 			keybindable
+		)
+	end
+
+	section.AddToggleColorKey = function(
+		self,
+		config,
+		default,
+		color,
+		defaultkey,
+		togglecallback,
+		colorcallback,
+		keycallback,
+		target
+	)
+		if type(config) == "table" then
+			config = table.clone(config)
+			config.ColorPicker = config.ColorPicker
+				or { Color = config.Color or Color3.new(1, 1, 1), Callback = config.ColorCallback }
+			config.KeyPicker = config.KeyPicker or true
+			config.Callback = config.Callback or config.ToggleCallback
+			return S.layouttoggleaddons(
+				self,
+				addtoggle(
+					self,
+					tostring(config.Name or config.Text or "Toggle"),
+					configdefault(config),
+					config.Callback,
+					config.Target,
+					config.Keybindable == true
+				),
+				config
+			)
+		end
+
+		return addtogglecolorkey(
+			self,
+			config,
+			default,
+			color,
+			defaultkey,
+			togglecallback,
+			colorcallback,
+			keycallback,
+			target
 		)
 	end
 
@@ -16430,7 +15557,9 @@ function S.libraryenhancesection(
 
 			if config.Searchable ~= nil then settings.searchable = config.Searchable == true end
 
+			if config.Toggle ~= nil then settings.toggle = config.Toggle end
 			if config.KeyPicker ~= nil then settings.keypicker = config.KeyPicker end
+			settings.Keybindable = config.Keybindable
 			settings.flag = config.Flag or config.SaveKey or config.Id or config.ID
 			if config.Dividers ~= nil then settings.dividers = config.Dividers end
 
@@ -16743,13 +15872,13 @@ function S.libraryenhancesection(
 			local inputcallback = kind == "Input" and (config and config.Callback or args[4]) or nil
 			local control = original(builders, table.unpack(args, 1, args.n))
 			S.registerpersistentcontrol(self, kind, name, control, config, inputcallback)
-			return control
+				return control
 		end
 	end
 
 	for _, definition in ipairs({
-		{ "AddToggle", "Toggle" },
-		{ "AddToggleColor", "ToggleColor" },
+		{ "AddToggle", "Toggle" }, { "AddToggleKey", "ToggleKey" },
+		{ "AddToggleColor", "ToggleColor" }, { "AddToggleColorKey", "ToggleColorKey" },
 		{ "AddSlider", "Slider" }, { "AddRangeSlider", "RangeSlider" },
 		{ "AddDropdown", "Dropdown" }, { "AddPlayerDropdown", "PlayerDropdown" },
 		{ "AddMultiPlayerDropdown", "MultiPlayerDropdown" }, { "AddMultiDropdown", "MultiDropdown" },
@@ -16757,6 +15886,17 @@ function S.libraryenhancesection(
 	}) do
 		wrappersistentmethod(definition[1], definition[2])
 	end
+
+	section.Toggle = section.AddToggle
+	section.Button = section.AddButton
+	section.Dropdown = section.AddDropdown
+	section.PlayerDropdown = section.AddPlayerDropdown
+	section.MultiPlayerDropdown = section.AddMultiPlayerDropdown
+	section.MultiDropdown = section.AddMultiDropdown
+	section.Input = section.AddInput
+	section.KeyPicker = section.AddKeyPicker
+	section.ColorPicker = section.AddColorPicker
+
 	function section:SetGradient(value, animated, speed)
 		if animated ~= nil and type(value) == "string" then
 			value = { Theme = value, Animated = animated == true, Speed = speed }
@@ -17142,6 +16282,15 @@ title = options.Title or options.Name or "blush."
 	S.updatebrandlayout()
 	S.librarysetlogo(options.Logo, options.LogoColor)
 	S.librarysetsettingstab(settingsconfig)
+	if S.autoload and S.autoloadpreset ~= "" then
+		if S.readpreset(S.autoloadpreset) then
+			S.loadpreset(S.autoloadpreset, true)
+		else
+			S.autoload = false
+			S.autoloadpreset = ""
+			S.writeuisettings()
+		end
+	end
 
 	S.windowdragenabled = options.Draggable ~= false
 	if options.SidebarWidth ~= nil then S.applysidebarlayout(options.SidebarWidth, false) end
@@ -17648,6 +16797,7 @@ function S.library:Notify(titletext, ...)
 	if type(titletext) == "table" then return S.notify(titletext) end
 	return S.notify(titletext, ...)
 end
+
 
 function S.library:SetGradient(element, value, animated, speed)
 	if animated ~= nil and type(value) == "string" then
