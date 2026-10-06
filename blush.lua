@@ -9468,7 +9468,7 @@ function S.createsection(
 	section,
 	sectiontransition,
 	updatelayout,
-	register,
+	register
 )
 	page.order += 1
 
@@ -11808,7 +11808,7 @@ end
 		if keyenabled then
 			local label = tostring(config.keypickerlabel or config.KeyPickerLabel or "Add key")
 			local formatter = config.keyformatter or config.KeyFormatter
-			controller:AddKey = function(self, key)
+			controller.AddKey = function(self, key)
 				local value = formatter and formatter(key) or S.togglekeyname(key)
 				value = tostring(value or "")
 				if value == "" or table.find(options, value) then return false end
