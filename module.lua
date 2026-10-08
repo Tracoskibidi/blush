@@ -26,6 +26,22 @@ m.char = m.lp.Character or m.lp.CharacterAdded:Wait()
 m.hum = m.char:WaitForChild("Humanoid")
 m.hrp = m.char:WaitForChild("HumanoidRootPart")
 
+m.lp.CharacterAdded:Connect(function(char)
+	if m.unblockragdoll then
+		m.unblockragdoll()
+	end
+
+	m.char = char
+	m.hum = char:WaitForChild("Humanoid")
+	m.hrp = char:WaitForChild("HumanoidRootPart")
+end)
+
+-- ftap
+m.sintoys = workspace:FindFirstChild(m.lp.Name .. "SpawnedInToys")
+m.ce = m.rs.CharacterEvents
+m.ge = m.rs.GrabEvents
+m.mt = m.rs.MenuToys
+
 -- connections
 
 m.connections = {}
@@ -34,7 +50,6 @@ function m.con(name, signal, callback)
 	m.disc(name)
 
 	local connection = signal:Connect(callback)
-
 	m.connections[name] = connection
 
 	return connection
@@ -49,30 +64,13 @@ function m.disc(name)
 	end
 end
 
-function m.disconnectall()
-	while next(m.connections) do
-		local name = next(m.connections)
-
-		m.disc(name)
+function m.discall()
+	for name in m.connections do
+		m.connections[name]:Disconnect()
 	end
+
+	table.clear(m.connections)
 end
-
-m.con("character", m.lp.CharacterAdded, function(char)
-	if m.unblockragdoll then
-		m.unblockragdoll()
-	end
-
-	m.char = char
-	m.hum = char:WaitForChild("Humanoid")
-	m.hrp = char:WaitForChild("HumanoidRootPart")
-end)
-
--- ftap
-
-m.sintoys = workspace:FindFirstChild(m.lp.Name .. "SpawnedInToys") or workspace:FindFirstChild("PlotItems")
-m.ce = m.rs.CharacterEvents
-m.ge = m.rs.GrabEvents
-m.mt = m.rs.MenuToys
 
 -- utilities
 
@@ -95,27 +93,28 @@ function m.fsearch(parent, name, timeout)
 
 	local thread = coroutine.running()
 	local done = false
-	local added = {}
-	local removed = {}
+	local added
+	local removed
 
 	local function finish(result)
-		if done then return end
+		if done then
+			return
+		end
 
 		done = true
-
-		m.disc(added)
-		m.disc(removed)
+		added:Disconnect()
+		removed:Disconnect()
 
 		task.spawn(thread, result)
 	end
 
-	m.con(added, parent.ChildAdded, function(child)
+	added = parent.ChildAdded:Connect(function(child)
 		if child.Name == name then
 			finish(child)
 		end
 	end)
 
-	m.con(removed, parent.Destroying, function()
+	removed = parent.Destroying:Connect(function()
 		finish(false)
 	end)
 
@@ -124,13 +123,16 @@ function m.fsearch(parent, name, timeout)
 	return coroutine.yield()
 end
 
+
+
 function rejoin()
 	m.lp:Destroy()
-
+	
 	game:GetService("TeleportService"):TeleportToPlaceInstance(
 		game.PlaceId,
 		m.lp
 	)
+	
 
 	task.wait()
 
@@ -138,8 +140,6 @@ function rejoin()
 		TeleportService:Teleport(game.PlaceId, lp)
 	end
 end
-
--- ragdoll blocker
 
 m.blockragdolldata = {
 	motors = {},
@@ -150,116 +150,81 @@ m.blockragdolldata = {
 }
 
 function m.unblockragdoll()
-	local data = m.blockragdolldata
+	local d = m.blockragdolldata
 
-	if data.timer then
-		task.cancel(data.timer)
-		data.timer = nil
+	if d.timer then task.cancel(d.timer) end
+
+	for motor, con in d.motors do
+		con:Disconnect()
+		d.motors[motor] = nil
 	end
 
-	for motor in data.motors do
-		m.disc(motor)
-		data.motors[motor] = nil
-	end
+	if d.auto then d.auto:Disconnect() end
+	if d.sit then d.sit:Disconnect() end
 
-	if data.auto then
-		m.disc("blockragdollauto")
-		data.auto = nil
-	end
-
-	if data.sit then
-		m.disc("blockragdollsit")
-		data.sit = nil
-	end
-
-	data.character = nil
+	d.timer = nil
+	d.auto = nil
+	d.sit = nil
+	d.character = nil
 end
 
 function m.blockragdoll(time)
-	local data = m.blockragdolldata
+	local d = m.blockragdolldata
 	local char = m.char
 	local hum = m.hum
 	local hrp = m.hrp
 	local torso = char and char:FindFirstChild("Torso")
 
-	if not torso or not hum or not hrp then
-		return
-	end
+	if not torso or not hum or not hrp then return end
 
-	if data.character ~= char then
+	if d.character ~= char then
 		m.unblockragdoll()
-		data.character = char
+		d.character = char
 	end
 
 	for _, motor in torso:GetChildren() do
-		if motor:IsA("Motor6D") then
+		if not motor:IsA("Motor6D") then continue end
+
+		motor.Enabled = true
+
+		if d.motors[motor] then continue end
+
+		d.motors[motor] = motor:GetPropertyChangedSignal("Enabled"):Connect(function()
 			motor.Enabled = true
-
-			if not data.motors[motor] then
-				data.motors[motor] = m.con(
-					motor,
-					motor:GetPropertyChangedSignal("Enabled"),
-					function()
-						if not motor.Enabled then
-							motor.Enabled = true
-						end
-					end
-				)
-			end
-		end
+		end)
 	end
 
-	if not data.auto then
-		data.auto = m.con(
-			"blockragdollauto",
-			hum:GetPropertyChangedSignal("AutoRotate"),
-			function()
-				if not hum.AutoRotate then
-					hum.AutoRotate = true
-				end
-			end
-		)
+	if not d.auto then
+		d.auto = hum:GetPropertyChangedSignal("AutoRotate"):Connect(function()
+			hum.AutoRotate = true
+		end)
 	end
 
-	if not data.sit then
-		data.sit = m.con(
-			"blockragdollsit",
-			hum:GetPropertyChangedSignal("Sit"),
-			function()
-				if not hum.Sit then return end
+	if not d.sit then
+		d.sit = hum:GetPropertyChangedSignal("Sit"):Connect(function()
+			if not hum.Sit then return end
 
-				hum.Sit = false
-				hum:SetStateEnabled(Enum.HumanoidStateType.Jumping, true)
+			hum.Sit = false
+			hum:SetStateEnabled(Enum.HumanoidStateType.Jumping, true)
+			m.cas:UnbindAction("JumpRemover")
 
-				m.cas:UnbindAction("JumpRemover")
-
-				local root = hrp:FindFirstChild("RootJoint")
-
-				if root then
-					root.Enabled = true
-				end
-			end
-		)
+			local root = hrp:FindFirstChild("RootJoint")
+			if root then root.Enabled = true end
+		end)
 	end
 
 	hum.AutoRotate = true
 	hum.Sit = false
 	hum:SetStateEnabled(Enum.HumanoidStateType.Jumping, true)
-
 	m.cas:UnbindAction("JumpRemover")
 
 	local root = hrp:FindFirstChild("RootJoint")
+	if root then root.Enabled = true end
 
-	if root then
-		root.Enabled = true
-	end
+	if d.timer then task.cancel(d.timer) end
 
-	if data.timer then
-		task.cancel(data.timer)
-	end
-
-	data.timer = task.delay(time or 1, function()
-		data.timer = nil
+	d.timer = task.delay(time or 1, function()
+		d.timer = nil
 		m.unblockragdoll()
 	end)
 end
@@ -348,8 +313,8 @@ m.fpsdata = {
 }
 
 function m.fps()
-	if not m.fpsdata.connection or not m.fpsdata.connection.Connected then
-		m.fpsdata.connection = m.con("fps", m.h, function(dt)
+	if not m.fpsdata.connection then
+		m.fpsdata.connection = m.h:Connect(function(dt)
 			m.fpsdata.value = math.round(1 / dt)
 		end)
 	end
