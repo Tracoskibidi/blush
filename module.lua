@@ -75,52 +75,19 @@ end
 -- utilities
 
 function m.fsearch(parent, name, timeout)
-	if not parent then
-		return false
-	end
+	if not parent then return false end
 
 	local object = parent:FindFirstChild(name)
+	if object then return object end
 
-	if object then
-		return object
-	end
+	local start = os.clock()
+	repeat
+		object = parent:FindFirstChild(name)
+		if object then return object end
+		task.wait()
+	until os.clock() - start >= (timeout or 30) or not parent.Parent
 
-	if not parent.Parent then
-		return false
-	end
-
-	timeout = timeout or 30
-
-	local thread = coroutine.running()
-	local done = false
-	local added
-	local removed
-
-	local function finish(result)
-		if done then
-			return
-		end
-
-		done = true
-		added:Disconnect()
-		removed:Disconnect()
-
-		task.spawn(thread, result)
-	end
-
-	added = parent.ChildAdded:Connect(function(child)
-		if child.Name == name then
-			finish(child)
-		end
-	end)
-
-	removed = parent.Destroying:Connect(function()
-		finish(false)
-	end)
-
-	task.delay(timeout, finish, false)
-
-	return coroutine.yield()
+	return false
 end
 
 
