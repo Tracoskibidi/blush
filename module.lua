@@ -95,11 +95,7 @@ m.earlyconnections = {}
 function m.blockearly()
 	if #m.earlyconnections > 0 then return end
 
-	local connections = getconnections(m.ge.EndGrabEarly.OnClientEvent)
-	print("EndGrabEarly connections:", #connections)
-
-	for i = 1, #connections do
-		local con = connections[i]
+	for _, con in getconnections(m.ge.EndGrabEarly.OnClientEvent) do
 		m.earlyconnections[#m.earlyconnections + 1] = con
 		con:Disable()
 	end
