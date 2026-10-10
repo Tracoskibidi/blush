@@ -90,7 +90,24 @@ function m.fsearch(parent, name, timeout)
 	return false
 end
 
+m.earlyconnections = {}
 
+function m.blockearly()
+	if #m.earlyconnections > 0 then return end
+
+	for _, con in getconnections(m.ge.EndGrabEarly.OnClientEvent) do
+		m.earlyconnections[#m.earlyconnections + 1] = con
+		con:Disable()
+	end
+end
+
+function m.unblockearly()
+	for i = 1, #m.earlyconnections do
+		m.earlyconnections[i]:Enable()
+	end
+
+	m.earlyconnections = {}
+end
 
 function rejoin()
 	m.lp:Destroy()
