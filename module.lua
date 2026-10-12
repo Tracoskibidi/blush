@@ -23,18 +23,9 @@ m.lp = m.pls.LocalPlayer
 m.cam = workspace.CurrentCamera
 
 m.char = m.lp.Character or m.lp.CharacterAdded:Wait()
-m.hum = m.char:WaitForChild("Humanoid")
-m.hrp = m.char:WaitForChild("HumanoidRootPart")
+m.hum = m.char:FindFirstChild("Humanoid")
+m.hrp = m.char:FindFirstChild("HumanoidRootPart")
 
-m.lp.CharacterAdded:Connect(function(char)
-	if m.unblockragdoll then
-		m.unblockragdoll()
-	end
-
-	m.char = char
-	m.hum = char:WaitForChild("Humanoid")
-	m.hrp = char:WaitForChild("HumanoidRootPart")
-end)
 
 -- ftap
 m.sintoys = workspace:FindFirstChild(m.lp.Name .. "SpawnedInToys")
