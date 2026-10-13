@@ -92,11 +92,11 @@ end
 m.earlyconnections = {}
 
 function m.blockearly()
-	if #m.earlyconnections > 0 then return end
-
 	for _, con in getconnections(m.ge.EndGrabEarly.OnClientEvent) do
-		m.earlyconnections[#m.earlyconnections + 1] = con
-		con:Disable()
+		if con.Enabled then
+			m.earlyconnections[#m.earlyconnections + 1] = con
+			con:Disable()
+		end
 	end
 end
 
@@ -318,26 +318,27 @@ function m.players()
 end
 
 function m.closer(radius)
-	local closest = nil
+	if not m.hrp then return end
+
+	local origin = m.hrp.Position
+	local closest
 	local distance = radius * radius
-	local players = m.pls:GetPlayers()
 
-	for index = 1, #players do
-		local player = players[index]
+	for _, player in m.pls:GetPlayers() do
+		if player == m.lp then continue end
 
-		if player ~= m.lp then
-			local character = player.Character
-			local root = character and character:FindFirstChild("HumanoidRootPart")
+		local character = player.Character
+		local root = character and character:FindFirstChild("HumanoidRootPart")
+		local hum = character and character:FindFirstChildOfClass("Humanoid")
 
-			if root and m.hrp then
-				local offset = root.Position - m.hrp.Position
-				local dist = offset:Dot(offset)
+		if not root or not hum or hum.Health <= 0 then continue end
 
-				if dist <= distance then
-					closest = player
-					distance = dist
-				end
-			end
+		local offset = root.Position - origin
+		local dist = offset:Dot(offset)
+
+		if dist <= distance then
+			closest = player
+			distance = dist
 		end
 	end
 
