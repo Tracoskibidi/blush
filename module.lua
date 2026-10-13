@@ -23,8 +23,8 @@ m.lp = m.pls.LocalPlayer
 m.cam = workspace.CurrentCamera
 
 m.char = m.lp.Character or m.lp.CharacterAdded:Wait()
-m.hum = m.char:FindFirstChild("Humanoid")
-m.hrp = m.char:FindFirstChild("HumanoidRootPart")
+m.hum = m.char:WaitForChild("Humanoid")
+m.hrp = m.char:WaitForChild("HumanoidRootPart")
 
 
 -- ftap
@@ -62,6 +62,14 @@ function m.discall()
 
 	table.clear(m.connections)
 end
+
+-- character
+
+m.con("character", m.lp.CharacterAdded, function(char)
+	m.char = char
+	m.hum = m.fsearch(char, "Humanoid", 5)
+	m.hrp = m.fsearch(char, "HumanoidRootPart", 5)
+end)
 
 -- utilities
 
@@ -101,18 +109,13 @@ function m.unblockearly()
 end
 
 function rejoin()
-	m.lp:Destroy()
-	
-	game:GetService("TeleportService"):TeleportToPlaceInstance(
-		game.PlaceId,
-		m.lp
-	)
-	
+	m.lp:Kick("\nRejoining...\n")
+	local teleport = game:GetService("TeleportService")
+	teleport:TeleportToPlaceInstance(game.PlaceId, game.JobId, m.lp)
 
-	task.wait()
-
-	while task.wait(0.1) do
-		TeleportService:Teleport(game.PlaceId, lp)
+	while true do
+		task.wait(0.1)
+		teleport:Teleport(game.PlaceId, m.lp)
 	end
 end
 
