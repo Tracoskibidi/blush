@@ -145,6 +145,7 @@ function m.unblockragdoll()
 	d.sit = nil
 	d.character = nil
 end
+local limbs = {"Left Arm", "Right Arm", "Left Leg", "Right Leg"}
 
 function m.blockragdoll(time)
 	local d = m.blockragdolldata
@@ -165,11 +166,29 @@ function m.blockragdoll(time)
 
 		motor.Enabled = true
 
-		if d.motors[motor] then continue end
+		if motor.Name == "Neck" or d.motors[motor] then continue end
 
 		d.motors[motor] = motor:GetPropertyChangedSignal("Enabled"):Connect(function()
 			motor.Enabled = true
 		end)
+	end
+
+	for _, name in limbs do
+		local limb = char:FindFirstChild(name)
+
+		if not limb then continue end
+
+		for _, constraint in limb:GetChildren() do
+			if not constraint:IsA("BallSocketConstraint") then continue end
+
+			constraint.Enabled = false
+
+			if d.motors[constraint] then continue end
+
+			d.motors[constraint] = constraint:GetPropertyChangedSignal("Enabled"):Connect(function()
+				constraint.Enabled = false
+			end)
+		end
 	end
 
 	if not d.auto then
