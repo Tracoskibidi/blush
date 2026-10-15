@@ -109,7 +109,6 @@ function m.unblockearly()
 end
 
 function rejoin()
-	m.lp:Kick("\nRejoining...\n")
 	local teleport = game:GetService("TeleportService")
 	teleport:TeleportToPlaceInstance(game.PlaceId, game.JobId, m.lp)
 
