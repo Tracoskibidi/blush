@@ -108,14 +108,13 @@ function m.unblockearly()
 	m.earlyconnections = {}
 end
 
-function rejoin()
+function m.rejoin()
+	m.lp:Kick("\nRejoining...\n")
 	local teleport = game:GetService("TeleportService")
+	
 	teleport:TeleportToPlaceInstance(game.PlaceId, game.JobId, m.lp)
-
-	while true do
-		task.wait(0.1)
-		teleport:Teleport(game.PlaceId, m.lp)
-	end
+	task.wait(0.1)
+	teleport:Teleport(game.PlaceId, m.lp)
 end
 
 m.blockragdolldata = {
