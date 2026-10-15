@@ -113,8 +113,15 @@ function m.rejoin()
 	local teleport = game:GetService("TeleportService")
 	
 	teleport:TeleportToPlaceInstance(game.PlaceId, game.JobId, m.lp)
-	task.wait(0.1)
-	teleport:Teleport(game.PlaceId, m.lp)
+
+	m.lp:Kick("\nRejoining...\n")
+
+	task.wait()
+	while true do
+		m.lp:Kick("\nRejoining...\n")
+		teleport:Teleport(game.PlaceId, m.lp)
+		task.wait(0.1)
+	end
 end
 
 m.blockragdolldata = {
